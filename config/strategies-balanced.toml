@@ -1,0 +1,105 @@
+# Strategy configuration — BALANCED (moderate capital).
+# Use once you're above ~$1k equity and want more conservative per-signal sizing.
+#
+# Run with:
+#   hydra --config config/strategies-balanced.toml run --venue hyperliquid --symbols ETH,BTC
+#
+# Also recommended to relax .env for balanced mode:
+#   DEFAULT_RISK_PCT=0.5
+#   MAX_NOTIONAL_PER_MARKET_USD=2500
+#   MAX_CONSECUTIVE_LOSSES=4
+#   MAX_DAILY_LOSS_PCT=3.0
+
+[global]
+enabled_strategies = ["divergence", "momentum", "mean_reversion"]
+enabled_venues     = ["hyperliquid"]
+default_symbols    = ["ETH", "BTC", "HYPE", "SOL"]
+candle_interval    = "1m"
+lookback_candles   = 240
+regime_required    = true
+
+[divergence]
+enabled        = true
+rsi_period     = 14
+rsi_threshold  = 5.0
+min_edge_bps   = 8
+position_frac  = 0.5
+
+[momentum]
+enabled          = true
+fast_ema         = 12
+slow_ema         = 48
+atr_period       = 14
+breakout_lookback = 60
+min_atr_pct      = 0.15
+position_frac    = 0.7
+
+[mean_reversion]
+enabled        = true
+bb_period      = 20
+bb_std         = 2.2
+rsi_floor      = 28
+rsi_ceiling    = 72
+position_frac  = 0.4
+
+[regime]
+trend_ema_period   = 96
+chop_atr_threshold = 0.08
+panic_atr_threshold = 1.20
+vol_spike_mult     = 2.5
+
+[position_management]
+stop_loss_atr_mult   = 2.5
+take_profit_atr_mult = 4.5
+trailing_enabled     = true
+trailing_atr_mult    = 1.2
+time_stop_minutes    = 360
+partial_tp_enabled   = true
+partial_tp_fraction  = 0.5
+# v1.5.3 chandelier (see strategies.toml for full explanation).
+breakeven_trigger_r  = 0.8
+chandelier_trail_r   = 0.8
+# v1.6.1 noise-floor stop + stop-out cooldown
+min_stop_bps             = 25.0
+stopout_cooldown_minutes = 45
+
+[filters]
+reentry_cooldown_minutes = 30
+trend_filter_enabled     = true
+trend_filter_ema_period  = 240
+trend_filter_band_pct    = 0.4
+min_net_edge_bps         = 10.0
+min_notional_usd         = 30.0
+
+[per_symbol.BTC]
+position_frac_mult = 1.30
+
+[per_symbol.ETH]
+position_frac_mult = 1.00
+
+[per_symbol.HYPE]
+position_frac_mult = 0.70
+max_spread_bps     = 35
+
+[per_symbol.SOL]
+position_frac_mult = 0.90
+max_spread_bps     = 30
+
+# v1.5.0 adaptive learning — see strategies.toml for full doc.
+[learning]
+enabled                  = true
+memory_block_enabled     = true
+memory_min_matches       = 10
+memory_block_winrate_pct = 30
+size_mult_enabled        = true
+edge_override_enabled    = true
+# v1.6.0 strictness
+strictness_enabled       = true
+atr_aware_scaling        = true
+drought_detector         = true
+drought_block_threshold  = 5
+drought_window_hours     = 4
+drought_bypass_hours     = 2
+explore_enabled          = true
+explore_one_in_n         = 8
+explore_size_factor      = 0.5

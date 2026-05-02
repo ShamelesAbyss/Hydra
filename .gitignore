@@ -1,0 +1,9 @@
+/target
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/STOP
+/logs/*.log*
+/data/session_reports/*.json
+.env
+.env.local
