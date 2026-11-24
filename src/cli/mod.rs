@@ -77,6 +77,13 @@ pub enum Command {
     ConfigCheck,
     Recover,
     Health,
+    /// Retrieve read-only exchange fill/funding evidence. Never submits orders.
+    SyncLedger {
+        #[arg(long)]
+        since_ms: i64,
+        #[arg(long)]
+        end_ms: Option<i64>,
+    },
     /// Manually clear the consecutive-loss circuit breaker. Stamps a reset
     /// timestamp; subsequent loss-streak checks ignore losses before this.
     ResetCooldown,
@@ -180,6 +187,19 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             } else {
                 Err(anyhow::anyhow!("unhealthy"))
             }
+        }
+        Command::SyncLedger { since_ms, end_ms } => {
+            anyhow::ensure!(cfg.hl_account_address.is_some(), "sync-ledger requires the explicit trading-account address, not a derived signer address");
+            let adapter = crate::adapters::hyperliquid::HyperliquidAdapter::new(&cfg).await?;
+            let report = adapter
+                .sync_history(
+                    storage.clone(),
+                    since_ms,
+                    end_ms.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                )
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
         }
         Command::ResetCooldown => {
             storage.reset_consecutive_losses()?;

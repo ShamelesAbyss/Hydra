@@ -90,6 +90,12 @@ impl StateManager {
             cfg.live_trading,
             "ENABLE_LIVE_TRADING=false; no orders or local position changes"
         );
+        let account = crate::ownership::configured_account(cfg)?
+            .ok_or_else(|| anyhow::anyhow!("missing trading account"))?;
+        let _ownership = crate::ownership::AccountOwnership::acquire(
+            &crate::ownership::AccountOwnership::default_root()?,
+            &account,
+        )?;
         let venue = make_venue(VenueKind::Hyperliquid, cfg).await?;
         let mut execution =
             crate::execution::ExecutionEngine::new(self.storage.clone(), cfg.live_trading);

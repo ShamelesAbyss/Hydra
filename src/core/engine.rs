@@ -29,6 +29,7 @@ use crate::strategies::{make_strategies, regime::classify_regime, Strategy};
 use crate::tui::SharedDash;
 
 pub struct Engine {
+    _account_ownership: Option<crate::ownership::AccountOwnership>,
     cfg: AppConfig,
     storage: Storage,
     venues: Vec<Box<dyn VenueAdapter>>,
@@ -65,6 +66,17 @@ impl Engine {
         live_override: bool,
         dash: Option<SharedDash>,
     ) -> Result<Self> {
+        crate::execution::authorized_live(cfg.live_trading, live_override)?;
+        let ownership = if cfg.live_trading {
+            let account = crate::ownership::configured_account(&cfg)?
+                .context("live trading requires an account identity")?;
+            Some(crate::ownership::AccountOwnership::acquire(
+                &crate::ownership::AccountOwnership::default_root()?,
+                &account,
+            )?)
+        } else {
+            None
+        };
         SessionReporter::print_header(&cfg, &storage)?;
 
         let kinds: Vec<VenueKind> = match venue {
@@ -115,10 +127,40 @@ impl Engine {
         let strategies = make_strategies(&cfg.strategies)?;
         let risk = RiskEngine::new(cfg.risk.clone(), storage.clone(), symbols.len());
         let mut portfolio = PortfolioManager::new(storage.clone());
-        let execution = ExecutionEngine::new(
+        let mut execution = ExecutionEngine::new(
             storage.clone(),
             crate::execution::authorized_live(cfg.live_trading, live_override)?,
         );
+        if cfg.live_trading {
+            use rust_decimal::Decimal;
+            use std::str::FromStr;
+            let account =
+                crate::ownership::configured_account(&cfg)?.context("trading account missing")?;
+            let limits = crate::aegis::RiskLimits {
+                max_total_exposure_ratio: Decimal::from_str(
+                    &(cfg.risk.max_open_exposure_pct / 100.0).to_string(),
+                )?,
+                max_market_notional: Decimal::from_str(
+                    &cfg.risk.max_notional_per_market_usd.to_string(),
+                )?,
+                max_leverage: Decimal::ONE,
+                max_drawdown_ratio: Decimal::from_str(
+                    &(cfg.risk.max_drawdown_pct / 100.0).to_string(),
+                )?,
+                max_snapshot_age_ms: 30_000,
+            };
+            execution = execution.with_authority(
+                crate::aegis::Aegis::new(storage.clone(), &account, limits)?,
+                cfg.risk.max_slippage_bps,
+            )?;
+            execution = execution.with_ledger(crate::ledger::FinancialLedger::new(
+                storage.clone(),
+                crate::ledger::AccountScope::hyperliquid(
+                    crate::ledger::LedgerEnvironment::Mainnet,
+                    &account,
+                )?,
+            )?);
+        }
 
         let session_id = storage.begin_session(
             &cfg,
@@ -170,6 +212,7 @@ impl Engine {
         .context("failed to install SIGINT handler")?;
 
         Ok(Self {
+            _account_ownership: ownership,
             cfg,
             storage,
             venues,
@@ -216,6 +259,25 @@ impl Engine {
             }
             tick = tick.wrapping_add(1);
             self.heartbeat.beat("engine_tick");
+            // Refresh account risk inputs independently of market signal production.
+            if tick == 1 || tick % (10_000 / poll_ms).max(1) == 0 {
+                for venue in &self.venues {
+                    match venue.account_equity_usd().await {
+                        Ok(equity) => {
+                            if let Err(error) =
+                                self.portfolio.sync_equity(venue.kind().as_str(), equity)
+                            {
+                                self.portfolio.invalidate_equity();
+                                tracing::error!(%error, "equity persistence failed; new exposure blocked");
+                            }
+                        }
+                        Err(error) => {
+                            self.portfolio.invalidate_equity();
+                            tracing::warn!(%error, "equity unavailable; new exposure blocked");
+                        }
+                    }
+                }
+            }
 
             // === 1. Market snapshots ===
             let mut snapshots: Vec<MarketSnapshot> = Vec::new();

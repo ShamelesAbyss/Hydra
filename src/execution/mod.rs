@@ -18,11 +18,36 @@ pub fn authorized_live(configured: bool, requested: bool) -> Result<bool> {
 pub struct ExecutionEngine {
     storage: Storage,
     live: bool,
+    authority: Option<(crate::aegis::Aegis, f64)>,
+    ledger: Option<crate::ledger::FinancialLedger>,
 }
 
 impl ExecutionEngine {
     pub fn new(storage: Storage, live: bool) -> Self {
-        Self { storage, live }
+        Self {
+            storage,
+            live,
+            authority: None,
+            ledger: None,
+        }
+    }
+
+    pub fn with_authority(
+        mut self,
+        authority: crate::aegis::Aegis,
+        slippage_bps: f64,
+    ) -> Result<Self> {
+        ensure!(
+            slippage_bps.is_finite() && slippage_bps > 0.0 && slippage_bps <= 1000.0,
+            "invalid execution slippage"
+        );
+        self.authority = Some((authority, slippage_bps));
+        Ok(self)
+    }
+
+    pub fn with_ledger(mut self, ledger: crate::ledger::FinancialLedger) -> Self {
+        self.ledger = Some(ledger);
+        self
     }
 
     pub fn is_live(&self) -> bool {
@@ -67,8 +92,49 @@ impl ExecutionEngine {
             self.storage
                 .ensure_symbol_execution_resolved(&intent.venue, &intent.symbol)?;
         }
+        let mut bounded_intent = intent.clone();
+        if !intent.reduce_only {
+            if let Some((authority, slippage)) = &self.authority {
+                use rust_decimal::Decimal;
+                use std::str::FromStr;
+                let account = venue.risk_snapshot().await?;
+                let market = venue.snapshot(&intent.symbol, 2).await?;
+                ensure!(
+                    market.mid.is_finite() && market.mid > 0.0 && market.is_fresh(5),
+                    "invalid risk price reference"
+                );
+                let bound = intent.limit_price.unwrap_or(
+                    market.mid
+                        * if intent.side.is_buy() {
+                            1.0 + slippage / 10_000.0
+                        } else {
+                            1.0 - slippage / 10_000.0
+                        },
+                );
+                ensure!(bound.is_finite() && bound > 0.0, "invalid price bound");
+                bounded_intent.limit_price = Some(bound);
+                let notional = Decimal::from_str(&intent.size.to_string())?
+                    .checked_mul(Decimal::from_str(&bound.max(market.mid).to_string())?)
+                    .ok_or_else(|| anyhow::anyhow!("risk notional overflow"))?;
+                match authority.reserve_entry(
+                    &intent.id,
+                    &intent.symbol,
+                    notional,
+                    Decimal::ONE,
+                    &account,
+                    Utc::now().timestamp_millis(),
+                )? {
+                    crate::aegis::RiskDecision::Approved(_) => {}
+                    crate::aegis::RiskDecision::Blocked { reason, .. } => bail!("Aegis: {reason}"),
+                }
+            }
+        }
+        let intent = &bounded_intent;
         // Cancellation after this point leaves 'submitted', blocking new exposure.
         self.storage.reserve_intent(intent)?;
+        if let Some(ledger) = &self.ledger {
+            ledger.bind_intent(&intent.id)?;
+        }
         let res = match venue.submit_order(intent).await {
             Ok(res) => res,
             Err(e) => {

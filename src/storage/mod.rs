@@ -32,9 +32,10 @@ impl Storage {
         }
         let conn = Connection::open(&path)
             .with_context(|| format!("open sqlite at {}", path.as_ref().display()))?;
-        conn.pragma_update(None, "journal_mode", "WAL").ok();
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "FULL")?;
-        conn.pragma_update(None, "foreign_keys", "ON").ok();
+        conn.pragma_update(None, "foreign_keys", "ON")?;
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
             path: path.as_ref().to_path_buf(),
@@ -147,7 +148,16 @@ impl Storage {
 
     pub fn migrate(&self) -> Result<()> {
         let conn = self.inner.lock().unwrap();
-        schema::run_migrations(&conn)
+        let tx = conn.unchecked_transaction()?;
+        let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        anyhow::ensure!(
+            version <= 2,
+            "database schema is newer than this Hydra build"
+        );
+        schema::run_migrations(&tx)?;
+        tx.pragma_update(None, "user_version", 2)?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn begin_session(

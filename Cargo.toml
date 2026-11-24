@@ -1,6 +1,6 @@
 [package]
 name = "hydra"
-version = "1.7.0-alpha.1"
+version = "1.7.0-alpha.2"
 edition = "2021"
 authors = ["Emergent Labs"]
 description = "HYDRA — Project Leviathan: native Hyperliquid trading engine"
@@ -38,7 +38,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time", "local-time"] }
 tracing-appender = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
-rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { version = "0.43", default-features = false, features = ["bundled", "chrono", "serde_json"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 dotenvy = "0.15"
 rust_decimal = { version = "1", features = ["serde-with-float"] }

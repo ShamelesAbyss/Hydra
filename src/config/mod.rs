@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 pub mod defaults;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppConfig {
     pub live_trading: bool,
 
@@ -26,6 +26,22 @@ pub struct AppConfig {
 
     pub strategies_path: PathBuf,
     pub strategies: StrategyConfig,
+}
+
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppConfig")
+            .field("live_trading", &self.live_trading)
+            .field(
+                "hl_private_key",
+                &self.hl_private_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("hl_account_address", &self.hl_account_address)
+            .field("risk", &self.risk)
+            .field("db_path", &self.db_path)
+            .field("strategies_path", &self.strategies_path)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone)]

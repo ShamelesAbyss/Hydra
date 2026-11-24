@@ -39,7 +39,16 @@ impl VenueAdapter for Fake {
         Ok(())
     }
     async fn snapshot(&self, _: &str, _: usize) -> Result<MarketSnapshot> {
-        bail!("unused")
+        Ok(MarketSnapshot {
+            venue: "hyperliquid".into(),
+            symbol: "ETH".into(),
+            mid: 100.0,
+            bid: Some(99.0),
+            ask: Some(101.0),
+            spread_bps: Some(1.0),
+            last_update: Utc::now(),
+            candles: vec![],
+        })
     }
     async fn open_positions(&self) -> Result<Vec<VenuePosition>> {
         let size = self
@@ -96,6 +105,14 @@ impl VenueAdapter for Fake {
     }
     async fn account_equity_usd(&self) -> Result<f64> {
         Ok(1000.0)
+    }
+    async fn risk_snapshot(&self) -> Result<hydra::aegis::AccountSnapshot> {
+        Ok(hydra::aegis::AccountSnapshot {
+            revision: Utc::now().timestamp_millis(),
+            observed_at_ms: Utc::now().timestamp_millis(),
+            equity: rust_decimal_macros::dec!(1000),
+            exposure_by_market: Default::default(),
+        })
     }
 }
 
@@ -392,4 +409,34 @@ async fn database_write_failure_rolls_back_reduction_and_blocks_a_second_close()
         .await
         .is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn configured_independent_authority_reserves_exposure_before_network_write() {
+    use rust_decimal_macros::dec;
+    let db = db();
+    let venue = fake(&db, Reply::Reject, Some(0.0));
+    let authority = hydra::aegis::Aegis::new(
+        db.clone(),
+        "0x1111111111111111111111111111111111111111",
+        hydra::aegis::RiskLimits {
+            max_total_exposure_ratio: dec!(0.15),
+            max_market_notional: dec!(1000),
+            max_leverage: dec!(1),
+            max_drawdown_ratio: dec!(0.2),
+            max_snapshot_age_ms: 30_000,
+        },
+    )
+    .unwrap();
+    let mut execution = ExecutionEngine::new(db.clone(), true)
+        .with_authority(authority.clone(), 30.0)
+        .unwrap();
+    let mut first = intent(false);
+    first.size = 1.0;
+    assert!(!execution.submit(&first, &venue).await.unwrap().accepted);
+    assert_eq!(authority.status().unwrap().active_reservations, 1);
+    let mut second = intent(false);
+    second.size = 1.0;
+    assert!(execution.submit(&second, &venue).await.is_err());
+    assert_eq!(venue.calls.load(Ordering::SeqCst), 1);
 }

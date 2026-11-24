@@ -2,85 +2,67 @@
 
 ## Recovery identity
 
-- Current version: **1.7.0-alpha.1**.
-- Recovery tag: **v1.7.0-alpha.1** on `leviathan/execution-foundation`.
-- Current release commit: resolve with `git rev-parse v1.7.0-alpha.1^{commit}`;
-  the tag identifies the exact source without embedding a self-referential hash.
-- Original baseline: `5720ecde7565583e85dde3ebf48acafa71af35e0` (1.6.2).
-- Last verified stable GitHub release: **none**. This checkpoint is a prerelease.
-- Current phase: execution foundations, before authoritative account ledger and GUI.
-- Mainnet was not activated; no exchange orders were used in development/tests.
+- Version and current recovery tag: **v1.7.0-alpha.2** on `leviathan/execution-foundation`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.2^{commit}`.
+- Previous recovery: v1.7.0-alpha.1 (`141f67381eb95a2d1084ea44717cdff24fd043c6`).
+- Last verified stable release: none; alpha work is not certified for unattended trading.
+- Current phase: authoritative financial evidence and risk foundations, followed immediately by native cockpit/research implementation.
+- Development verification remains offline; no real exchange orders, credential probes or transfers.
 
-## Completed functionality
+## Implemented since alpha.1
 
-1. Authoritative config live gate, SDK-side defense, CLI cannot override false.
-2. Durable unique UUID intent journal before network submission, persistent unknown
-   outcomes, duplicate-send prevention and unresolved new-exposure gate.
-3. Typed SDK response parsing; no requested-quantity fill fallback.
-4. Validated instrument metadata, correct perp decimal cap and bounded IOC slippage.
-5. Unified close path for position manager, shutdown reductions/flatten and emergency.
-6. Exchange-confirmed residual quantities and atomic reduction evidence updates.
-7. Conservative startup mismatch handling; no invented zero-PnL closures.
-8. Critical position read failures propagate; confirmed-but-unaccounted net outcomes
-   cannot contaminate learning/compounding.
-9. Original strategy/learning/TUI functionality retained with existing tests.
-10. Offline failure/restart regression suite, audits, roadmap and CI packaging.
+- Account/environment scoped decimal fill and funding tables, atomic deduplication,
+  conflict rejection, enrichment of previously unknown facts, bounded provenance,
+  streaming cash-flow reporting and restart-safe intent/account bindings.
+- Pure bounded Hyperliquid fill/funding parsers and read-only `sync-ledger` retrieval.
+- Persistent Aegis equity peaks/drawdown breakers, explicit audited rearm API,
+  immutable risk policies and atomic exposure reservations across connections.
+- Live engine entries use Aegis against fresh standard-mode positions/open orders.
+  Reservations are not automatically expired or blindly released.
+- Same-user/host account ownership using OS locks across different database paths.
+- Agent-owner validation and explicit unsupported identity/margin-mode refusal.
+- Standard perp equity excludes spot balances; stale/error equity cannot size entries.
+- Independent log filter prevents SDK debug/trace signed-payload events; config
+  Debug output redacts key material.
+- Compatible dependency modernization: 39 to 19 vulnerability entries, 20 to 17 warnings.
+- Transactional core schema version 2; ALTER failures and critical pragmas propagate.
+- 162 offline tests pass, including cross-process locks, ledger replay, concurrency,
+  logging, unknown costs, account identity and risk reservation tests.
 
-## Known defects / limitations
+## Important remaining limits
 
-**This alpha is not ready for unattended live use.**
+This is still an engineering prerelease, not a complete Leviathan or stable-live build.
 
-- New reductions record gross evidence but have NULL net PnL. New exposure remains
-  blocked until fees/funding are reconciled. No automatic reconcile/clear utility
-  exists; never erase journal rows to force trading.
-- Historical fills/open orders/funding are not ingested. `recover` only compares
-  positions, and startup/account checks do not resolve orders or stream races.
-- Equity aggregation, stale risk equity, signer/account identity and unified
-  margin support need correction and authoritative tests.
-- Account-wide process locking is absent; use one engine per account. Different
-  databases/processes are not coordinated by this journal.
-- Windows-protected credential storage and complete security/history audit remain.
-- Dependency audit has unresolved findings; details are in TEST_RESULTS.md and
-  DEPENDENCY_AUDIT.md. CI audit should report failure until remediated.
-- Several legacy configuration fields do not imply implemented features. Partial
-  TP, independent drawdown authority and native exchange protective stops need work.
-- Entry context/original risk distance are not fully restart-persistent.
-- No native GUI, IPC daemon, backtester, optimizer, GPU engine or installer yet.
+1. Raw REST closedPnl fee convention is deliberately unverified. Entry fees, funding
+   history coverage and round-trip attribution must be proven before settling trades.
+   The alpha.1 NULL-net-PnL reduction restriction remains; no bypass/reset was added.
+2. Aegis reservations remain active until explicit authoritative reconciliation;
+   runtime automatic reservation release and policy migration are not complete.
+   Config changes to an existing persistent policy fail visibly.
+3. Effective exposure is bounded; instrument leverage setting, liquidation distance,
+   native protective orders and full margin modeling remain incomplete.
+4. Sequential REST snapshots are not atomic exchange snapshots. Full WebSocket
+   resubscription/cursor/race integration and order-status recovery remain necessary.
+5. Only explicit standard abstraction/master-user or approved-agent identity is
+   supported for entry sizing. Unified/portfolio/default modes and vault/subaccounts
+   fail closed. Do not switch account modes merely to bypass a readiness block.
+6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
+   users, machines, manual exchange activity or third-party bots.
+7. Nineteen dependency vulnerability entries remain, including signing/TLS SDK
+   blockers. Protected Windows credential storage is still pending.
+8. Native GUI, versioned read-only telemetry and deterministic Oracle research are
+   the next active implementation milestones; source under development is not
+   claimed as functionality in this recovery tag.
 
-## Architectural decisions
+## Architecture and next actions
 
-- Preserve Rust, Hyperliquid mainnet support, local-first SQLite, headless and Ratatui.
-- Keep live disabled by default; never silently substitute simulation.
-- Preserve exchange uncertainty rather than guess or repeat writes.
-- Reconciliation discrepancies do not create synthetic realized outcomes.
-- Quarantine gross reductions until verified net fees/funding are available.
-- Reject another entry on an owned instrument until explicit net-position arbitration.
-- Use additive schema changes and FULL SQLite synchronous writes.
-- No Passivbot source code/runtime is imported in this checkpoint.
-- Incomplete verified work is prerelease, never mislabeled stable.
+Keep Rust, headless, Ratatui and Hyperliquid mainnet integration. Never activate
+trading during development. Keep signing isolated from graphical/research clients.
+Read HYPERLIQUID_INTEGRATION.md, RISK_MANAGEMENT.md and DEPENDENCY_AUDIT.md.
 
-## Validation
-
-See TEST_RESULTS.md for exact completed commands and limitations. The baseline had
-95 passing tests; this checkpoint adds 20 focused offline regression tests (115 total).
-No profit/performance improvement, security certification or GUI functionality is claimed.
-
-## Exact next steps
-
-1. Read HYDRA_AUDIT.md, ARCHITECTURE.md and IMPLEMENTATION_PLAN.md.
-2. Reproduce `cargo test --locked --all-targets`, `cargo fmt --check`,
-   `cargo clippy --locked --all-targets`, and `cargo audit`.
-3. Resolve dependency alerts with reachability analysis and supported SDK/runtime
-   upgrades; do not blanket-ignore or falsely mark them fixed.
-4. Design the authoritative account ledger: cloid order queries, fill IDs, fees,
-   funding, account-mode-aware equity and cursor/snapshot race boundaries.
-5. Build fake/recorded-fixture accounting and crash-replay tests before live code.
-6. Make entry/exit local application transactional and exactly once, including
-   strategy context and original R; implement safe journal reconciliation.
-7. Add account-wide process ownership and credential storage; complete independent
-   risk readiness/limits. Only then certify a stable execution release.
-8. Add native eframe/WGPU GUI over authenticated local IPC and genuine telemetry.
-9. Follow the remaining milestone sequence; publish durable verified checkpoints.
-
-Do not start trading, transfer funds, use real credentials in tests, force-push,
-rewrite history, delete releases or overwrite stable artifacts.
+Continue immediately after publication: finish optional native eframe cockpit with
+read-only telemetry, GUI launch/visual checks and packaging; publish another verified
+prerelease. Then integrate deterministic historical research and independent signing
+fixtures before replacing the legacy signing stack. Preserve pending financial
+uncertainty until genuine reconciliation proves settlement. Maintain release
+artifacts/checksums and do not force-push, overwrite releases or fabricate results.

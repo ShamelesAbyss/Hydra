@@ -1,94 +1,114 @@
-# Dependency audit — execution foundation
+# Dependency audit and remediation
 
-`cargo audit` 0.23.0 was run against the committed dependency versions using the
-RustSec advisory database. It returned nonzero. This checkpoint has **not** passed
-dependency security verification and must remain prerelease.
+## Scope and result
 
-This inventory is a lockfile scan, not proof that every affected API executes in
-Hydra on every target. Target/feature reachability and exploitability have not yet
-been established. No advisory is suppressed or claimed fixed.
+The baseline `v1.7.0-alpha.1` checkout (`141f67381eb95a2d1084ea44717cdff24fd043c6`)
+had 39 vulnerable package/advisory entries and 20 warnings. Its Cargo.lock SHA-256
+was `33b4306137257feac2961acc51d59db82158404d277e3443bc1b6167a140c7b7`.
 
-Scan result: 39 vulnerable package/advisory entries and 20 warning entries. Multiple versions of a package may repeat an advisory.
+The authorized dependency modernization reduces this to **19 vulnerability entries
+and 17 warnings** (7 unmaintained, 10 unsound). `cargo audit --json` still exits 1.
+There are no advisory ignores, Cargo patch overrides, manually removed lockfile
+packages, or claims of a clean audit. This is a checkout change, not a deployed fix.
 
-| Advisory | Locked package/version | Reported issue | Patched range |
+The updated lockfile SHA-256 at this assessment is
+`dbf6181b9b56f518e96f793e57d2777387ee88bcf1989a70336f75d758f3bfd6`.
+Future feature/dependency changes require regenerating the inventory and digest.
+
+## Changes applied
+
+| Dependency | Before | After | Purpose |
 |---|---|---|---|
-| [RUSTSEC-2026-0204](https://rustsec.org/advisories/RUSTSEC-2026-0204.html) | crossbeam-epoch 0.9.18 | Invalid pointer dereference in `fmt::Pointer` impl for `Atomic` and `Shared` when the underlying pointer is invalid | >=0.9.20 |
-| [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html) | crypto-bigint 0.5.5 | Multiple timing variability issues in operations intended to be constant-time | >=0.7.6 |
-| [RUSTSEC-2026-0258](https://rustsec.org/advisories/RUSTSEC-2026-0258.html) | h2 0.3.27 | h2 unbounded empty DATA frames | >=0.4.16 |
-| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | libsqlite3-sys 0.30.1 | `libsqlite3-sys` via C SQLite CVE-2026-119375 | >=0.39.0 |
-| [RUSTSEC-2026-0474](https://rustsec.org/advisories/RUSTSEC-2026-0474.html) | openssl 0.10.78 | `X509Ref::ocsp_responders` can produce a `&str` that is not valid UTF-8 | >=0.10.79 |
-| [RUSTSEC-2026-0476](https://rustsec.org/advisories/RUSTSEC-2026-0476.html) | openssl 0.10.78 | Buffer overflow with AES key wrap with padding in `cipher_update` | >=0.10.79 |
-| [RUSTSEC-2026-0477](https://rustsec.org/advisories/RUSTSEC-2026-0477.html) | openssl 0.10.78 | Buffer overflow with AES key wrap with padding in `cipher_update_inplace` | >=0.10.80 |
-| [RUSTSEC-2026-0185](https://rustsec.org/advisories/RUSTSEC-2026-0185.html) | quinn-proto 0.11.14 | Remote memory exhaustion in quinn-proto from unbounded out-of-order stream reassembly | >=0.11.15 |
-| [RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338.html) | quinn-proto 0.11.14 | Remote peer can panic quinn-proto with zero-length STREAM frames during unordered reads | >=0.11.18 |
-| [RUSTSEC-2026-0339](https://rustsec.org/advisories/RUSTSEC-2026-0339.html) | quinn-proto 0.11.14 | Unbounded growth of pending connection ID retirements in quinn-proto | >=0.11.17 |
-| [RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340.html) | quinn-proto 0.11.14 | Peer minimum ACK delay can panic quinn-proto when ACK_FREQUENCY transmission is enabled | >=0.11.18 |
-| [RUSTSEC-2026-0342](https://rustsec.org/advisories/RUSTSEC-2026-0342.html) | quinn-proto 0.11.14 | Zero-length DATAGRAM frames bypass the receive buffer limit in quinn-proto | >=0.11.17 |
-| [RUSTSEC-2026-0523](https://rustsec.org/advisories/RUSTSEC-2026-0523.html) | quinn-proto 0.11.14 | MAX_STREAM_DATA frame can open streams beyond the stream limit | >=0.11.19 |
-| [RUSTSEC-2026-0524](https://rustsec.org/advisories/RUSTSEC-2026-0524.html) | quinn-proto 0.11.14 | Long Retry token can panic or exhaust memory in a QUIC client | >=0.11.19 |
-| [RUSTSEC-2026-0538](https://rustsec.org/advisories/RUSTSEC-2026-0538.html) | quinn-udp 0.5.14 | Receive loop can spin after a truncated datagram | >=0.5.16, <0.6.0, >=0.6.3 |
-| [RUSTSEC-2025-0009](https://rustsec.org/advisories/RUSTSEC-2025-0009.html) | ring 0.16.20 | Some AES functions may panic when overflow checking is enabled. | >=0.17.12 |
-| [RUSTSEC-2026-0235](https://rustsec.org/advisories/RUSTSEC-2026-0235.html) | rkyv 0.7.46 | Insufficient archive validation can cause out-of-bounds reads in archives containing Rc/Arc | >=0.8.17 |
-| [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html) | rustls 0.21.12 | `Debug` impls for client session values expose TLS secrets | >=0.23.46 |
-| [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) | rustls 0.21.12 | Unauthenticated ServerHello can downgrade later connections to classical key exchange | >=0.23.46 |
-| [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html) | rustls 0.23.39 | TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries | >=0.23.45 |
-| [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html) | rustls 0.23.39 | `Debug` impls for client session values expose TLS secrets | >=0.23.46 |
-| [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) | rustls 0.23.39 | Brotli certificate decompression can allocate up to 1 GiB before authentication | >=0.23.46 |
-| [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) | rustls 0.23.39 | Unauthenticated ServerHello can downgrade later connections to classical key exchange | >=0.23.46 |
-| [RUSTSEC-2026-0098](https://rustsec.org/advisories/RUSTSEC-2026-0098.html) | rustls-webpki 0.101.7 | Name constraints for URI names were incorrectly accepted | >=0.103.12, <0.104.0-alpha.1, >=0.104.0-alpha.6 |
-| [RUSTSEC-2026-0099](https://rustsec.org/advisories/RUSTSEC-2026-0099.html) | rustls-webpki 0.101.7 | Name constraints were accepted for certificates asserting a wildcard name | >=0.103.12, <0.104.0-alpha.1, >=0.104.0-alpha.6 |
-| [RUSTSEC-2026-0104](https://rustsec.org/advisories/RUSTSEC-2026-0104.html) | rustls-webpki 0.101.7 | Reachable panic in certificate revocation list parsing | >=0.103.13, <0.104.0-alpha.1, >=0.104.0-alpha.7 |
-| [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html) | rustls-webpki 0.101.7 | Certificate verification may accept distrusted intermediates | >=0.103.16, <0.104.0-alpha.1, >=0.104.0-alpha.8 |
-| [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html) | rustls-webpki 0.103.13 | Certificate verification may accept distrusted intermediates | >=0.103.16, <0.104.0-alpha.1, >=0.104.0-alpha.8 |
-| [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html) | url 2.5.8 | Stack overflow in `Url::origin()` on nested `blob:` URLs | >=2.5.9 |
-| [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) | webpki-roots 0.25.4 | Bundled root certificates allow trust in distrusted emSign intermediates | >=1.0.10 |
-| [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) | webpki-roots 1.0.7 | Bundled root certificates allow trust in distrusted emSign intermediates | >=1.0.10 |
-| [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367.html) | zip 0.6.6 | Insecure Preservation of SUID/SGID Bits during ZIP Extraction Leading to Potential Privilege Escalation | >=9.0.0 |
-| [RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368.html) | zip 0.6.6 | zip: `ZipArchive::extract` creates symbolic links whose attacker-controlled targets are outside the destination directory | >=9.0.0 |
-| [RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369.html) | zip 0.6.6 | ZipStreamReader::extract() and ZipArchive::extract() apply Unix permissions through symlinks without confining the target | >=9.0.0 |
-| [RUSTSEC-2026-0429](https://rustsec.org/advisories/RUSTSEC-2026-0429.html) | zip 0.6.6 | zip: `ZipArchive::extract` aborts the process on a symlink entry with a large declared size | >=9.0.0 |
-| [RUSTSEC-2026-0545](https://rustsec.org/advisories/RUSTSEC-2026-0545.html) | zip 0.6.6 | AES entries returned without checking their authentication code when the data ends early or is empty | >=9.0.0 |
-| [RUSTSEC-2026-0548](https://rustsec.org/advisories/RUSTSEC-2026-0548.html) | zip 0.6.6 | `ZipStreamReader` extracts entries under local-header names that can differ from the central directory | >=9.0.5 |
-| [RUSTSEC-2026-0403](https://rustsec.org/advisories/RUSTSEC-2026-0403.html) | zstd-safe 5.0.2+zstd.1.5.2 | Uninitialized memory exposed when streaming decompression of a legacy frame fails | ^7.4.0, >=8.2.0 |
-| [RUSTSEC-2026-0410](https://rustsec.org/advisories/RUSTSEC-2026-0410.html) | zstd-sys 2.0.16+zstd.1.5.7 | WebAssembly allocator shim corrupts memory on allocation failure | >=2.1.2 |
+| rusqlite | 0.32.1 | 0.43.0 | Upgrade its bundled SQLite dependency |
+| libsqlite3-sys | 0.30.1 | 0.40.0 | Patched bundled SQLite, including crafted DB/WAL memory exposure |
+| anyhow | 1.0.102 | 1.0.105 | Remove reported downcast unsoundness warning |
+| tokio | 1.52.1 | 1.54.1 | Remove reported AsyncFd warning |
+| rustix | 1.1.4 | 1.1.6 | Remove reported xattr initialization warning |
+| OpenSSL / openssl-sys | 0.10.78 / 0.9.114 | 0.10.82 / 0.9.118 | Patched Linux native-TLS dependency |
+| rustls | 0.23.39 | 0.23.46 | Patch Hydra's modern HTTP-client TLS stack |
+| rustls-webpki | 0.103.13 | 0.103.17 | Patched verification dependency |
+| webpki-roots | 1.0.7 | 1.0.12 | Updated trust roots |
+| quinn-proto / quinn-udp | 0.11.14 / 0.5.14 | 0.11.19 / 0.5.16 | Patch retained optional QUIC dependency copies |
+| crossbeam-epoch | 0.9.18 | 0.9.21 | Patch retained dependency copy |
+| url / form_urlencoded | 2.5.8 / 1.2.2 | 2.5.9 / 1.2.3 | Patch URL-origin recursion advisory |
 
-## Warnings
+The SQLite change retains the existing bundled, chrono and serde_json capabilities;
+unneeded default wasm/cache features are disabled. Source uses no prepared-cache
+API. The new rusqlite MSRV is Rust 1.89, within the verified Rust 1.94 toolchain.
+No schema conversion or database rewrite is part of this dependency upgrade.
 
-| Kind | Advisory | Package |
-|---|---|---|
-| unmaintained | RUSTSEC-2026-0543 | chrono |
-| unmaintained | RUSTSEC-2025-0057 | fxhash |
-| unmaintained | RUSTSEC-2026-0542 | humantime |
-| unmaintained | RUSTSEC-2024-0384 | instant |
-| unmaintained | RUSTSEC-2024-0436 | paste |
-| unmaintained | RUSTSEC-2025-0010 | ring |
-| unmaintained | RUSTSEC-2025-0134 | rustls-pemfile |
-| unsound | RUSTSEC-2026-0190 | anyhow |
-| unsound | RUSTSEC-2026-0002 | lru |
-| unsound | RUSTSEC-2026-0253 | lru |
-| unsound | RUSTSEC-2026-0486 | rustix |
-| unsound | RUSTSEC-2026-0386 | tokio |
-| unsound | RUSTSEC-2026-0395 | zstd-safe |
-| unsound | RUSTSEC-2026-0397 | zstd-safe |
-| unsound | RUSTSEC-2026-0399 | zstd-safe |
-| unsound | RUSTSEC-2026-0400 | zstd-safe |
-| unsound | RUSTSEC-2026-0401 | zstd-safe |
-| unsound | RUSTSEC-2026-0402 | zstd-safe |
-| unsound | RUSTSEC-2026-0404 | zstd-safe |
-| unsound | RUSTSEC-2026-0406 | zstd-safe |
+The [SQLite advisory](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
+identifies crafted sibling DB/WAL files as its local input boundary. Hydra opens
+local SQLite databases and enables WAL; upgrading the bundled implementation closes
+that affected dependency copy. Normal migrations, transactions, persistence and
+learning behavior must remain covered by the Rust regression suite.
 
-## Remediation sequence
+## Reachability and remaining blockers
 
-1. Use `cargo tree --target all -i <package>@<version>` and actual call sites to
-   distinguish SDK/runtime dependencies, target-specific code and inactive optional
-   packages. Preserve this distinction in each finding.
-2. Upgrade compatible leaf dependencies under tests; avoid a broad unverified
-   lockfile refresh of the signing/exchange stack.
-3. Modernize the pinned Hyperliquid SDK/ethers/HTTP stack where old major versions
-   prevent safe upgrades. Revalidate signing, nonce, typed response and account
-   behavior using offline recorded fixtures.
-4. Review SQLite, TLS, compression, cryptographic arithmetic and runtime advisories
-   first for direct runtime impact. Unmaintained warnings also need a replacement
-   plan, not an assertion that lack of an exploit means safety.
-5. Repeat tests/build/audit on Windows and Linux and update this file. A stable
-   release requires an explicit, evidence-backed disposition for remaining alerts.
+`cargo tree --locked --target all -i <name>@<version>` was used to distinguish the
+enabled graph from packages merely retained in Cargo.lock. Graph inclusion alone
+does not prove that an affected function is called. These are assessment notes,
+not dismissals or risk acceptance.
+
+| Remaining copy | Alert IDs | Existing parent / scope | Disposition |
+|---|---|---|---|
+| crypto-bigint 0.5.5 | RUSTSEC-2026-0387 | elliptic-curve 0.13 / ecdsa / k256 / ethers-signers; actual exchange signing path | Open, high priority; patched 0.7.6 cannot replace the 0.5 API by a lock refresh |
+| h2 0.3.27 | RUSTSEC-2026-0258 | reqwest 0.11 / hyper 0.14 in SDK/ethers HTTP graph | Open; upgrade parent HTTP stack, not an incompatible h2 substitution |
+| ring 0.16.20 | RUSTSEC-2025-0009 | jsonwebtoken 8.3 / ethers-providers | Open; Hydra's active adapter does not call provider JWT APIs, but dependency remains enabled |
+| rustls 0.21.12 | RUSTSEC-2026-0346, RUSTSEC-2026-0349 | reqwest 0.11 and tokio-tungstenite 0.20 / SDK/ethers | Open; inspect actual TLS backend selection per target and replace legacy stack |
+| rustls-webpki 0.101.7 | RUSTSEC-2026-0098, RUSTSEC-2026-0099, RUSTSEC-2026-0104, RUSTSEC-2026-0382 | Legacy rustls 0.21 graph | Open; not repaired by upgrading the separate 0.103 copy |
+| webpki-roots 0.25.4 | RUSTSEC-2026-0381 | Legacy TLS graph | Open; requires parent stack modernization |
+| rkyv 0.7.46 | RUSTSEC-2026-0235 | Lockfile only: no enabled all-target inverse dependency edges | Retained and open; no archive-deserialization use found in Hydra |
+| zip 0.6.6 | RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429, RUSTSEC-2026-0545, RUSTSEC-2026-0548 | Lockfile only: no enabled all-target inverse dependency edges | Retained and open; do not remove lock entries merely to hide scanner findings |
+| zstd-safe 5.0.2 / zstd-sys 2.0.16 | RUSTSEC-2026-0403, RUSTSEC-2026-0410 | Lockfile only: no enabled all-target inverse dependency edges | Retained and open; feature changes must trigger another reachability review |
+
+The [crypto-bigint advisory](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)
+concerns timing-dependent arithmetic. Its presence in the signer graph is material;
+exploitability depends on the operations, compiler, CPU and observable side channels.
+No claim that ordinary network access alone exploits it is made. No signing
+algorithm, nonce algorithm or signed serialization was changed by these upgrades.
+
+Remaining warnings: chrono, fxhash, humantime, instant, paste, ring, rustls-pemfile
+(unmaintained); two lru warnings; eight zstd-safe unsoundness warnings. Ratatui 0.29
+uses lru 0.12 for its layout cache. The zstd warnings share the inactive graph status
+above. Chrono is pervasive in public data types and SQLite conversions; replacing
+it needs explicit compatibility work. Maintenance warnings are not proof of an
+exploit, and they are not dismissed here.
+
+## SDK modernization investigation
+
+The official published Rust SDK remains 0.6.0. Reference HEAD observed:
+`aac75585daf12d0a3761126cc7da7a5e035b5853` in
+[hyperliquid-dex/hyperliquid-rust-sdk](https://github.com/hyperliquid-dex/hyperliquid-rust-sdk).
+Its dependency graph requests ethers with abigen/default features, reqwest 0.11,
+and tokio-tungstenite 0.20/native TLS. Disabling defaults only on Hydra's direct
+ethers declaration does not remove features enabled by the SDK.
+
+An additional concrete concern is SDK `ExchangeClient::post`: it logs the serialized
+exchange payload, including signature and nonce, at debug level. Hydra must prevent
+that SDK log target from reaching diagnostic sinks, even when operators request
+verbose logs. Replacing the SDK should remove this behavior entirely.
+
+A narrow native replacement should initially support only the allowed trading
+mutations, typed responses and read-only information; omit transfers/withdrawals.
+Before use, validate ordered MessagePack action encoding, nonce/vault/expiry bytes,
+Keccak action hash, EIP-712 Agent domain (Exchange, version 1, chain 1337), network
+source, recoverable signature and cloid formatting against independent fixtures.
+Do not replace cryptographic primitives or serialization by guesswork.
+
+Independent reference: official Python SDK commit
+`2fdb18f9517675ea03695a0962bd19eece9c83f0`, specifically
+[signing.py](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/2fdb18f9517675ea03695a0962bd19eece9c83f0/hyperliquid/utils/signing.py)
+and [signing_test.py](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/2fdb18f9517675ea03695a0962bd19eece9c83f0/tests/signing_test.py).
+These are research/fixture references, not a Python runtime dependency.
+
+## Verification status
+
+Audit: FAIL with 19 vulnerability entries / 17 warnings, reduced from 39 / 20.
+Windows `cargo test --locked --all-targets` passed for the concurrently integrated checkout snapshot;
+the final integrated test count and source revision belong in TEST_RESULTS.md after integration completes.
+No mainnet calls, account probes, real credentials or exchange orders were used.
+This work does not certify stable-live readiness, erase existing risk gates, or
+close unresolved financial-accounting state.
+
+Current release lock SHA-256: `896b389c3bc84d883253b1c525a82e47af85b0cdde9df7f3761e8c50e497187a` (alpha.2 version metadata included).

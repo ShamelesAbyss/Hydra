@@ -3,13 +3,19 @@
 //! Supports Hyperliquid perps and Ethereum (data + Uniswap V3 swaps).
 //! All live execution is gated behind `ENABLE_LIVE_TRADING` in `.env`.
 
+pub mod account;
 pub mod adapters;
+pub mod aegis;
 pub mod cli;
 pub mod config;
 pub mod core;
 pub mod execution;
+pub mod history;
 pub mod learning;
+pub mod ledger;
+pub mod ledger_hyperliquid;
 pub mod monitoring;
+pub mod ownership;
 pub mod portfolio;
 pub mod reporting;
 pub mod risk;

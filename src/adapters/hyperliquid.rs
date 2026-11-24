@@ -53,6 +53,7 @@ pub struct HyperliquidAdapter {
     account_address: Option<String>,
     exchange: Arc<Mutex<Option<hyperliquid_rust_sdk::ExchangeClient>>>,
     wallet_key: Option<String>,
+    identity_verified_at: Arc<Mutex<Option<std::time::Instant>>>,
     /// v1.4.0: per-asset size decimals fetched once at startup from the
     /// `/info {"type":"meta"}` endpoint. Hyperliquid rejects any size with
     /// more decimals than the asset allows (e.g. HYPE = 2, ETH = 4, BTC = 5).
@@ -61,15 +62,99 @@ pub struct HyperliquidAdapter {
 }
 
 impl HyperliquidAdapter {
+    /// Read-only history retrieval. Pages are durable and replayable, but API
+    /// retention and fee conventions do not certify a complete trade lifecycle.
+    pub async fn sync_history(
+        &self,
+        storage: crate::storage::Storage,
+        since_ms: i64,
+        end_ms: i64,
+    ) -> Result<serde_json::Value> {
+        use crate::ledger::{
+            AccountScope, Evidence, EvidenceSource, FinancialLedger, LedgerEnvironment,
+        };
+        anyhow::ensure!(
+            since_ms >= 0 && end_ms > since_ms && end_ms <= Utc::now().timestamp_millis(),
+            "invalid history window"
+        );
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("explicit account identity required"))?;
+        let ledger = FinancialLedger::new(
+            storage,
+            AccountScope::hyperliquid(LedgerEnvironment::Mainnet, account)?,
+        )?;
+        let mut total_pages = 0;
+        let mut fills_inserted = 0;
+        let mut funding_inserted = 0;
+        for kind in ["userFillsByTime", "userFunding"] {
+            let mut cursor = since_ms;
+            let mut terminated = false;
+            for _ in 0..128 {
+                let mut request =
+                    json!({"type":kind,"user":account,"startTime":cursor,"endTime":end_ms});
+                if kind == "userFillsByTime" {
+                    request["aggregateByTime"] = json!(false);
+                }
+                let raw: serde_json::Value = self.info(request).await?;
+                let array = raw
+                    .as_array()
+                    .ok_or_else(|| anyhow!("history must be an array"))?;
+                let length = array.len();
+                let payload = serde_json::to_string(&raw)?;
+                let evidence = Evidence {
+                    source: EvidenceSource::RestSnapshot,
+                    observed_at_ms: Utc::now().timestamp_millis(),
+                };
+                let times = if kind == "userFillsByTime" {
+                    let fills = crate::ledger_hyperliquid::parse_fills(&payload)?;
+                    anyhow::ensure!(
+                        fills
+                            .iter()
+                            .all(|f| f.timestamp_ms >= cursor && f.timestamp_ms <= end_ms),
+                        "fill outside requested window"
+                    );
+                    let times = fills.iter().map(|f| f.timestamp_ms).collect::<Vec<_>>();
+                    fills_inserted += ledger.ingest(&fills, &[], evidence)?.new_fills;
+                    times
+                } else {
+                    let funding = crate::ledger_hyperliquid::parse_funding(&payload)?;
+                    anyhow::ensure!(
+                        funding
+                            .iter()
+                            .all(|f| f.timestamp_ms >= cursor && f.timestamp_ms <= end_ms),
+                        "funding outside requested window"
+                    );
+                    let times = funding.iter().map(|f| f.timestamp_ms).collect::<Vec<_>>();
+                    funding_inserted += ledger.ingest(&[], &funding, evidence)?.new_funding;
+                    times
+                };
+                total_pages += 1;
+                match crate::history::next_cursor(cursor, end_ms, &times, length)? {
+                    None => {
+                        terminated = true;
+                        break;
+                    }
+                    Some(next) => cursor = next,
+                }
+            }
+            anyhow::ensure!(
+                terminated,
+                "history page budget exceeded; retained evidence is incomplete"
+            );
+        }
+        Ok(
+            json!({"schema_version":1,"pages":total_pages,"new_fills":fills_inserted,"new_funding":funding_inserted,
+            "cash_flow":ledger.realized_cash_flow()?,"trade_settlement_certified":false}),
+        )
+    }
+
     pub async fn new(cfg: &AppConfig) -> Result<Self> {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
-        let derived_addr = cfg
-            .hl_private_key
-            .as_ref()
-            .and_then(|k| derive_eth_address(k).ok());
-        let account_address = cfg.hl_account_address.clone().or(derived_addr);
+        let account_address = crate::ownership::configured_account(cfg)?;
         tracing::info!(network="mainnet", account=?account_address, "hyperliquid adapter init");
         let adapter = Self {
             http,
@@ -79,6 +164,7 @@ impl HyperliquidAdapter {
             account_address,
             exchange: Arc::new(Mutex::new(None)),
             wallet_key: cfg.hl_private_key.clone(),
+            identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
         // Prefetch metadata; orders fail closed if the instrument is unavailable.
@@ -171,6 +257,28 @@ impl HyperliquidAdapter {
             }
         }
         Err(last_err.unwrap_or_else(|| anyhow!("hyperliquid info unknown error")))
+    }
+
+    async fn verify_identity(&self) -> Result<()> {
+        let mut verified = self.identity_verified_at.lock().await;
+        if verified.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30)) {
+            return Ok(());
+        }
+        let key = self
+            .wallet_key
+            .as_ref()
+            .ok_or_else(|| anyhow!("signing key missing"))?;
+        let signer =
+            derive_eth_address(key).map_err(|_| anyhow!("invalid signing key; details omitted"))?;
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account identity missing"))?;
+        let signer_role = self.info(json!({"type":"userRole","user":signer})).await?;
+        let account_role = self.info(json!({"type":"userRole","user":account})).await?;
+        crate::account::verify_signer(&signer, account, &signer_role, &account_role)?;
+        *verified = Some(std::time::Instant::now());
+        Ok(())
     }
 
     async fn ensure_exchange(&self) -> Result<()> {
@@ -424,6 +532,7 @@ impl VenueAdapter for HyperliquidAdapter {
             limit_px.is_finite() && limit_px > 0.0 && sz > 0.0,
             "order rounds to zero"
         );
+        self.verify_identity().await?;
         self.ensure_exchange().await?;
         let guard = self.exchange.lock().await;
         let client = guard.as_ref().unwrap();
@@ -475,52 +584,109 @@ impl VenueAdapter for HyperliquidAdapter {
     }
 
     async fn account_equity_usd(&self) -> Result<f64> {
-        let addr = match &self.account_address {
-            Some(a) => a.clone(),
-            None => return Ok(0.0),
-        };
-
-        // Perps sub-account equity (zero until a perp position is opened,
-        // even under unified margin mode).
-        let perps_eq: f64 = match self
-            .info::<ClearingHouseState>(json!({"type":"clearinghouseState","user":addr}))
-            .await
-        {
-            Ok(s) => s.margin_summary.account_value.parse().unwrap_or(0.0),
-            Err(e) => {
-                tracing::warn!(error=%e, "clearinghouseState failed");
-                0.0
-            }
-        };
-
-        // Spot sub-account balances. Under unified margin this USDC collateralises
-        // perps automatically; we sum USDC + any stablecoins + (optionally) valued
-        // HYPE to report the true unified equity.
-        let spot_usdc: f64 = match self
-            .info::<SpotClearinghouseState>(json!({"type":"spotClearinghouseState","user":addr}))
-            .await
-        {
-            Ok(s) => s
-                .balances
-                .iter()
-                .filter(|b| matches!(b.coin.as_str(), "USDC" | "USDT" | "USD"))
-                .filter_map(|b| b.total.parse::<f64>().ok())
-                .sum(),
-            Err(e) => {
-                tracing::warn!(error=%e, "spotClearinghouseState failed");
-                0.0
-            }
-        };
-
-        let total = perps_eq + spot_usdc;
-        tracing::info!(
-            perps_equity = perps_eq,
-            spot_stables = spot_usdc,
-            unified_total = total,
-            "hyperliquid equity breakdown"
+        let addr = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account identity missing; equity unavailable"))?;
+        let mode: String = self
+            .info(json!({"type":"userAbstraction","user":addr}))
+            .await?;
+        anyhow::ensure!(
+            mode == "disabled",
+            "account mode {mode} has no verified collateral model yet; new exposure blocked"
         );
-        Ok(total)
+        let state: ClearingHouseState = self
+            .info(json!({"type":"clearinghouseState","user":addr}))
+            .await?;
+        crate::account::standard_perp_equity(&mode, &state.margin_summary.account_value)
     }
+
+    async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
+        use rust_decimal::Decimal;
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account missing"))?;
+        let started = Utc::now().timestamp_millis();
+        let mode: String = self
+            .info(json!({"type":"userAbstraction","user":account}))
+            .await?;
+        anyhow::ensure!(mode == "disabled", "unsupported collateral model for Aegis");
+        let state: ClearingHouseState = self
+            .info(json!({"type":"clearinghouseState","user":account}))
+            .await?;
+        let orders: Vec<RiskOpenOrder> = self
+            .info(json!({"type":"frontendOpenOrders","user":account}))
+            .await?;
+        let mids: std::collections::BTreeMap<String, String> =
+            self.info(json!({"type":"allMids"})).await?;
+        let equity = Decimal::from_str(&state.margin_summary.account_value)?;
+        anyhow::ensure!(equity >= Decimal::ZERO, "invalid equity");
+        let mut exposure = std::collections::BTreeMap::<String, Decimal>::new();
+        for position in state.asset_positions {
+            let size = Decimal::from_str(&position.position.szi)?.abs();
+            let symbol = position.position.coin;
+            let price = Decimal::from_str(
+                mids.get(&symbol)
+                    .ok_or_else(|| anyhow!("missing account position mark"))?,
+            )?;
+            anyhow::ensure!(price > Decimal::ZERO, "invalid mark");
+            let notional = size
+                .checked_mul(price)
+                .ok_or_else(|| anyhow!("exposure overflow"))?;
+            let prior = exposure.entry(symbol).or_default();
+            *prior = prior
+                .checked_add(notional)
+                .ok_or_else(|| anyhow!("exposure overflow"))?;
+        }
+        for order in orders {
+            anyhow::ensure!(
+                order.children.is_empty(),
+                "nested open orders require explicit risk reconciliation"
+            );
+            if order.reduce_only {
+                continue;
+            }
+            let qty = Decimal::from_str(&order.sz)?;
+            let price = Decimal::from_str(&order.limit_px)?;
+            let mark = Decimal::from_str(
+                mids.get(&order.coin)
+                    .ok_or_else(|| anyhow!("unsupported open-order instrument"))?,
+            )?;
+            anyhow::ensure!(
+                qty > Decimal::ZERO && price > Decimal::ZERO && mark > Decimal::ZERO,
+                "invalid pending order"
+            );
+            let value = qty
+                .checked_mul(price.max(mark))
+                .ok_or_else(|| anyhow!("pending exposure overflow"))?;
+            let prior = exposure.entry(order.coin).or_default();
+            *prior = prior
+                .checked_add(value)
+                .ok_or_else(|| anyhow!("pending exposure overflow"))?;
+        }
+        anyhow::ensure!(
+            Utc::now().timestamp_millis() - started <= 15_000,
+            "account snapshot acquisition stale"
+        );
+        Ok(crate::aegis::AccountSnapshot {
+            revision: started,
+            observed_at_ms: started,
+            equity,
+            exposure_by_market: exposure,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RiskOpenOrder {
+    coin: String,
+    sz: String,
+    limit_px: String,
+    reduce_only: bool,
+    #[serde(default)]
+    children: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -564,11 +730,7 @@ struct BookResp {
     levels: Vec<Vec<BookLevel>>,
 }
 
-#[derive(Deserialize, Default)]
-struct SpotClearinghouseState {
-    #[serde(default)]
-    balances: Vec<SpotBalance>,
-}
+#[cfg(test)]
 #[derive(Deserialize)]
 struct SpotBalance {
     coin: String,
@@ -708,6 +870,7 @@ mod tests {
             account_address: None,
             exchange: Arc::new(Mutex::new(None)),
             wallet_key: None,
+            identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
         assert!(adapter.sz_decimals_for("ETH").await.is_err());

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.7.0-alpha.2 — account evidence and independent risk
+
+- Add scoped decimal fill/funding ledger, exact-once replay/conflict handling, unknown-cost preservation, and raw Hyperliquid history parsers.
+- Add read-only `sync-ledger` history retrieval with bounded timestamp-overlapping pagination.
+- Add persistent Aegis drawdown breakers, immutable policy and transactional pending-exposure reservations; wire the live engine to fresh standard-mode account/open-order snapshots.
+- Add same-user/host account ownership independent of database path.
+- Validate agent-to-account binding before signing and reject unsupported collateral modes instead of combining unrelated balances.
+- Require fresh risk equity; invalidate on retrieval/persistence errors.
+- Block SDK signed-payload debug/trace logging; redact configuration Debug output.
+- Upgrade compatible dependencies including bundled SQLite; audit improves 39 to 19 vulnerability entries, 20 to 17 warnings, with no suppressions.
+- Make core schema migration transactional/versioned and stop swallowing ALTER failures.
+- 162 offline tests pass. Unknown round-trip accounting remains blocked; this is not a stable-live release.
+
 ## 1.7.0-alpha.1 — Project Leviathan execution foundation
 
 Experimental engineering checkpoint. Not a stable-live release.

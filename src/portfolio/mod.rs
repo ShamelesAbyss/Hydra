@@ -35,6 +35,7 @@ pub struct EntryContext {
 pub struct PortfolioManager {
     storage: Storage,
     last_equity: f64,
+    last_equity_at: Option<std::time::Instant>,
     /// position_id → initial per-unit R (|entry − original stop|).
     /// Recorded on open; populated lazily for pre-v1.3.2 positions using
     /// their current stop distance as a best-effort approximation.
@@ -48,6 +49,7 @@ impl PortfolioManager {
         Self {
             storage,
             last_equity: 0.0,
+            last_equity_at: None,
             initial_r: HashMap::new(),
             entry_ctx: HashMap::new(),
         }
@@ -63,6 +65,23 @@ impl PortfolioManager {
             .flatten()
             .map(|(_, e)| e)
             .unwrap_or(0.0)
+    }
+
+    pub fn verified_equity(&self, max_age: std::time::Duration) -> Result<f64> {
+        anyhow::ensure!(
+            self.last_equity_at
+                .is_some_and(|at| at.elapsed() <= max_age),
+            "account equity stale or unavailable"
+        );
+        anyhow::ensure!(
+            self.last_equity.is_finite() && self.last_equity > 0.0,
+            "account equity unavailable or zero"
+        );
+        Ok(self.last_equity)
+    }
+
+    pub fn invalidate_equity(&mut self) {
+        self.last_equity_at = None;
     }
 
     /// Total & per-market open notional in USD (approximate: size * entry).
@@ -395,8 +414,14 @@ impl PortfolioManager {
     }
 
     pub fn sync_equity(&mut self, venue: &str, equity: f64) -> Result<()> {
+        anyhow::ensure!(
+            equity.is_finite() && equity >= 0.0,
+            "invalid account equity"
+        );
+        self.storage.record_equity(venue, equity)?;
         self.last_equity = equity;
-        self.storage.record_equity(venue, equity)
+        self.last_equity_at = Some(std::time::Instant::now());
+        Ok(())
     }
 }
 

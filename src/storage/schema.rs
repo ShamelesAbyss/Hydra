@@ -191,9 +191,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         );
     "#)?;
 
-    // v1.6.1: idempotent ALTER. Add `exit_reason` column to closed_trades
-    // for the new stop-out-specific cooldown. SQLite doesn't support
-    // `ADD COLUMN IF NOT EXISTS`, so we swallow the duplicate-column error.
-    let _ = conn.execute("ALTER TABLE closed_trades ADD COLUMN exit_reason TEXT", []);
+    let mut columns = conn.prepare("PRAGMA table_info(closed_trades)")?;
+    let names = columns
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !names.iter().any(|name| name == "exit_reason") {
+        conn.execute("ALTER TABLE closed_trades ADD COLUMN exit_reason TEXT", [])?;
+    }
     Ok(())
 }

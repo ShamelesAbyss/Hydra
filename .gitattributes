@@ -1,0 +1,6 @@
+# Historical checked-in executables are not verified release source artifacts.
+bin/** export-ignore
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

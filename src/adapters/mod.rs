@@ -39,6 +39,11 @@ pub trait VenueAdapter: Send + Sync {
 
     /// USD-denominated equity for compounding/risk sizing.
     async fn account_equity_usd(&self) -> Result<f64>;
+
+    /// Fresh positions plus pending entry exposure. No fallback to local estimates.
+    async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
+        anyhow::bail!("venue does not supply an authoritative risk snapshot")
+    }
 }
 
 #[derive(Debug, Clone)]

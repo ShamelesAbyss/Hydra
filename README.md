@@ -6,7 +6,7 @@ A native Rust, local-first Hyperliquid trading engine evolving toward a complete
 Windows quantitative command center. Existing strategies, statistical learning,
 SQLite history, Ratatui monitoring and headless operation remain at its core.
 
-> **1.7.0-alpha.1 · execution foundation · prerelease**
+> **1.7.0-alpha.2 · account evidence and independent risk · prerelease**
 >
 > This is a verified offline engineering checkpoint, **not a stable live-trading
 > release**. Mainnet integration remains present and defaults disabled. Automatic
@@ -21,6 +21,14 @@ SQLite history, Ratatui monitoring and headless operation remain at its core.
 - [Execution audit](HYDRA_AUDIT.md) · [test evidence](TEST_RESULTS.md)
 - [Architecture](ARCHITECTURE.md) · [implementation sequence](IMPLEMENTATION_PLAN.md)
 - [Passivbot research](PASSIVBOT_AUDIT.md) · [capability ledger](FEATURE_PARITY.md)
+
+## New in alpha.2
+
+Account-scoped decimal fills/funding, deduplicated replay, persistent risk reservations and drawdown breakers, same-user account ownership, approved-agent identity checks, fresh equity gating and SDK payload-log filtering are implemented. Compatible upgrades reduce the dependency scan to 19 vulnerability entries and 17 warnings; it still fails.
+
+`sync-ledger --since-ms <timestamp>` retrieves read-only fill/funding evidence for an explicitly configured trading-account address. It never signs or sends orders. It does not certify a complete trade history or release pending settlement gates. See [ledger integration](HYPERLIQUID_INTEGRATION.md) and [risk authority](RISK_MANAGEMENT.md).
+
+Only explicitly standard (`disabled`) account abstraction is currently valued for sizing. Unified, portfolio-margin, default/unknown and discontinued abstraction modes are refused until their collateral models are independently verified. Spot balances are no longer added to perp equity.
 
 ## What this checkpoint implements
 
@@ -121,8 +129,7 @@ enable live mode: review it first. Ratatui is the default; `--no-tui` uses logs.
 The existing integration uses `HYPERLIQUID_PRIVATE_KEY` and optional
 `HYPERLIQUID_ACCOUNT_ADDRESS`, with `ENABLE_LIVE_TRADING=true` as the configuration
 gate. `--live` only asserts the gate. Funding alone never enables execution.
-Dedicated API-agent account identity verification and secure Windows credential
-storage remain pending. **Do not use this alpha as an unattended live upgrade.**
+API-agent binding is checked against the intended master account before submission. Vault/subaccount execution and secure Windows credential storage remain pending. **Do not use this alpha as an unattended live upgrade.**
 No mainnet orders were placed to validate this checkpoint.
 
 ### Stops and recovery

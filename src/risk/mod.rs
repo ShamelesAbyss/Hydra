@@ -238,7 +238,7 @@ impl RiskEngine {
         let weekly_pnl = self
             .storage
             .sum_realized_since(Utc::now() - chrono::Duration::days(7))?;
-        let equity = portfolio.last_known_equity();
+        let equity = portfolio.verified_equity(std::time::Duration::from_secs(30))?;
         anyhow::ensure!(
             equity.is_finite() && equity > 0.0,
             "account equity unavailable or zero; new exposure blocked"
