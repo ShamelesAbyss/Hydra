@@ -77,6 +77,13 @@ pub enum Command {
     ConfigCheck,
     Recover,
     Health,
+    /// Print a versioned, read-only JSON snapshot of a local Hydra database.
+    Telemetry {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
     /// Retrieve read-only exchange fill/funding evidence. Never submits orders.
     SyncLedger {
         #[arg(long)]
@@ -94,6 +101,11 @@ pub enum Command {
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
+    if let Command::Telemetry { db, limit } = &cli.cmd {
+        let snapshot = crate::telemetry::load_snapshot(db, *limit)?;
+        println!("{}", serde_json::to_string(&snapshot)?);
+        return Ok(());
+    }
     if !cli.no_banner {
         banner::print_banner();
     }
@@ -113,6 +125,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         .context("failed to run SQLite migrations")?;
 
     match cli.cmd {
+        Command::Telemetry { .. } => unreachable!("handled before configuration and storage setup"),
         Command::Run {
             venue,
             symbols,

@@ -7,6 +7,8 @@ pub mod account;
 pub mod adapters;
 pub mod aegis;
 pub mod cli;
+#[cfg(feature = "desktop")]
+pub mod cockpit;
 pub mod config;
 pub mod core;
 pub mod execution;
@@ -22,5 +24,6 @@ pub mod risk;
 pub mod state;
 pub mod storage;
 pub mod strategies;
+pub mod telemetry;
 pub mod tui;
 pub mod utils;

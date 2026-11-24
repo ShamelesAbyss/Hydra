@@ -1,0 +1,24 @@
+# Native cockpit development build
+
+Build on a workstation with native graphics support:
+
+```powershell
+cargo build --locked --features desktop --bin hydra-cockpit
+.\target\debug\hydra-cockpit.exe --db data/hydra.db
+```
+
+The cockpit reads a local Hydra SQLite database and displays recorded positions,
+execution intents, signals, equity, risk state, and ledger evidence where those
+tables exist. The seven subsystem views distinguish missing data from observed
+state. The executable opens the database read-only and can run independently of
+the trading engine.
+
+For a versioned JSON snapshot without a graphical session:
+
+```text
+cargo run --locked --bin hydra -- telemetry --db data/hydra.db --limit 100
+```
+
+The CLI bypasses strategy configuration and database initialization for this
+command. Treat snapshots as private account data. Recorded equity and persisted
+session state may lag the exchange.

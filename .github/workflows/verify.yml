@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked --features desktop --all-targets
+      - run: cargo build --locked --release --features desktop --bin hydra-cockpit
   build:
     strategy:
       fail-fast: false
