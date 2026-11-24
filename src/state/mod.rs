@@ -92,6 +92,7 @@ impl StateManager {
         );
         let account = crate::ownership::configured_account(cfg)?
             .ok_or_else(|| anyhow::anyhow!("missing trading account"))?;
+        self.storage.bind_trading_account(&account, false)?;
         let _ownership = crate::ownership::AccountOwnership::acquire(
             &crate::ownership::AccountOwnership::default_root()?,
             &account,

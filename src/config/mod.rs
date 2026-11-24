@@ -451,6 +451,18 @@ fn env_bool(k: &str, d: bool) -> bool {
 
 impl AppConfig {
     pub fn load(strategies_path: &str, log_level_override: Option<&str>) -> Result<Self> {
+        Self::load_internal(strategies_path, log_level_override, true)
+    }
+
+    pub fn load_research(strategies_path: &str, log_level_override: Option<&str>) -> Result<Self> {
+        Self::load_internal(strategies_path, log_level_override, false)
+    }
+
+    fn load_internal(
+        strategies_path: &str,
+        log_level_override: Option<&str>,
+        operational: bool,
+    ) -> Result<Self> {
         let strat_raw = std::fs::read_to_string(strategies_path)
             .with_context(|| format!("reading strategy config at {strategies_path}"))?;
         let strategies: StrategyConfig =
@@ -487,13 +499,23 @@ impl AppConfig {
         let db_path: PathBuf = env_opt("DB_PATH")
             .unwrap_or_else(|| data_dir.join("hydra.db").to_string_lossy().into_owned())
             .into();
-        std::fs::create_dir_all(&data_dir).ok();
-        std::fs::create_dir_all(&log_dir).ok();
+        if operational {
+            std::fs::create_dir_all(&data_dir).ok();
+            std::fs::create_dir_all(&log_dir).ok();
+        }
 
         let cfg = AppConfig {
-            live_trading: env_bool("ENABLE_LIVE_TRADING", false),
-            hl_private_key: env_opt("HYPERLIQUID_PRIVATE_KEY"),
-            hl_account_address: env_opt("HYPERLIQUID_ACCOUNT_ADDRESS"),
+            live_trading: operational && env_bool("ENABLE_LIVE_TRADING", false),
+            hl_private_key: if operational {
+                env_opt("HYPERLIQUID_PRIVATE_KEY")
+            } else {
+                None
+            },
+            hl_account_address: if operational {
+                env_opt("HYPERLIQUID_ACCOUNT_ADDRESS")
+            } else {
+                None
+            },
 
             risk,
             compound,

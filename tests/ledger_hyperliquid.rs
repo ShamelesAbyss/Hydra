@@ -28,6 +28,16 @@ fn raw_fill_preserves_exact_ids_and_decimals_without_double_builder_fee() {
 }
 
 #[test]
+fn excess_precision_never_turns_a_nonzero_cost_into_known_zero() {
+    let mut row = fill();
+    row["fee"] = json!("0.00000000000000000000000000001");
+    assert!(parse_fills(&json!([row]).to_string()).is_err());
+    let mut payment = funding();
+    payment["delta"]["usdc"] = json!("0.00000000000000000000000000001");
+    assert!(parse_funding(&json!([payment]).to_string()).is_err());
+}
+
+#[test]
 fn missing_fees_or_denomination_are_unknown_and_never_assumed_usdc() {
     for field in ["fee", "feeToken"] {
         let mut row = fill();

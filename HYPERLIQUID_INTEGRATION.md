@@ -61,3 +61,7 @@ The legacy SDK logs signed payloads at debug level. An independent metadata filt
 blocks its debug/trace events even if LOG_LEVEL asks for a more specific target.
 Private key fields are redacted from AppConfig Debug output. Secure OS credential
 storage and removal of the legacy signing/TLS stack remain open work.
+
+## Database account ownership
+
+Live startup binds an empty engine database to one trading account. A bound database rejects another account. Existing unbound history requires an explicit operator assertion through bind-history --db <path> --account <address> --adopt-existing-history. Adoption records its origin in metadata and preserves existing records. It does not settle uncertain financial outcomes.

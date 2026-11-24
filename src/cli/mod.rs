@@ -77,6 +77,29 @@ pub enum Command {
     ConfigCheck,
     Recover,
     Health,
+    /// Bind a local engine history database to its trading account.
+    BindHistory {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        adopt_existing_history: bool,
+    },
+    /// Run deterministic candle research with explicit simulation costs.
+    Backtest {
+        #[arg(long)]
+        candles: std::path::PathBuf,
+        #[arg(long)]
+        options: Option<std::path::PathBuf>,
+    },
+    /// Run a bounded seeded momentum-parameter research search.
+    Optimize {
+        #[arg(long)]
+        candles: std::path::PathBuf,
+        #[arg(long)]
+        options: Option<std::path::PathBuf>,
+    },
     /// Initialize a new local history database without exchange access.
     InitHistory {
         #[arg(long, default_value = "data/hydra.db")]
@@ -106,6 +129,43 @@ pub enum Command {
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
+    if let Command::BindHistory {
+        db,
+        account,
+        adopt_existing_history,
+    } = &cli.cmd
+    {
+        anyhow::ensure!(db.is_file(), "initialize the history database first");
+        let storage = Storage::open(db)?;
+        storage.migrate()?;
+        storage.bind_trading_account(account, *adopt_existing_history)?;
+        println!("History database account binding verified");
+        return Ok(());
+    }
+    if let Command::Backtest { candles, options } = &cli.cmd {
+        let config = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
+        let bars = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
+        let options = options
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::oracle::ReplayOptions>(p))
+            .transpose()?
+            .unwrap_or_default();
+        let report = crate::oracle::replay(&config, &bars, &options)?;
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
+    if let Command::Optimize { candles, options } = &cli.cmd {
+        let config = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
+        let bars = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
+        let options = options
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::genesis::SearchOptions>(p))
+            .transpose()?
+            .unwrap_or_default();
+        let report = crate::genesis::optimize(&config, &bars, &options)?;
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
     if let Command::InitHistory { db } = &cli.cmd {
         crate::local_setup::initialize_history(db)?;
         println!("Initialized local history at {}", db.display());
@@ -135,6 +195,10 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         .context("failed to run SQLite migrations")?;
 
     match cli.cmd {
+        Command::BindHistory { .. } => unreachable!("handled before configuration"),
+        Command::Backtest { .. } | Command::Optimize { .. } => {
+            unreachable!("offline research handled before engine storage setup")
+        }
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),
         Command::Telemetry { .. } => unreachable!("handled before configuration and storage setup"),
         Command::Run {

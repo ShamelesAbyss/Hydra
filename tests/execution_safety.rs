@@ -20,6 +20,7 @@ use std::sync::{
 enum Reply {
     Reject,
     Timeout,
+    TimeoutEth,
     Fill(f64),
     MissingPrice,
     WrongId,
@@ -76,7 +77,9 @@ impl VenueAdapter for Fake {
             })?;
         assert_eq!(count, 1);
         self.calls.fetch_add(1, Ordering::SeqCst);
-        if matches!(self.reply, Reply::Timeout) {
+        if matches!(self.reply, Reply::Timeout)
+            || (matches!(self.reply, Reply::TimeoutEth) && intent.symbol == "ETH")
+        {
             bail!("injected timeout after send")
         }
         Ok(OrderResult {
@@ -89,6 +92,7 @@ impl VenueAdapter for Fake {
             venue_order_id: Some("42".into()),
             filled_size: match self.reply {
                 Reply::Fill(q) => q,
+                Reply::TimeoutEth => intent.size,
                 Reply::MissingPrice | Reply::WrongId => 1.0,
                 _ => 0.0,
             },
@@ -114,6 +118,42 @@ impl VenueAdapter for Fake {
             exposure_by_market: Default::default(),
         })
     }
+}
+
+#[tokio::test]
+async fn failed_exit_on_one_instrument_does_not_starve_other_protective_exits() {
+    let db = db();
+    position(&db);
+    let mut second = db.list_open_positions().unwrap()[0].clone();
+    second.id = 0;
+    second.symbol = "BTC".into();
+    db.insert_open_position(&second).unwrap();
+    let venue = fake(&db, Reply::TimeoutEth, Some(2.0));
+    let calls = venue.calls.clone();
+    let venues: Vec<Box<dyn VenueAdapter>> = vec![Box::new(venue)];
+    let mut execution = ExecutionEngine::new(db.clone(), true);
+    let mut portfolio = PortfolioManager::new(db.clone());
+    let snapshots: Vec<_> = ["ETH", "BTC"]
+        .iter()
+        .map(|symbol| MarketSnapshot {
+            venue: "hyperliquid".into(),
+            symbol: (*symbol).into(),
+            mid: 80.0,
+            bid: None,
+            ask: None,
+            spread_bps: None,
+            last_update: Utc::now(),
+            candles: vec![],
+        })
+        .collect();
+    assert!(portfolio
+        .manage_open_positions(&snapshots, &cfg(), &mut execution, &venues)
+        .await
+        .is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    let remaining = db.list_open_positions().unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].symbol, "ETH");
 }
 
 fn db() -> Storage {

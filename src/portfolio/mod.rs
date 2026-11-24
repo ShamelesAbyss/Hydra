@@ -179,6 +179,7 @@ impl PortfolioManager {
         venues: &[Box<dyn VenueAdapter>],
     ) -> Result<()> {
         let positions = self.storage.list_open_positions()?;
+        let mut close_failures = Vec::new();
         let pm = &cfg.strategies.position_management;
         for p in positions {
             let snap = match snapshots
@@ -298,10 +299,19 @@ impl PortfolioManager {
                     "time_stop"
                 };
                 tracing::info!(position_id = p.id, reason, mid, "closing position");
-                self.close_confirmed(&p, p.size, reason, execution, venues)
-                    .await?;
+                if let Err(error) = self
+                    .close_confirmed(&p, p.size, reason, execution, venues)
+                    .await
+                {
+                    close_failures.push(format!("{}/{}: {error}", p.venue, p.symbol));
+                }
             }
         }
+        anyhow::ensure!(
+            close_failures.is_empty(),
+            "position exits incomplete: {}",
+            close_failures.join("; ")
+        );
         Ok(())
     }
 

@@ -11,7 +11,6 @@
 use anyhow::{ensure, Context, Result};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use std::str::FromStr;
 
 use crate::ledger::{ExchangeFill, FillSide, FundingPayment, PnlConvention, TokenAmount};
 
@@ -202,7 +201,7 @@ fn decimal(value: &str) -> Result<Decimal> {
         !value.is_empty() && value.len() <= 96,
         "invalid financial decimal"
     );
-    Decimal::from_str(value).context("invalid or out-of-range financial decimal")
+    Decimal::from_str_exact(value).context("invalid or out-of-range financial decimal")
 }
 fn token_name(token: &str) -> Result<()> {
     ensure!(

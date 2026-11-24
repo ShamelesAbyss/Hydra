@@ -70,6 +70,7 @@ impl Engine {
         let ownership = if cfg.live_trading {
             let account = crate::ownership::configured_account(&cfg)?
                 .context("live trading requires an account identity")?;
+            storage.bind_trading_account(&account, false)?;
             Some(crate::ownership::AccountOwnership::acquire(
                 &crate::ownership::AccountOwnership::default_root()?,
                 &account,

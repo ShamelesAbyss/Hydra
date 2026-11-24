@@ -77,3 +77,27 @@ fn stale_equity_and_debug_output_never_supply_a_fictional_balance_or_key() {
     assert!(!debug.contains("OFFLINE_FAKE_SECRET_SENTINEL"));
     assert!(debug.contains("REDACTED"));
 }
+
+#[test]
+fn a_live_database_cannot_silently_change_accounts_or_adopt_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("bound.db");
+    let db = hydra::storage::Storage::open(&path).unwrap();
+    db.migrate().unwrap();
+    db.bind_trading_account(ACCOUNT, false).unwrap();
+    assert!(db
+        .bind_trading_account("0x2222222222222222222222222222222222222222", true)
+        .is_err());
+    drop(db);
+    let db = hydra::storage::Storage::open(path).unwrap();
+    db.migrate().unwrap();
+    db.bind_trading_account(ACCOUNT, false).unwrap();
+    let legacy = hydra::storage::Storage::open(":memory:").unwrap();
+    legacy.migrate().unwrap();
+    legacy.with_conn(|c| c.execute("INSERT INTO sessions(started_at,venues,symbols,live_trading) VALUES('offline','hyperliquid','ETH',1)",[])).unwrap();
+    assert!(legacy.bind_trading_account(ACCOUNT, false).is_err());
+    legacy.bind_trading_account(ACCOUNT, true).unwrap();
+    assert!(legacy
+        .bind_trading_account("0x2222222222222222222222222222222222222222", false)
+        .is_err());
+}

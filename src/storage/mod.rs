@@ -19,6 +19,32 @@ pub struct Storage {
 }
 
 impl Storage {
+    /// A live engine database has one explicit account identity, independent of
+    /// account-scoped research tables. Legacy history needs operator adoption.
+    pub fn bind_trading_account(&self, address: &str, adopt_existing_history: bool) -> Result<()> {
+        let account = crate::ownership::canonical_account(address)?;
+        self.with_conn(|conn| -> Result<()> {
+            let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+            let existing: Option<String> = tx.query_row(
+                "SELECT value FROM meta_kv WHERE key='trading_account_binding'", [], |row| row.get(0)).optional()?;
+            if let Some(existing) = existing {
+                anyhow::ensure!(existing == account, "database is bound to another trading account");
+                tx.commit()?;
+                return Ok(());
+            }
+            let history: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM positions) OR EXISTS(SELECT 1 FROM execution_intents) OR EXISTS(SELECT 1 FROM closed_trades) OR EXISTS(SELECT 1 FROM sessions WHERE live_trading=1)",
+                [], |row| row.get(0))?;
+            anyhow::ensure!(!history || adopt_existing_history,
+                "unbound historical database requires explicit bind-history --adopt-existing-history");
+            let now = Utc::now().to_rfc3339();
+            tx.execute("INSERT INTO meta_kv(key,value,updated_at) VALUES('trading_account_binding',?1,?2)", params![account,now])?;
+            tx.execute("INSERT INTO meta_kv(key,value,updated_at) VALUES('trading_account_binding_origin',?1,?2)",
+                params![if history {"operator_adopted_existing_history"} else {"empty_database"},now])?;
+            tx.commit()?;
+            Ok(())
+        })
+    }
     /// Run a closure with mutex-protected access to the underlying SQLite
     /// connection. Used by the v1.5.0 learning module which needs to issue
     /// arbitrary read queries against `trade_context`.

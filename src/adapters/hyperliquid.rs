@@ -235,7 +235,7 @@ impl HyperliquidAdapter {
                             last_err = Some(anyhow!(
                                 "decoding hyperliquid info response: {e}; body={}",
                                 if txt.len() > 256 {
-                                    format!("{}…", &txt[..256])
+                                    format!("{}…", txt.chars().take(256).collect::<String>())
                                 } else {
                                     txt
                                 }
