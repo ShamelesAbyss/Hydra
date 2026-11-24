@@ -2,8 +2,8 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.2** on `leviathan/execution-foundation`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.2^{commit}`.
+- Version and current recovery tag: **v1.7.0-alpha.3** on `leviathan/execution-foundation`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.3^{commit}`.
 - Previous recovery: v1.7.0-alpha.1 (`141f67381eb95a2d1084ea44717cdff24fd043c6`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: authoritative financial evidence and risk foundations, followed immediately by native cockpit/research implementation.
@@ -66,3 +66,9 @@ prerelease. Then integrate deterministic historical research and independent sig
 fixtures before replacing the legacy signing stack. Preserve pending financial
 uncertainty until genuine reconciliation proves settlement. Maintain release
 artifacts/checksums and do not force-push, overwrite releases or fabricate results.
+
+## Alpha.3 cockpit checkpoint
+
+Implemented optional eframe 0.35 native Windows cockpit, bounded read-only telemetry schema version 1, independent background refresh, seven subsystem selectors, recorded portfolio/risk/ledger views and diagnostic filtering. The CLI telemetry command bypasses trading configuration and migrations. Explicit local history initialization preserves existing files and requires no exchange access.
+
+The executable was launched and observed responsive. Operator screenshot feedback confirmed rendering. Automated visual interaction remains blocked by a computer-use kernel-assets error. Eight independent signing-reference tests passed against published official Python SDK constants. Full live recovery, financial settlement and the 19 remaining dependency vulnerability entries still need work. Oracle research implementation follows this release.

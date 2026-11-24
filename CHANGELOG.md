@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0-alpha.3 — native cockpit
+
+- Add optional native read-only cockpit and seven subsystem workspaces over bounded SQLite snapshots.
+- Add versioned telemetry JSON CLI and explicit safe local history initialization.
+- Add eight official cross-language signing fixtures.
+- Preserve headless builds through the optional desktop feature.
+- Add desktop CI build/test coverage.
+
 ## 1.7.0-alpha.2 — account evidence and independent risk
 
 - Add scoped decimal fill/funding ledger, exact-once replay/conflict handling, unknown-cost preservation, and raw Hyperliquid history parsers.

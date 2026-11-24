@@ -6,13 +6,17 @@ A native Rust, local-first Hyperliquid trading engine evolving toward a complete
 Windows quantitative command center. Existing strategies, statistical learning,
 SQLite history, Ratatui monitoring and headless operation remain at its core.
 
-> **1.7.0-alpha.2 · account evidence and independent risk · prerelease**
+> **1.7.0-alpha.3 · account evidence and independent risk · prerelease**
 >
 > This is a verified offline engineering checkpoint, **not a stable live-trading
 > release**. Mainnet integration remains present and defaults disabled. Automatic
 > account recovery and authoritative net PnL are incomplete; reductions awaiting
-> fees/funding block new exposure. The native desktop GUI is not implemented yet.
+> fees/funding block new exposure. The optional native cockpit displays recorded engine data and supports explicit local history setup.
 > Dependency advisories remain unresolved. See [project status](PROJECT_STATUS.md).
+
+## Native cockpit
+
+Launch hydra-cockpit.exe and select an existing database, or use Initialize empty local history on first launch. Recorded positions, signals, ledger evidence, risk state and diagnostics populate their workspaces as the engine persists data. Live trading control, credential storage and research workspaces remain under development. See COCKPIT_GUIDE.md.
 
 ## Start here
 
@@ -82,7 +86,7 @@ Extract the release ZIP into a writable folder. Keep its `config` directory besi
 ```
 
 The executable is unsigned. Compare its ZIP SHA-256 with the release checksum.
-This checkpoint is a terminal/headless executable, not a graphical application.
+The Windows desktop package includes hydra-cockpit.exe and the terminal/headless hydra.exe.
 No installer or code-signing claim is made. Build artifacts contain no credentials,
 databases or personal trading records.
 

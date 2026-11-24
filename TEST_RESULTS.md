@@ -1,3 +1,7 @@
+# Verification — 1.7.0-alpha.3
+
+Full desktop-feature suite passes 178 offline tests. Both binaries compile with the optional desktop feature. The cockpit was launched and remained responsive, and operator screenshot feedback confirmed rendering. Automated computer-use interaction failed with a kernel-assets error. The telemetry CLI and explicit history initialization tests pass without a trading configuration.
+
 # Verification — 1.7.0-alpha.2
 
 Windows MSVC, Rust/Cargo 1.94.0. Exact source: tag v1.7.0-alpha.2.

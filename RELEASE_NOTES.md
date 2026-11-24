@@ -1,24 +1,18 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.2
+# HYDRA — Project Leviathan 1.7.0-alpha.3
 
-Second recovery checkpoint: account evidence, persistent independent risk and
-dependency modernization. **Alpha; not certified for unattended live use.**
+Native Windows cockpit recovery checkpoint. The desktop package includes the
+cockpit and terminal/headless executables. The viewer supports seven selectable
+subsystem views, recorded positions, execution evidence, risk state, equity history
+and diagnostic filtering through bounded read-only snapshots.
 
-Implemented: scoped decimal fill/funding ledger with exactly-once replay/conflict
-handling; bounded read-only history synchronization; account/agent validation;
-same-user/host ownership locks; fresh equity gates; persistent Aegis reservations,
-drawdown breakers and explicit rearm API; standard-mode account valuation;
-transactional core migrations; configuration redaction and SDK payload-log filtering.
+First launch offers explicit empty local history initialization. Existing files
+are preserved. Telemetry JSON and history initialization work without a trading
+configuration. The engine and viewer operate independently.
 
-**162 offline tests pass.** Compatible upgrades reduce the audit from 39 to 19
-vulnerability entries and from 20 to 17 warnings. The audit still fails; no alerts
-are suppressed. Signing primitive behavior is preserved pending independent fixtures.
+The cockpit launched and remained responsive. Operator screenshot feedback
+confirmed rendering. Automated visual interaction was blocked by a computer-use
+kernel-assets error. Eight signing tests match official Python SDK fixtures.
 
-Unknown net trade PnL, entry-cost/funding coverage and raw closedPnl convention are
-not guessed. Pending reduction holds and risk reservations are not bypassed.
-Unified/portfolio/default account modes and vault/subaccount entry sizing currently
-fail explicitly. Full streaming recovery, reservation settlement, protective native
-orders and protected credential storage remain incomplete.
-
-Portable executables are unsigned. Verify checksums and keep live disabled during
-development. Native cockpit/research work follows immediately in the next milestone;
-it is not claimed implemented by this release. Original recovery points are preserved.
+Financial recovery, cost settlement, protected credentials and research systems
+remain incomplete. The dependency audit still has unresolved findings. Treat this
+as an engineering alpha and keep live execution disabled during development.
