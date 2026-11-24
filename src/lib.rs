@@ -16,6 +16,7 @@ pub mod history;
 pub mod learning;
 pub mod ledger;
 pub mod ledger_hyperliquid;
+pub mod local_setup;
 pub mod monitoring;
 pub mod ownership;
 pub mod portfolio;

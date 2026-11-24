@@ -22,3 +22,5 @@ cargo run --locked --bin hydra -- telemetry --db data/hydra.db --limit 100
 The CLI bypasses strategy configuration and database initialization for this
 command. Treat snapshots as private account data. Recorded equity and persisted
 session state may lag the exchange.
+
+On first launch, Initialize empty local history creates a new database at the entered path. Existing files are preserved. This explicit setup action runs locally without credentials or exchange access.

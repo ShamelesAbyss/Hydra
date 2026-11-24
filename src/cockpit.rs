@@ -252,6 +252,24 @@ impl Cockpit {
                 "Enter the path to an existing Hydra SQLite database and select Open read-only.",
             );
             ui.label("No credentials are requested. Recorded data is displayed only after a successful, consistent read.");
+            ui.add_space(12.0);
+            if !std::path::Path::new(&self.database_input).exists() {
+                ui.label("First launch? Initialize empty local history at the path above. Trading remains disabled.");
+                if ui.button("Initialize empty local history").clicked() {
+                    match crate::local_setup::initialize_history(std::path::Path::new(
+                        &self.database_input,
+                    )) {
+                        Ok(()) => {
+                            self.active_path = PathBuf::from(&self.database_input);
+                            self.error = None;
+                            self.refresh();
+                        }
+                        Err(error) => {
+                            self.error = Some(telemetry::redact_diagnostic(&format!("{error:#}")))
+                        }
+                    }
+                }
+            }
             ui.add_space(20.0);
             self.hydra(ui, None);
             return;
