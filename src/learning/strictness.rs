@@ -124,13 +124,13 @@ pub fn atr_aware(atr_pct: f64, cfg: &LearningCfg) -> (f64, Option<f64>) {
     //   ATR ≈ 0.10–0.20 = "calm"     (loosen modestly)
     //   ATR > 0.50      = "hot"      (tighten slightly)
     if atr_pct < 0.10 {
-        (-5.0, Some(1.0))    // Dead market: -5bps gate, 1.0% band
+        (-5.0, Some(1.0)) // Dead market: -5bps gate, 1.0% band
     } else if atr_pct < 0.20 {
-        (-3.0, Some(0.8))    // Calm market: -3bps gate, 0.8% band
+        (-3.0, Some(0.8)) // Calm market: -3bps gate, 0.8% band
     } else if atr_pct > 0.50 {
-        ( 2.0, None)          // Hot market: +2bps gate, default band
+        (2.0, None) // Hot market: +2bps gate, default band
     } else {
-        ( 0.0, None)          // Normal market: identity
+        (0.0, None) // Normal market: identity
     }
 }
 
@@ -139,11 +139,7 @@ pub fn atr_aware(atr_pct: f64, cfg: &LearningCfg) -> (f64, Option<f64>) {
 ///   - drought detection is enabled, AND
 ///   - the symbol has been blocked ≥ N times in the rolling window, AND
 ///   - we're currently inside an engaged bypass window (or we should engage one now)
-pub fn drought_check(
-    state: &mut DroughtState,
-    symbol: &str,
-    cfg: &LearningCfg,
-) -> bool {
+pub fn drought_check(state: &mut DroughtState, symbol: &str, cfg: &LearningCfg) -> bool {
     if !cfg.strictness_enabled || !cfg.drought_detector {
         return false;
     }
@@ -198,7 +194,9 @@ pub fn compose(
 mod tests {
     use super::*;
 
-    fn cfg_default() -> LearningCfg { LearningCfg::default() }
+    fn cfg_default() -> LearningCfg {
+        LearningCfg::default()
+    }
 
     #[test]
     fn identity_when_strictness_disabled() {
@@ -252,8 +250,10 @@ mod tests {
         assert!(!drought_check(&mut state, "BTC", &cfg));
         // One more block → triggers bypass.
         state.record_trend_block("BTC", cfg.drought_window_hours);
-        assert!(drought_check(&mut state, "BTC", &cfg),
-            "should engage bypass at threshold");
+        assert!(
+            drought_check(&mut state, "BTC", &cfg),
+            "should engage bypass at threshold"
+        );
         // Subsequent calls within the window remain bypassed.
         assert!(drought_check(&mut state, "BTC", &cfg));
     }
@@ -266,8 +266,10 @@ mod tests {
             state.record_trend_block("BTC", cfg.drought_window_hours);
         }
         assert!(drought_check(&mut state, "BTC", &cfg));
-        assert!(!drought_check(&mut state, "ETH", &cfg),
-            "ETH should not be bypassed because BTC was");
+        assert!(
+            !drought_check(&mut state, "ETH", &cfg),
+            "ETH should not be bypassed because BTC was"
+        );
     }
 
     #[test]
@@ -279,10 +281,12 @@ mod tests {
         }
         assert!(drought_check(&mut state, "BTC", &cfg));
         state.clear_for("BTC");
-        assert!(!state.is_bypassed("BTC"),
-            "fill should clear bypass window");
-        assert_eq!(state.block_count("BTC", cfg.drought_window_hours), 0,
-            "fill should clear block history");
+        assert!(!state.is_bypassed("BTC"), "fill should clear bypass window");
+        assert_eq!(
+            state.block_count("BTC", cfg.drought_window_hours),
+            0,
+            "fill should clear block history"
+        );
     }
 
     #[test]
@@ -305,7 +309,11 @@ mod tests {
         // exploration — that would defeat the purpose.
         let mut state = DroughtState::default();
         let mut explored = 0;
-        for _ in 0..10 { if state.should_explore(0) { explored += 1; } }
+        for _ in 0..10 {
+            if state.should_explore(0) {
+                explored += 1;
+            }
+        }
         assert!(explored < 10, "should_explore must clamp n ≥ 2");
     }
 
@@ -313,7 +321,7 @@ mod tests {
     fn compose_summary_describes_active_overrides() {
         let mut state = DroughtState::default();
         let cfg = cfg_default();
-        let adj = compose(&mut state, "BTC", 0.05, &cfg);  // dead market
+        let adj = compose(&mut state, "BTC", 0.05, &cfg); // dead market
         assert!(adj.summary.contains("atr-aware"));
         assert!(adj.summary.contains("band"));
         assert_eq!(adj.edge_bps_delta, -5.0);

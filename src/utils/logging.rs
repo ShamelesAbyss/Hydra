@@ -67,7 +67,12 @@ pub fn tail_latest(cfg: &AppConfig, tail: usize) -> Result<()> {
     let dir: PathBuf = cfg.log_dir.clone();
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && p.file_name().map(|n| n.to_string_lossy().contains("hydra.log")).unwrap_or(false))
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .map(|n| n.to_string_lossy().contains("hydra.log"))
+                    .unwrap_or(false)
+        })
         .collect();
     if files.is_empty() {
         println!("(no log files in {})", dir.display());
@@ -81,7 +86,9 @@ pub fn tail_latest(cfg: &AppConfig, tail: usize) -> Result<()> {
     let start = size.saturating_sub(65_536);
     reader.seek(SeekFrom::Start(start))?;
     let mut lines: Vec<String> = Vec::new();
-    for l in reader.lines().flatten() { lines.push(l); }
+    for l in reader.lines().flatten() {
+        lines.push(l);
+    }
     let n = lines.len();
     for l in &lines[n.saturating_sub(tail)..] {
         println!("{l}");

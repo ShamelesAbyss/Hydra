@@ -7,7 +7,7 @@ use crate::config::{AppConfig, RiskConfig};
 use crate::core::{MarketSnapshot, OrderIntent, Signal};
 use crate::learning::{SignalDecision, SignalDecisionKind, StrictnessAdjustment};
 use crate::portfolio::PortfolioManager;
-use crate::storage::{Storage, CompoundState};
+use crate::storage::Storage;
 
 pub struct RiskEngine {
     risk: RiskConfig,
@@ -20,7 +20,11 @@ pub struct RiskEngine {
 
 impl RiskEngine {
     pub fn new(risk: RiskConfig, storage: Storage, active_symbols: usize) -> Self {
-        Self { risk, storage, active_symbols: active_symbols.max(1) }
+        Self {
+            risk,
+            storage,
+            active_symbols: active_symbols.max(1),
+        }
     }
 
     /// The effective per-symbol notional budget: whichever is smaller of
@@ -33,7 +37,10 @@ impl RiskEngine {
     fn per_symbol_budget_usd(&self, equity: f64) -> f64 {
         let total_budget = equity.max(0.0) * self.risk.max_open_exposure_pct / 100.0;
         let fair_share = total_budget / self.active_symbols as f64;
-        self.risk.max_notional_per_market_usd.min(fair_share).max(0.0)
+        self.risk
+            .max_notional_per_market_usd
+            .min(fair_share)
+            .max(0.0)
     }
 
     /// Returns the permitted order size (coin units) given risk constraints.
@@ -67,7 +74,9 @@ impl RiskEngine {
         }
 
         // 1. Data quality
-        if !snap.is_fresh(30) { bail!("stale market data (>{}s)", 30); }
+        if !snap.is_fresh(30) {
+            bail!("stale market data (>{}s)", 30);
+        }
         // v1.4.0: spread limit is symbol-aware (HYPE has wider typical spreads
         // than BTC/ETH; without an override, valid signals get rejected).
         let symbol_override = cfg.strategies.per_symbol.get(&signal.symbol);
@@ -76,7 +85,12 @@ impl RiskEngine {
             .unwrap_or(self.risk.max_spread_bps);
         if let Some(sp) = snap.spread_bps {
             if sp > max_spread {
-                bail!("spread too wide: {:.1}bps > {}bps ({})", sp, max_spread, signal.symbol);
+                bail!(
+                    "spread too wide: {:.1}bps > {}bps ({})",
+                    sp,
+                    max_spread,
+                    signal.symbol
+                );
             }
         }
 
@@ -91,12 +105,16 @@ impl RiskEngine {
         //     `reentry_cooldown_minutes` applies
         // This prevents the "75 min total lockout" pattern where a single
         // stop-out triggered both gates serially.
-        let last_stopout = self.storage
+        let last_stopout = self
+            .storage
             .last_stopout_close_for(&signal.symbol, signal.side.as_str())
-            .ok().flatten();
-        let last_loss = self.storage
+            .ok()
+            .flatten();
+        let last_loss = self
+            .storage
             .last_loss_close_for(&signal.symbol, signal.side.as_str())
-            .ok().flatten();
+            .ok()
+            .flatten();
         // The most recent loss was a stop-out iff the stop-out timestamp
         // matches (or is later than) the last_loss timestamp.
         let last_was_stopout = match (last_stopout, last_loss) {
@@ -113,8 +131,10 @@ impl RiskEngine {
                     if elapsed < window {
                         bail!(
                             "stop-out cooldown: last {} {} stop {}m ago < {}m",
-                            signal.symbol, signal.side.as_str(),
-                            elapsed / 60, stopout_min,
+                            signal.symbol,
+                            signal.side.as_str(),
+                            elapsed / 60,
+                            stopout_min,
                         );
                     }
                 }
@@ -128,8 +148,10 @@ impl RiskEngine {
                     if elapsed < window {
                         bail!(
                             "re-entry cooldown: last {} {} loss {}m ago < {}m",
-                            signal.symbol, signal.side.as_str(),
-                            elapsed / 60, cooldown_min,
+                            signal.symbol,
+                            signal.side.as_str(),
+                            elapsed / 60,
+                            cooldown_min,
                         );
                     }
                 }
@@ -204,36 +226,55 @@ impl RiskEngine {
         if min_edge > 0.0 && signal.expected_edge_bps < min_edge {
             bail!(
                 "edge filter: predicted {:.1}bps < {:.1}bps min net (after-fee threshold)",
-                signal.expected_edge_bps, min_edge,
+                signal.expected_edge_bps,
+                min_edge,
             );
         }
 
         // 2. Daily / weekly losses
-        let daily_pnl = self.storage.sum_realized_since(Utc::now() - chrono::Duration::days(1))?;
-        let weekly_pnl = self.storage.sum_realized_since(Utc::now() - chrono::Duration::days(7))?;
-        let equity = portfolio.last_known_equity().max(1.0);
+        let daily_pnl = self
+            .storage
+            .sum_realized_since(Utc::now() - chrono::Duration::days(1))?;
+        let weekly_pnl = self
+            .storage
+            .sum_realized_since(Utc::now() - chrono::Duration::days(7))?;
+        let equity = portfolio.last_known_equity();
+        anyhow::ensure!(
+            equity.is_finite() && equity > 0.0,
+            "account equity unavailable or zero; new exposure blocked"
+        );
 
         if daily_pnl.is_finite() && daily_pnl < 0.0 {
             let loss_pct = -daily_pnl / equity * 100.0;
             if loss_pct > self.risk.max_daily_loss_pct {
-                bail!("daily loss limit hit: {:.2}% > {:.2}%", loss_pct, self.risk.max_daily_loss_pct);
+                bail!(
+                    "daily loss limit hit: {:.2}% > {:.2}%",
+                    loss_pct,
+                    self.risk.max_daily_loss_pct
+                );
             }
         }
         if weekly_pnl.is_finite() && weekly_pnl < 0.0 {
             let loss_pct = -weekly_pnl / equity * 100.0;
             if loss_pct > self.risk.max_weekly_loss_pct {
-                bail!("weekly loss limit hit: {:.2}% > {:.2}%", loss_pct, self.risk.max_weekly_loss_pct);
+                bail!(
+                    "weekly loss limit hit: {:.2}% > {:.2}%",
+                    loss_pct,
+                    self.risk.max_weekly_loss_pct
+                );
             }
         }
 
         // 3. Consecutive losses cooldown
-        let consec = self.storage.consecutive_losses(self.risk.consecutive_loss_window_hours)?;
+        let consec = self
+            .storage
+            .consecutive_losses(self.risk.consecutive_loss_window_hours)?;
         if consec >= self.risk.max_consecutive_losses {
             bail!("consecutive-loss cooldown active ({consec})");
         }
 
         // 4. Exposure caps — per-symbol fair-share budget + hard total ceiling.
-        let (open_notional, per_market) = portfolio.exposure(&signal.symbol);
+        let (open_notional, per_market) = portfolio.exposure(&signal.symbol)?;
         let per_symbol_budget = self.per_symbol_budget_usd(equity);
 
         if per_market >= per_symbol_budget {
@@ -254,7 +295,7 @@ impl RiskEngine {
         }
 
         // 5. Compute size from risk budget
-        let compound = self.storage.get_compound_state().unwrap_or_else(|_| CompoundState::default());
+        let compound = self.storage.get_compound_state()?;
         let risk_mult = compound.current_risk_mult.max(0.2).min(3.0);
         // v1.4.0: per-symbol risk percentage override.
         let base_risk_pct = symbol_override
@@ -274,11 +315,17 @@ impl RiskEngine {
             bail!("invalid stop price: {}", stop);
         }
         let dist = (entry - stop).abs();
-        if !dist.is_finite() || dist <= 0.0 { bail!("stop distance non-positive or non-finite: {}", dist); }
+        if !dist.is_finite() || dist <= 0.0 {
+            bail!("stop distance non-positive or non-finite: {}", dist);
+        }
         let per_unit_risk = dist;
         let mut size_coin = risk_budget_usd / per_unit_risk;
         if !size_coin.is_finite() {
-            bail!("computed size is non-finite (risk_budget={} dist={})", risk_budget_usd, per_unit_risk);
+            bail!(
+                "computed size is non-finite (risk_budget={} dist={})",
+                risk_budget_usd,
+                per_unit_risk
+            );
         }
 
         // strategy-specific fraction
@@ -350,13 +397,19 @@ impl RiskEngine {
         let projected_total = open_notional + size_coin * entry;
         let projected_pct = projected_total / equity * 100.0;
         if !projected_pct.is_finite() {
-            bail!("projected exposure pct is non-finite (open={}, size={}, entry={}, equity={})",
-                open_notional, size_coin, entry, equity);
+            bail!(
+                "projected exposure pct is non-finite (open={}, size={}, entry={}, equity={})",
+                open_notional,
+                size_coin,
+                entry,
+                equity
+            );
         }
         if projected_pct > self.risk.max_open_exposure_pct + 0.01 {
             bail!(
                 "projected exposure {:.1}% would exceed {:.1}% cap — refusing trade",
-                projected_pct, self.risk.max_open_exposure_pct,
+                projected_pct,
+                self.risk.max_open_exposure_pct,
             );
         }
 
@@ -382,11 +435,12 @@ impl RiskEngine {
 
 fn strategy_frac(cfg: &AppConfig, name: &str) -> f64 {
     match name {
-        "divergence"     => cfg.strategies.divergence.position_frac,
-        "momentum"       => cfg.strategies.momentum.position_frac,
+        "divergence" => cfg.strategies.divergence.position_frac,
+        "momentum" => cfg.strategies.momentum.position_frac,
         "mean_reversion" => cfg.strategies.mean_reversion.position_frac,
         _ => 0.5,
-    }.clamp(0.1, 1.0)
+    }
+    .clamp(0.1, 1.0)
 }
 
 /// Outcome of the v1.3.6 trend-filter deadband decision. Pure function; no
@@ -473,7 +527,11 @@ mod tests {
         // runs can scale larger — this test documents current behaviour.
         let e = eng(cfg_with(500.0, 300.0), 1);
         let budget = e.per_symbol_budget_usd(95.0);
-        assert!((budget - 285.0).abs() < 0.01, "single-pair budget={}", budget);
+        assert!(
+            (budget - 285.0).abs() < 0.01,
+            "single-pair budget={}",
+            budget
+        );
     }
 
     #[test]
@@ -517,16 +575,23 @@ mod tests {
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
         let p = OpenPosition {
-            id: 0, venue: "hyperliquid".into(), symbol: "BTC".into(),
-            side: "SHORT".into(), size: 0.001, entry_price: 78000.0,
-            stop_price: Some(78250.0), take_profit: Some(77500.0),
+            id: 0,
+            venue: "hyperliquid".into(),
+            symbol: "BTC".into(),
+            side: "SHORT".into(),
+            size: 0.001,
+            entry_price: 78000.0,
+            stop_price: Some(78250.0),
+            take_profit: Some(77500.0),
             opened_at: chrono::Utc::now(),
             strategy: Some("mean_reversion".into()),
             trailing_high: Some(78000.0),
         };
         let pid = storage.insert_open_position(&p).unwrap();
         // Close at a loss
-        storage.close_position(pid, 78250.0, -0.25, 1, "stop").unwrap();
+        storage
+            .close_position(pid, 78250.0, -0.25, 1, "stop")
+            .unwrap();
         let res = storage.last_loss_close_for("BTC", "SHORT").unwrap();
         assert!(res.is_some(), "expected a loss timestamp back");
     }
@@ -539,24 +604,43 @@ mod tests {
         storage.migrate().unwrap();
         // First close: a loss.
         let p1 = OpenPosition {
-            id: 0, venue: "hl".into(), symbol: "ETH".into(), side: "LONG".into(),
-            size: 0.05, entry_price: 2300.0, stop_price: Some(2280.0),
-            take_profit: Some(2350.0), opened_at: chrono::Utc::now(),
-            strategy: None, trailing_high: Some(2300.0),
+            id: 0,
+            venue: "hl".into(),
+            symbol: "ETH".into(),
+            side: "LONG".into(),
+            size: 0.05,
+            entry_price: 2300.0,
+            stop_price: Some(2280.0),
+            take_profit: Some(2350.0),
+            opened_at: chrono::Utc::now(),
+            strategy: None,
+            trailing_high: Some(2300.0),
         };
         let id1 = storage.insert_open_position(&p1).unwrap();
-        storage.close_position(id1, 2280.0, -1.0, 1, "stop").unwrap();
+        storage
+            .close_position(id1, 2280.0, -1.0, 1, "stop")
+            .unwrap();
         // Most recent close: a WIN. Cooldown logic should clear.
         let p2 = OpenPosition {
-            id: 0, venue: "hl".into(), symbol: "ETH".into(), side: "LONG".into(),
-            size: 0.05, entry_price: 2310.0, stop_price: Some(2290.0),
-            take_profit: Some(2360.0), opened_at: chrono::Utc::now(),
-            strategy: None, trailing_high: Some(2310.0),
+            id: 0,
+            venue: "hl".into(),
+            symbol: "ETH".into(),
+            side: "LONG".into(),
+            size: 0.05,
+            entry_price: 2310.0,
+            stop_price: Some(2290.0),
+            take_profit: Some(2360.0),
+            opened_at: chrono::Utc::now(),
+            strategy: None,
+            trailing_high: Some(2310.0),
         };
         let id2 = storage.insert_open_position(&p2).unwrap();
         storage.close_position(id2, 2360.0, 2.5, 1, "tp").unwrap();
         let res = storage.last_loss_close_for("ETH", "LONG").unwrap();
-        assert!(res.is_none(), "most recent close was a win; no cooldown should apply");
+        assert!(
+            res.is_none(),
+            "most recent close was a win; no cooldown should apply"
+        );
     }
 
     #[test]
@@ -566,17 +650,35 @@ mod tests {
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
         let p = OpenPosition {
-            id: 0, venue: "hl".into(), symbol: "BTC".into(), side: "SHORT".into(),
-            size: 0.001, entry_price: 78000.0, stop_price: Some(78250.0),
-            take_profit: Some(77500.0), opened_at: chrono::Utc::now(),
-            strategy: None, trailing_high: Some(78000.0),
+            id: 0,
+            venue: "hl".into(),
+            symbol: "BTC".into(),
+            side: "SHORT".into(),
+            size: 0.001,
+            entry_price: 78000.0,
+            stop_price: Some(78250.0),
+            take_profit: Some(77500.0),
+            opened_at: chrono::Utc::now(),
+            strategy: None,
+            trailing_high: Some(78000.0),
         };
         let id = storage.insert_open_position(&p).unwrap();
-        storage.close_position(id, 78250.0, -0.25, 1, "stop").unwrap();
+        storage
+            .close_position(id, 78250.0, -0.25, 1, "stop")
+            .unwrap();
         // Other symbol & other side must remain unblocked.
-        assert!(storage.last_loss_close_for("ETH", "SHORT").unwrap().is_none());
-        assert!(storage.last_loss_close_for("BTC", "LONG").unwrap().is_none());
-        assert!(storage.last_loss_close_for("BTC", "SHORT").unwrap().is_some());
+        assert!(storage
+            .last_loss_close_for("ETH", "SHORT")
+            .unwrap()
+            .is_none());
+        assert!(storage
+            .last_loss_close_for("BTC", "LONG")
+            .unwrap()
+            .is_none());
+        assert!(storage
+            .last_loss_close_for("BTC", "SHORT")
+            .unwrap()
+            .is_some());
     }
 
     /// v1.6.1: stop-out-specific cooldown source.
@@ -590,21 +692,32 @@ mod tests {
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
         let mk = |id_seed: i64| OpenPosition {
-            id: 0, venue: "hl".into(), symbol: "HYPE".into(), side: "LONG".into(),
-            size: 1.0 + id_seed as f64 * 0.001, entry_price: 41.50,
-            stop_price: Some(41.30), take_profit: Some(41.90),
+            id: 0,
+            venue: "hl".into(),
+            symbol: "HYPE".into(),
+            side: "LONG".into(),
+            size: 1.0 + id_seed as f64 * 0.001,
+            entry_price: 41.50,
+            stop_price: Some(41.30),
+            take_profit: Some(41.90),
             opened_at: chrono::Utc::now(),
-            strategy: None, trailing_high: Some(41.50),
+            strategy: None,
+            trailing_high: Some(41.50),
         };
         // Stop-out first.
         let s_id = storage.insert_open_position(&mk(1)).unwrap();
-        storage.close_position(s_id, 41.30, -0.20, 1, "stop").unwrap();
+        storage
+            .close_position(s_id, 41.30, -0.20, 1, "stop")
+            .unwrap();
         // Then a winning TP exit AFTER it.
         let w_id = storage.insert_open_position(&mk(2)).unwrap();
         storage.close_position(w_id, 41.90, 0.40, 1, "tp").unwrap();
         // last_stopout must still report the stop-out (the TP doesn't shadow it).
         let res = storage.last_stopout_close_for("HYPE", "LONG").unwrap();
-        assert!(res.is_some(), "stop-out should still be retrievable after a TP win");
+        assert!(
+            res.is_some(),
+            "stop-out should still be retrievable after a TP win"
+        );
     }
 
     /// `last_stopout_close_for` must return None when no stops have happened
@@ -616,16 +729,28 @@ mod tests {
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
         let p = OpenPosition {
-            id: 0, venue: "hl".into(), symbol: "BTC".into(), side: "SHORT".into(),
-            size: 0.001, entry_price: 78000.0, stop_price: Some(78250.0),
-            take_profit: Some(77500.0), opened_at: chrono::Utc::now(),
-            strategy: None, trailing_high: Some(78000.0),
+            id: 0,
+            venue: "hl".into(),
+            symbol: "BTC".into(),
+            side: "SHORT".into(),
+            size: 0.001,
+            entry_price: 78000.0,
+            stop_price: Some(78250.0),
+            take_profit: Some(77500.0),
+            opened_at: chrono::Utc::now(),
+            strategy: None,
+            trailing_high: Some(78000.0),
         };
         let id = storage.insert_open_position(&p).unwrap();
         // Closed via time-stop (a loss, but not a stop-out).
-        storage.close_position(id, 77800.0, -0.20, 1, "time_stop").unwrap();
+        storage
+            .close_position(id, 77800.0, -0.20, 1, "time_stop")
+            .unwrap();
         let res = storage.last_stopout_close_for("BTC", "SHORT").unwrap();
-        assert!(res.is_none(), "time-stop closes must NOT trigger stop-out cooldown");
+        assert!(
+            res.is_none(),
+            "time-stop closes must NOT trigger stop-out cooldown"
+        );
     }
 
     // ─── v1.3.4 rolling-window + manual reset invariants ─────────────────────
@@ -633,13 +758,22 @@ mod tests {
     fn open_and_close(storage: &Storage, sym: &str, side: &str, pnl: f64) -> i64 {
         use crate::core::OpenPosition;
         let p = OpenPosition {
-            id: 0, venue: "hl".into(), symbol: sym.into(), side: side.into(),
-            size: 0.01, entry_price: 100.0, stop_price: Some(99.0),
-            take_profit: Some(102.0), opened_at: chrono::Utc::now(),
-            strategy: None, trailing_high: Some(100.0),
+            id: 0,
+            venue: "hl".into(),
+            symbol: sym.into(),
+            side: side.into(),
+            size: 0.01,
+            entry_price: 100.0,
+            stop_price: Some(99.0),
+            take_profit: Some(102.0),
+            opened_at: chrono::Utc::now(),
+            strategy: None,
+            trailing_high: Some(100.0),
         };
         let pid = storage.insert_open_position(&p).unwrap();
-        storage.close_position(pid, 100.0, pnl, 1, if pnl < 0.0 { "stop" } else { "tp" }).unwrap();
+        storage
+            .close_position(pid, 100.0, pnl, 1, if pnl < 0.0 { "stop" } else { "tp" })
+            .unwrap();
         pid
     }
 
@@ -648,7 +782,9 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
-        for _ in 0..5 { open_and_close(&storage, "BTC", "SHORT", -0.1); }
+        for _ in 0..5 {
+            open_and_close(&storage, "BTC", "SHORT", -0.1);
+        }
         let n = storage.consecutive_losses(4).unwrap();
         assert_eq!(n, 5, "5 fresh losses should be counted");
     }
@@ -661,7 +797,7 @@ mod tests {
         open_and_close(&storage, "BTC", "SHORT", -0.1);
         open_and_close(&storage, "BTC", "SHORT", -0.1);
         open_and_close(&storage, "BTC", "SHORT", -0.1);
-        open_and_close(&storage, "BTC", "SHORT",  0.5);  // win
+        open_and_close(&storage, "BTC", "SHORT", 0.5); // win
         open_and_close(&storage, "BTC", "SHORT", -0.1);
         let n = storage.consecutive_losses(4).unwrap();
         assert_eq!(n, 1, "only the most recent loss after the win counts");
@@ -672,11 +808,16 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
-        for _ in 0..5 { open_and_close(&storage, "BTC", "SHORT", -0.1); }
+        for _ in 0..5 {
+            open_and_close(&storage, "BTC", "SHORT", -0.1);
+        }
         assert_eq!(storage.consecutive_losses(4).unwrap(), 5);
         storage.reset_consecutive_losses().unwrap();
-        assert_eq!(storage.consecutive_losses(4).unwrap(), 0,
-            "reset must zero out any prior streak");
+        assert_eq!(
+            storage.consecutive_losses(4).unwrap(),
+            0,
+            "reset must zero out any prior streak"
+        );
     }
 
     #[test]
@@ -684,12 +825,16 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let storage = Storage::open(tmp.path()).unwrap();
         storage.migrate().unwrap();
-        for _ in 0..3 { open_and_close(&storage, "BTC", "SHORT", -0.1); }
+        for _ in 0..3 {
+            open_and_close(&storage, "BTC", "SHORT", -0.1);
+        }
         storage.reset_consecutive_losses().unwrap();
         assert_eq!(storage.consecutive_losses(4).unwrap(), 0);
         // Subsequent fresh losses count again.
         std::thread::sleep(std::time::Duration::from_millis(10));
-        for _ in 0..2 { open_and_close(&storage, "BTC", "SHORT", -0.1); }
+        for _ in 0..2 {
+            open_and_close(&storage, "BTC", "SHORT", -0.1);
+        }
         assert_eq!(storage.consecutive_losses(4).unwrap(), 2);
     }
 
@@ -748,7 +893,7 @@ mod tests {
         // Setting band to 0 disables the deadband — any non-zero diff blocks.
         // Useful for users who explicitly want the original strict filter.
         assert_eq!(trend_filter_decision(100.01, 100.0, 0.0), BlockShort);
-        assert_eq!(trend_filter_decision(99.99,  100.0, 0.0), BlockLong);
+        assert_eq!(trend_filter_decision(99.99, 100.0, 0.0), BlockLong);
     }
 
     #[test]

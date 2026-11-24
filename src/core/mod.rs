@@ -6,21 +6,33 @@ use serde::{Deserialize, Serialize};
 pub mod engine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Side { Long, Short }
+pub enum Side {
+    Long,
+    Short,
+}
 
 impl Side {
     pub fn as_str(&self) -> &'static str {
-        match self { Side::Long => "LONG", Side::Short => "SHORT" }
+        match self {
+            Side::Long => "LONG",
+            Side::Short => "SHORT",
+        }
     }
-    pub fn is_buy(&self) -> bool { matches!(self, Side::Long) }
+    pub fn is_buy(&self) -> bool {
+        matches!(self, Side::Long)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VenueKind { Hyperliquid }
+pub enum VenueKind {
+    Hyperliquid,
+}
 
 impl VenueKind {
     pub fn as_str(&self) -> &'static str {
-        match self { VenueKind::Hyperliquid => "hyperliquid" }
+        match self {
+            VenueKind::Hyperliquid => "hyperliquid",
+        }
     }
 }
 
@@ -35,7 +47,14 @@ pub struct Candle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Regime { Trending, Choppy, Panic, LowLiquidity, VolSpike, NoTrade }
+pub enum Regime {
+    Trending,
+    Choppy,
+    Panic,
+    LowLiquidity,
+    VolSpike,
+    NoTrade,
+}
 
 impl Regime {
     pub fn allows_trading(&self) -> bool {
@@ -67,7 +86,7 @@ pub struct Signal {
     pub venue: String,
     pub symbol: String,
     pub side: Side,
-    pub confidence: f64,      // 0..1
+    pub confidence: f64, // 0..1
     pub expected_edge_bps: f64,
     pub stop_price: f64,
     pub take_profit: f64,
@@ -77,12 +96,12 @@ pub struct Signal {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderIntent {
-    pub id: String,           // internal uuid
+    pub id: String, // internal uuid
     pub venue: String,
     pub symbol: String,
     pub side: Side,
-    pub size: f64,            // in base units (coin qty)
-    pub limit_price: Option<f64>,  // None = market
+    pub size: f64,                // in base units (coin qty)
+    pub limit_price: Option<f64>, // None = market
     pub reduce_only: bool,
     pub stop_price: Option<f64>,
     pub take_profit: Option<f64>,

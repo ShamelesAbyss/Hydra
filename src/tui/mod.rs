@@ -21,7 +21,9 @@ pub mod tracing_layer;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, Stdout};
@@ -89,8 +91,12 @@ pub async fn run(dash: SharedDash, stop: Arc<AtomicBool>) -> Result<()> {
             // spawn_blocking in short windows so it can't starve the runtime.
             let poll_res = tokio::task::spawn_blocking(|| {
                 event::poll(Duration::from_millis(20)).unwrap_or(false)
-            }).await.unwrap_or(false);
-            if !poll_res { break; }
+            })
+            .await
+            .unwrap_or(false);
+            if !poll_res {
+                break;
+            }
             if let Ok(ev) = event::read() {
                 if let Event::Key(k) = ev {
                     if k.kind == KeyEventKind::Press
@@ -103,7 +109,9 @@ pub async fn run(dash: SharedDash, stop: Arc<AtomicBool>) -> Result<()> {
                 }
             }
         }
-        if stop.load(Ordering::SeqCst) { break; }
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
 
         // --- 2. Snapshot the dashboard under a brief read lock.
         // We clone out so we don't hold the lock across the draw call.

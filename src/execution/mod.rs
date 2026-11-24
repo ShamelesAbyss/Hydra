@@ -1,15 +1,19 @@
-//! Execution engine: the ONLY path that may contact a live venue.
-//! All orders pass through `submit`, which enforces:
-//! 1. live-trading gate (env or --live)
-//! 2. basic parameter sanity
-//! 3. structured logging of every lifecycle event
-
-use anyhow::{bail, Result};
-use tracing::{info, warn};
+//! Durable execution boundary. Every entry and reduction is journaled before submission.
+use anyhow::{bail, ensure, Result};
+use chrono::Utc;
 
 use crate::adapters::VenueAdapter;
-use crate::core::{OrderIntent, OrderResult};
+use crate::core::{OrderIntent, OrderResult, Side};
 use crate::storage::Storage;
+
+/// The CLI flag is an assertion, never an override of the configuration gate.
+pub fn authorized_live(configured: bool, requested: bool) -> Result<bool> {
+    ensure!(
+        !requested || configured,
+        "--live requires ENABLE_LIVE_TRADING=true"
+    );
+    Ok(configured)
+}
 
 pub struct ExecutionEngine {
     storage: Storage,
@@ -18,52 +22,80 @@ pub struct ExecutionEngine {
 
 impl ExecutionEngine {
     pub fn new(storage: Storage, live: bool) -> Self {
-        if live { info!("execution engine: LIVE"); } else { warn!("execution engine: DRY-RUN (no orders will be sent)"); }
         Self { storage, live }
     }
 
-    pub fn is_live(&self) -> bool { self.live }
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
 
-    pub async fn submit(&mut self, intent: &OrderIntent, venue: &dyn VenueAdapter) -> Result<OrderResult> {
-        // ---- Parameter sanity ----
-        if intent.size <= 0.0 || !intent.size.is_finite() {
-            bail!("invalid size {}", intent.size);
+    pub async fn submit(
+        &mut self,
+        intent: &OrderIntent,
+        venue: &dyn VenueAdapter,
+    ) -> Result<OrderResult> {
+        ensure!(
+            intent.size.is_finite() && intent.size > 0.0,
+            "invalid order size"
+        );
+        ensure!(
+            intent.venue == venue.kind().as_str(),
+            "order/venue mismatch"
+        );
+        ensure!(
+            uuid::Uuid::parse_str(&intent.id)?.to_string() == intent.id,
+            "client order UUID must use canonical lowercase form"
+        );
+        if let Some(px) = intent.limit_price {
+            ensure!(px.is_finite() && px > 0.0, "invalid limit price");
         }
-        if let Some(lp) = intent.limit_price {
-            if lp <= 0.0 || !lp.is_finite() {
-                bail!("invalid limit_price {}", lp);
-            }
-        }
-
-        // ---- Dry-run gate ----
         if !self.live {
-            info!(
-                intent_id=%intent.id, venue=%intent.venue, symbol=%intent.symbol,
-                side=intent.side.as_str(), size=intent.size,
-                "DRY-RUN would submit"
-            );
             return Ok(OrderResult {
                 intent_id: intent.id.clone(),
                 accepted: false,
                 venue_order_id: None,
                 filled_size: 0.0,
                 avg_fill_price: None,
-                message: "dry-run: ENABLE_LIVE_TRADING=false".into(),
+                message: "dry-run: ENABLE_LIVE_TRADING=false; no exchange write".into(),
             });
         }
-
-        info!(
-            intent_id=%intent.id, venue=%intent.venue, symbol=%intent.symbol,
-            side=intent.side.as_str(), size=intent.size, reduce_only=intent.reduce_only,
-            "submitting live order"
-        );
-        let res = venue.submit_order(intent).await?;
-        info!(
-            intent_id=%intent.id, accepted=res.accepted, filled=res.filled_size,
-            venue_order_id=?res.venue_order_id, msg=%res.message,
-            "order result"
-        );
-        let _ = &self.storage; // storage is recorded by caller with session_id
+        if !intent.reduce_only {
+            self.storage.ensure_execution_resolved()?;
+            ensure!(!self.storage.list_open_positions()?.iter().any(|p| p.venue == intent.venue && p.symbol == intent.symbol),
+                "instrument already owned by an active position; strategy scaling/arbitration required");
+        } else {
+            self.storage
+                .ensure_symbol_execution_resolved(&intent.venue, &intent.symbol)?;
+        }
+        // Cancellation after this point leaves 'submitted', blocking new exposure.
+        self.storage.reserve_intent(intent)?;
+        let res = match venue.submit_order(intent).await {
+            Ok(res) => res,
+            Err(e) => {
+                self.storage
+                    .finish_intent(&intent.id, "acknowledgment_unknown", None)?;
+                return Err(e.context("order outcome unknown; do not resubmit, reconcile first"));
+            }
+        };
+        let valid = res.intent_id == intent.id
+            && res.filled_size.is_finite()
+            && res.filled_size >= 0.0
+            && res.filled_size <= intent.size
+            && (res.filled_size == 0.0
+                || (res.accepted && res.avg_fill_price.is_some_and(|p| p.is_finite() && p > 0.0)));
+        if !valid {
+            self.storage
+                .finish_intent(&intent.id, "acknowledgment_unknown", None)?;
+            bail!("invalid exchange acknowledgment; reconciliation required");
+        }
+        let state = if !res.accepted {
+            "rejected"
+        } else if res.filled_size > 0.0 {
+            "filled"
+        } else {
+            "resting"
+        };
+        self.storage.finish_intent(&intent.id, state, Some(&res))?;
         Ok(res)
     }
 
@@ -72,19 +104,21 @@ impl ExecutionEngine {
         venue: &dyn VenueAdapter,
         symbol: &str,
         size: f64,
-        side_is_buy_to_close: bool,
+        buy: bool,
     ) -> Result<OrderResult> {
-        if !self.live {
-            info!(symbol, size, "DRY-RUN would close");
-            return Ok(OrderResult {
-                intent_id: uuid::Uuid::new_v4().to_string(),
-                accepted: false,
-                venue_order_id: None,
-                filled_size: 0.0,
-                avg_fill_price: None,
-                message: "dry-run close".into(),
-            });
-        }
-        venue.close_position(symbol, size, side_is_buy_to_close).await
+        let intent = OrderIntent {
+            id: uuid::Uuid::new_v4().to_string(),
+            venue: venue.kind().as_str().into(),
+            symbol: symbol.into(),
+            side: if buy { Side::Long } else { Side::Short },
+            size,
+            limit_price: None,
+            reduce_only: true,
+            stop_price: None,
+            take_profit: None,
+            source_signal: None,
+            created_at: Utc::now(),
+        };
+        self.submit(&intent, venue).await
     }
 }

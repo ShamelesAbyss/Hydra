@@ -24,7 +24,7 @@ pub struct FeatureVec {
     pub atr_pct: f64,
     pub spread_bps: f64,
     pub edge_bps: f64,
-    pub regime_5m_id: u8,    // see regime_to_id
+    pub regime_5m_id: u8, // see regime_to_id
     pub hour_utc: u8,
     pub day_of_week: u8,
 }
@@ -33,25 +33,33 @@ pub struct FeatureVec {
 /// compact and makes similarity distance well-defined.
 pub fn regime_to_id(regime: &str) -> u8 {
     match regime {
-        "Trending"     => 1,
-        "VolSpike"     => 2,
-        "Choppy"       => 3,
-        "Panic"        => 4,
+        "Trending" => 1,
+        "VolSpike" => 2,
+        "Choppy" => 3,
+        "Panic" => 4,
         "LowLiquidity" => 5,
-        _              => 0, // NoTrade / unknown
+        _ => 0, // NoTrade / unknown
     }
 }
 
 /// L2 distance in normalized feature space. Lower = more similar.
 fn distance(a: &FeatureVec, b: &FeatureVec) -> f64 {
-    let datr = (a.atr_pct - b.atr_pct) / 1.0;          // ATR% scale ~ [0,5]
-    let dspr = (a.spread_bps - b.spread_bps) / 10.0;   // spread scale
-    let dedg = (a.edge_bps   - b.edge_bps)   / 20.0;   // edge scale
-    let drgm = if a.regime_5m_id == b.regime_5m_id { 0.0 } else { 1.0 };
+    let datr = (a.atr_pct - b.atr_pct) / 1.0; // ATR% scale ~ [0,5]
+    let dspr = (a.spread_bps - b.spread_bps) / 10.0; // spread scale
+    let dedg = (a.edge_bps - b.edge_bps) / 20.0; // edge scale
+    let drgm = if a.regime_5m_id == b.regime_5m_id {
+        0.0
+    } else {
+        1.0
+    };
     // Hour distance is circular (23 vs 0 should be close).
     let dh_raw = (a.hour_utc as f64 - b.hour_utc as f64).abs();
     let dh = dh_raw.min(24.0 - dh_raw) / 12.0;
-    let ddow = if a.day_of_week == b.day_of_week { 0.0 } else { 1.0 };
+    let ddow = if a.day_of_week == b.day_of_week {
+        0.0
+    } else {
+        1.0
+    };
     (datr * datr + dspr * dspr + dedg * dedg + drgm + dh * dh + ddow).sqrt()
 }
 
@@ -65,7 +73,12 @@ pub struct SimilarityVerdict {
 
 impl Default for SimilarityVerdict {
     fn default() -> Self {
-        Self { matches: 0, avg_realized_r: 0.0, net_pnl: 0.0, win_rate: 0.0 }
+        Self {
+            matches: 0,
+            avg_realized_r: 0.0,
+            net_pnl: 0.0,
+            win_rate: 0.0,
+        }
     }
 }
 
@@ -89,7 +102,10 @@ impl SimilarityVerdict {
         } else {
             format!(
                 "memory: {} matches, win_rate {:.0}%, avg_r {:+.2}, net ${:+.2}",
-                self.matches, self.win_rate * 100.0, self.avg_realized_r, self.net_pnl,
+                self.matches,
+                self.win_rate * 100.0,
+                self.avg_realized_r,
+                self.net_pnl,
             )
         }
     }
@@ -112,39 +128,55 @@ pub fn similar_trades(
                     hour_utc, day_of_week, realized_r, realized_pnl
              FROM trade_context
              WHERE symbol = ?1 AND strategy = ?2 AND side = ?3
-             ORDER BY id DESC LIMIT 500"
-        ) { Ok(s) => s, Err(_) => return Vec::new() };
-        stmt.query_map(params![symbol, strategy, side], |r| Ok((
-            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
-            r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?,
-        )))
-            .map(|m| m.filter_map(|r| r.ok()).collect())
-            .unwrap_or_default()
+             ORDER BY id DESC LIMIT 500",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        stmt.query_map(params![symbol, strategy, side], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+            ))
+        })
+        .map(|m| m.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default()
     });
     if rows.is_empty() {
         return Ok(SimilarityVerdict::default());
     }
 
     // Score every candidate
-    let mut scored: Vec<(f64, f64, f64)> = rows.iter().map(|row| {
-        let cf = FeatureVec {
-            atr_pct: row.0,
-            spread_bps: row.1.unwrap_or(2.0),
-            edge_bps: row.2,
-            regime_5m_id: regime_to_id(&row.3),
-            hour_utc: row.4 as u8,
-            day_of_week: row.5 as u8,
-        };
-        (distance(feat, &cf), row.6, row.7)
-    }).collect();
+    let mut scored: Vec<(f64, f64, f64)> = rows
+        .iter()
+        .map(|row| {
+            let cf = FeatureVec {
+                atr_pct: row.0,
+                spread_bps: row.1.unwrap_or(2.0),
+                edge_bps: row.2,
+                regime_5m_id: regime_to_id(&row.3),
+                hour_utc: row.4 as u8,
+                day_of_week: row.5 as u8,
+            };
+            (distance(feat, &cf), row.6, row.7)
+        })
+        .collect();
     scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let top: Vec<_> = scored.into_iter().take(K).collect();
     let n = top.len();
-    if n == 0 { return Ok(SimilarityVerdict::default()); }
+    if n == 0 {
+        return Ok(SimilarityVerdict::default());
+    }
 
     let avg_r = top.iter().map(|(_, r, _)| r).sum::<f64>() / n as f64;
-    let net   = top.iter().map(|(_, _, p)| p).sum();
-    let wins  = top.iter().filter(|(_, _, p)| *p > 0.0).count() as f64;
+    let net = top.iter().map(|(_, _, p)| p).sum();
+    let wins = top.iter().filter(|(_, _, p)| *p > 0.0).count() as f64;
     Ok(SimilarityVerdict {
         matches: n,
         avg_realized_r: avg_r,
@@ -159,8 +191,12 @@ mod tests {
 
     fn fv(atr: f64, edge: f64, regime: u8, hour: u8) -> FeatureVec {
         FeatureVec {
-            atr_pct: atr, spread_bps: 2.0, edge_bps: edge,
-            regime_5m_id: regime, hour_utc: hour, day_of_week: 1,
+            atr_pct: atr,
+            spread_bps: 2.0,
+            edge_bps: edge,
+            regime_5m_id: regime,
+            hour_utc: hour,
+            day_of_week: 1,
         }
     }
 
@@ -188,13 +224,31 @@ mod tests {
 
     #[test]
     fn verdict_blocks_only_on_clear_history_of_loss() {
-        let v = SimilarityVerdict { matches: 15, win_rate: 0.20, net_pnl: -3.0, avg_realized_r: -0.5 };
+        let v = SimilarityVerdict {
+            matches: 15,
+            win_rate: 0.20,
+            net_pnl: -3.0,
+            avg_realized_r: -0.5,
+        };
         assert!(v.is_blocking());
 
-        let v2 = SimilarityVerdict { matches: 5, win_rate: 0.0, net_pnl: -3.0, avg_realized_r: -0.5 };
+        let v2 = SimilarityVerdict {
+            matches: 5,
+            win_rate: 0.0,
+            net_pnl: -3.0,
+            avg_realized_r: -0.5,
+        };
         assert!(!v2.is_blocking(), "small sample shouldn't block");
 
-        let v3 = SimilarityVerdict { matches: 15, win_rate: 0.40, net_pnl: -1.0, avg_realized_r: -0.1 };
-        assert!(!v3.is_blocking(), "marginal loss with 40% wr shouldn't block");
+        let v3 = SimilarityVerdict {
+            matches: 15,
+            win_rate: 0.40,
+            net_pnl: -1.0,
+            avg_realized_r: -0.1,
+        };
+        assert!(
+            !v3.is_blocking(),
+            "marginal loss with 40% wr shouldn't block"
+        );
     }
 }

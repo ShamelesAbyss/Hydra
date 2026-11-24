@@ -57,7 +57,7 @@ pub struct SignalRow {
     pub symbol: String,
     pub side: String,
     pub edge_bps: f64,
-    pub outcome: String,   // "emitted" | "blocked: ..." | "filled"
+    pub outcome: String, // "emitted" | "blocked: ..." | "filled"
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +67,7 @@ pub struct FillRow {
     pub side: String,
     pub size: f64,
     pub price: f64,
-    pub kind: String,      // "open" | "close_tp" | "close_stop" | "close_time"
+    pub kind: String, // "open" | "close_tp" | "close_stop" | "close_time"
     pub realized_usd: Option<f64>,
 }
 
@@ -81,7 +81,7 @@ pub struct ErrorRow {
 #[derive(Debug, Clone)]
 pub struct FeedLine {
     pub ts: DateTime<Utc>,
-    pub level: String,    // "INFO" | "WARN" | "ERROR" | "DEBUG"
+    pub level: String, // "INFO" | "WARN" | "ERROR" | "DEBUG"
     pub target: String,
     pub message: String,
 }

@@ -1,9 +1,9 @@
 [package]
 name = "hydra"
-version = "1.6.2"
+version = "1.7.0-alpha.1"
 edition = "2021"
 authors = ["Emergent Labs"]
-description = "HYDRA — live-fire terminal trading engine for Hyperliquid + Ethereum (Uniswap V3)"
+description = "HYDRA — Project Leviathan: native Hyperliquid trading engine"
 license = "MIT"
 
 [[bin]]

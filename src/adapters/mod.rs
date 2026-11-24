@@ -30,7 +30,12 @@ pub trait VenueAdapter: Send + Sync {
     async fn submit_order(&self, intent: &OrderIntent) -> Result<OrderResult>;
 
     /// Close / reduce a position on the venue. Implementations may noop if N/A.
-    async fn close_position(&self, symbol: &str, size: f64, side_is_buy_to_close: bool) -> Result<OrderResult>;
+    async fn close_position(
+        &self,
+        symbol: &str,
+        size: f64,
+        side_is_buy_to_close: bool,
+    ) -> Result<OrderResult>;
 
     /// USD-denominated equity for compounding/risk sizing.
     async fn account_equity_usd(&self) -> Result<f64>;
@@ -39,7 +44,7 @@ pub trait VenueAdapter: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct VenuePosition {
     pub symbol: String,
-    pub size: f64,      // signed: + long, - short
+    pub size: f64, // signed: + long, - short
     pub entry_price: f64,
     pub unrealized_pnl: f64,
     pub leverage: f64,

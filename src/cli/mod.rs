@@ -14,7 +14,9 @@ use crate::storage::Storage;
 use crate::utils::banner;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum Venue { Hyperliquid }
+pub enum Venue {
+    Hyperliquid,
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -23,7 +25,12 @@ pub enum Venue { Hyperliquid }
     version
 )]
 pub struct Cli {
-    #[arg(long, global = true, env = "HYDRA_CONFIG", default_value = "config/strategies.toml")]
+    #[arg(
+        long,
+        global = true,
+        env = "HYDRA_CONFIG",
+        default_value = "config/strategies.toml"
+    )]
     pub config: String,
 
     #[arg(long, global = true, env = "LOG_LEVEL")]
@@ -45,7 +52,7 @@ pub enum Command {
         venue: Venue,
         #[arg(long, default_value = "ETH,BTC,HYPE,SOL")]
         symbols: String,
-        /// Force-enable live execution for this run (still requires ENABLE_LIVE_TRADING=true).
+        /// Assert live execution was configured; cannot override ENABLE_LIVE_TRADING=false.
         #[arg(long)]
         live: bool,
         /// Disable the live Cockpit TUI and use plain scrolling logs instead.
@@ -54,9 +61,18 @@ pub enum Command {
     },
     Status,
     Positions,
-    Pnl { #[arg(long, default_value_t = 7)] days: i64 },
-    Sessions { #[arg(long, default_value_t = 10)] last: i64 },
-    Logs { #[arg(long, default_value_t = 60)] tail: usize },
+    Pnl {
+        #[arg(long, default_value_t = 7)]
+        days: i64,
+    },
+    Sessions {
+        #[arg(long, default_value_t = 10)]
+        last: i64,
+    },
+    Logs {
+        #[arg(long, default_value_t = 60)]
+        tail: usize,
+    },
     Stop,
     ConfigCheck,
     Recover,
@@ -64,11 +80,16 @@ pub enum Command {
     /// Manually clear the consecutive-loss circuit breaker. Stamps a reset
     /// timestamp; subsequent loss-streak checks ignore losses before this.
     ResetCooldown,
-    EmergencyFlatten { #[arg(long)] confirm: bool },
+    EmergencyFlatten {
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
-    if !cli.no_banner { banner::print_banner(); }
+    if !cli.no_banner {
+        banner::print_banner();
+    }
 
     let cfg = AppConfig::load(&cli.config, cli.log_level.as_deref())
         .context("failed to load configuration")?;
@@ -80,13 +101,22 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
     }
 
     let storage = Storage::open(&cfg.db_path).context("failed to open SQLite storage")?;
-    storage.migrate().context("failed to run SQLite migrations")?;
+    storage
+        .migrate()
+        .context("failed to run SQLite migrations")?;
 
     match cli.cmd {
-        Command::Run { venue, symbols, live, no_tui } => {
-            let symbols: Vec<String> = symbols.split(',')
+        Command::Run {
+            venue,
+            symbols,
+            live,
+            no_tui,
+        } => {
+            let symbols: Vec<String> = symbols
+                .split(',')
                 .map(|s| s.trim().to_uppercase())
-                .filter(|s| !s.is_empty()).collect();
+                .filter(|s| !s.is_empty())
+                .collect();
 
             if no_tui {
                 // Plain-log path: exactly the pre-v1.3.0 behaviour.
@@ -104,7 +134,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             // pane (no stdout layer — alt-screen would otherwise be corrupted).
             crate::utils::logging::init_tui(&cfg, dash.clone())?;
 
-            let mut engine = Engine::new(cfg, storage, venue, symbols, live, Some(dash.clone())).await?;
+            let mut engine =
+                Engine::new(cfg, storage, venue, symbols, live, Some(dash.clone())).await?;
             let stop_flag = engine.stop_flag();
 
             // Spawn the TUI in its own task. If it fails for any reason we log
@@ -115,7 +146,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             let tui_handle = tokio::spawn(async move {
                 match crate::tui::run(tui_dash, tui_stop).await {
                     Ok(()) => {}
-                    Err(e) => tracing::error!(error=%e, "cockpit tui exited with error — continuing in headless mode"),
+                    Err(e) => {
+                        tracing::error!(error=%e, "cockpit tui exited with error — continuing in headless mode")
+                    }
                 }
             });
 
@@ -134,26 +167,47 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::Logs { tail } => commands::logs(&cfg, tail),
         Command::Stop => commands::stop(&cfg),
         Command::ConfigCheck => commands::config_check(&cfg),
-        Command::Recover => StateManager::new(storage.clone()).force_reconcile(&cfg).await,
+        Command::Recover => {
+            StateManager::new(storage.clone())
+                .force_reconcile(&cfg)
+                .await
+        }
         Command::Health => {
             let report = HealthReport::gather(&cfg, &storage).await;
             report.print();
-            if report.ok { Ok(()) } else { Err(anyhow::anyhow!("unhealthy")) }
+            if report.ok {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("unhealthy"))
+            }
         }
         Command::ResetCooldown => {
             storage.reset_consecutive_losses()?;
             let n = storage.consecutive_losses(cfg.risk.consecutive_loss_window_hours)?;
-            println!("{}", "✔ consecutive-loss cooldown reset".bright_green().bold());
-            println!("  current streak now reads: {}/{}", n, cfg.risk.max_consecutive_losses);
+            println!(
+                "{}",
+                "✔ consecutive-loss cooldown reset".bright_green().bold()
+            );
+            println!(
+                "  current streak now reads: {}/{}",
+                n, cfg.risk.max_consecutive_losses
+            );
             println!("  the bot will resume taking new signals on its next tick.");
             Ok(())
         }
         Command::EmergencyFlatten { confirm } => {
             if !confirm {
-                println!("{}", " ⚠  refusing to flatten without --confirm".bright_red().bold());
+                println!(
+                    "{}",
+                    " ⚠  refusing to flatten without --confirm"
+                        .bright_red()
+                        .bold()
+                );
                 return Ok(());
             }
-            StateManager::new(storage.clone()).emergency_flatten(&cfg).await
+            StateManager::new(storage.clone())
+                .emergency_flatten(&cfg)
+                .await
         }
     }
 }
@@ -175,7 +229,8 @@ mod commands {
             return Ok(());
         }
         let mut t = Table::new();
-        t.load_preset(UTF8_BORDERS_ONLY).set_content_arrangement(ContentArrangement::Dynamic);
+        t.load_preset(UTF8_BORDERS_ONLY)
+            .set_content_arrangement(ContentArrangement::Dynamic);
         t.set_header(vec![
             "Venue".bright_white().bold().to_string(),
             "Symbol".bright_white().bold().to_string(),
@@ -187,16 +242,23 @@ mod commands {
             "Opened".bright_white().bold().to_string(),
         ]);
         for p in &rows {
-            let side = if p.side == "LONG" { p.side.bright_green().to_string() }
-                       else { p.side.bright_red().to_string() };
+            let side = if p.side == "LONG" {
+                p.side.bright_green().to_string()
+            } else {
+                p.side.bright_red().to_string()
+            };
             t.add_row(vec![
                 p.venue.bright_cyan().to_string(),
                 p.symbol.clone(),
                 side,
                 format!("{:.6}", p.size),
                 format!("{:.4}", p.entry_price),
-                p.stop_price.map(|v| format!("{:.4}", v)).unwrap_or_else(|| "-".into()),
-                p.take_profit.map(|v| format!("{:.4}", v)).unwrap_or_else(|| "-".into()),
+                p.stop_price
+                    .map(|v| format!("{:.4}", v))
+                    .unwrap_or_else(|| "-".into()),
+                p.take_profit
+                    .map(|v| format!("{:.4}", v))
+                    .unwrap_or_else(|| "-".into()),
                 p.opened_at.to_rfc3339(),
             ]);
         }
@@ -208,17 +270,31 @@ mod commands {
         let rows = storage.pnl_summary(days)?;
         banner::section(&format!("realized pnl — last {days}d"));
         let mut t = Table::new();
-        t.load_preset(UTF8_BORDERS_ONLY).set_content_arrangement(ContentArrangement::Dynamic);
-        t.set_header(vec!["Day","Trades","Wins","Losses","Realized USD"]
-            .into_iter().map(|s| s.bright_white().bold().to_string()).collect::<Vec<_>>());
+        t.load_preset(UTF8_BORDERS_ONLY)
+            .set_content_arrangement(ContentArrangement::Dynamic);
+        t.set_header(
+            vec!["Day", "Trades", "Wins", "Losses", "Realized USD"]
+                .into_iter()
+                .map(|s| s.bright_white().bold().to_string())
+                .collect::<Vec<_>>(),
+        );
         for r in rows {
             let realized = if r.realized_usd >= 0.0 {
-                format!("+${:.2}", r.realized_usd).bright_green().to_string()
+                format!("+${:.2}", r.realized_usd)
+                    .bright_green()
+                    .to_string()
             } else {
-                format!("-${:.2}", r.realized_usd.abs()).bright_red().to_string()
+                format!("-${:.2}", r.realized_usd.abs())
+                    .bright_red()
+                    .to_string()
             };
-            t.add_row(vec![r.day, r.trades.to_string(), r.wins.to_string(),
-                           r.losses.to_string(), realized]);
+            t.add_row(vec![
+                r.day,
+                r.trades.to_string(),
+                r.wins.to_string(),
+                r.losses.to_string(),
+                realized,
+            ]);
         }
         println!("{t}");
         Ok(())
@@ -228,15 +304,26 @@ mod commands {
         let rows = storage.list_sessions(last)?;
         banner::section(&format!("last {last} sessions"));
         let mut t = Table::new();
-        t.load_preset(UTF8_BORDERS_ONLY).set_content_arrangement(ContentArrangement::Dynamic);
-        t.set_header(vec!["ID","Start","End","Runtime","Trades","Realized","Reason"]
-            .into_iter().map(|s| s.bright_white().bold().to_string()).collect::<Vec<_>>());
+        t.load_preset(UTF8_BORDERS_ONLY)
+            .set_content_arrangement(ContentArrangement::Dynamic);
+        t.set_header(
+            vec![
+                "ID", "Start", "End", "Runtime", "Trades", "Realized", "Reason",
+            ]
+            .into_iter()
+            .map(|s| s.bright_white().bold().to_string())
+            .collect::<Vec<_>>(),
+        );
         for s in rows {
             t.add_row(vec![
                 s.id.to_string(),
                 s.started_at.to_rfc3339(),
-                s.ended_at.map(|t| t.to_rfc3339()).unwrap_or_else(|| "LIVE".bright_green().to_string()),
-                s.runtime_secs.map(|r| format!("{}s", r)).unwrap_or_else(|| "-".into()),
+                s.ended_at
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_else(|| "LIVE".bright_green().to_string()),
+                s.runtime_secs
+                    .map(|r| format!("{}s", r))
+                    .unwrap_or_else(|| "-".into()),
                 s.trades.to_string(),
                 format!("${:.2}", s.realized_usd),
                 s.shutdown_reason.unwrap_or_else(|| "-".into()),
@@ -254,7 +341,11 @@ mod commands {
     pub fn stop(cfg: &AppConfig) -> Result<()> {
         let path = std::path::Path::new(&cfg.data_dir).join("STOP");
         std::fs::write(&path, chrono::Utc::now().to_rfc3339())?;
-        println!(" {} wrote stop flag → {}", "✔".bright_green().bold(), path.display().to_string().dimmed());
+        println!(
+            " {} wrote stop flag → {}",
+            "✔".bright_green().bold(),
+            path.display().to_string().dimmed()
+        );
         Ok(())
     }
 

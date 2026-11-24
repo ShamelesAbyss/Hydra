@@ -5,21 +5,23 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Cell, Gauge, Paragraph, Row, Sparkline, Table, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Cell, Gauge, Paragraph, Row, Sparkline, Table, Wrap,
+};
 use ratatui::Frame;
 
 use super::state::{DashState, FeedLine, FillRow, PositionRow, SignalRow};
 
 // --- palette (HYDRA "Terminal Green + Magenta" blend from the banner) ---
-const C_CYAN: Color    = Color::Rgb(0, 229, 255);
+const C_CYAN: Color = Color::Rgb(0, 229, 255);
 const C_MAGENTA: Color = Color::Rgb(217, 70, 239);
-const C_PINK: Color    = Color::Rgb(236, 72, 153);
-const C_GREEN: Color   = Color::Rgb(74, 222, 128);
-const C_RED: Color     = Color::Rgb(248, 113, 113);
-const C_YELLOW: Color  = Color::Rgb(250, 204, 21);
-const C_DIM: Color     = Color::Rgb(100, 116, 139);
-const C_TEXT: Color    = Color::Rgb(226, 232, 240);
-const C_MUTED: Color   = Color::Rgb(148, 163, 184);
+const C_PINK: Color = Color::Rgb(236, 72, 153);
+const C_GREEN: Color = Color::Rgb(74, 222, 128);
+const C_RED: Color = Color::Rgb(248, 113, 113);
+const C_YELLOW: Color = Color::Rgb(250, 204, 21);
+const C_DIM: Color = Color::Rgb(100, 116, 139);
+const C_TEXT: Color = Color::Rgb(226, 232, 240);
+const C_MUTED: Color = Color::Rgb(148, 163, 184);
 
 pub fn render(f: &mut Frame<'_>, dash: &DashState) {
     let area = f.area();
@@ -28,12 +30,12 @@ pub fn render(f: &mut Frame<'_>, dash: &DashState) {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // header
-            Constraint::Length(7),   // equity / pnl / risk
-            Constraint::Length(9),   // markets / positions
-            Constraint::Length(9),   // signals / fills
-            Constraint::Min(5),      // feed (flex)
-            Constraint::Length(6),   // errors
+            Constraint::Length(3), // header
+            Constraint::Length(7), // equity / pnl / risk
+            Constraint::Length(9), // markets / positions
+            Constraint::Length(9), // signals / fills
+            Constraint::Min(5),    // feed (flex)
+            Constraint::Length(6), // errors
         ])
         .split(area);
 
@@ -57,19 +59,40 @@ fn frame_block(title: &str) -> Block<'_> {
 }
 
 fn render_header(f: &mut Frame<'_>, area: Rect, d: &DashState) {
-    let uptime = d.started_at.map(|s| {
-        let secs = (Utc::now() - s).num_seconds().max(0);
-        format!("{:02}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
-    }).unwrap_or_else(|| "--:--:--".into());
+    let uptime = d
+        .started_at
+        .map(|s| {
+            let secs = (Utc::now() - s).num_seconds().max(0);
+            format!(
+                "{:02}:{:02}:{:02}",
+                secs / 3600,
+                (secs / 60) % 60,
+                secs % 60
+            )
+        })
+        .unwrap_or_else(|| "--:--:--".into());
 
     let live = if d.live_trading {
-        Span::styled(" LIVE ", Style::default().bg(C_RED).fg(Color::White).add_modifier(Modifier::BOLD))
+        Span::styled(
+            " LIVE ",
+            Style::default()
+                .bg(C_RED)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
-        Span::styled(" DRY  ", Style::default().bg(C_YELLOW).fg(Color::Black).add_modifier(Modifier::BOLD))
+        Span::styled(
+            " DRY  ",
+            Style::default()
+                .bg(C_YELLOW)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
     };
 
     // Heartbeat indicator: dot dims when more than 6s since last beat.
-    let beat_fresh = d.last_heartbeat
+    let beat_fresh = d
+        .last_heartbeat
         .map(|t| (Utc::now() - t).num_milliseconds() < 6_000)
         .unwrap_or(false);
     let heartbeat = if beat_fresh {
@@ -82,15 +105,32 @@ fn render_header(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     // 4fps refresh, not just on engine ticks (which fire every 1.5s).
     let spinner = spinner_glyph();
 
-    let venues = if d.venues.is_empty() { "—".into() } else { d.venues.join(",") };
-    let symbols = if d.symbols.is_empty() { "—".into() } else { d.symbols.join(",") };
+    let venues = if d.venues.is_empty() {
+        "—".into()
+    } else {
+        d.venues.join(",")
+    };
+    let symbols = if d.symbols.is_empty() {
+        "—".into()
+    } else {
+        d.symbols.join(",")
+    };
 
     let line1 = Line::from(vec![
-        Span::styled("HYDRA ", Style::default().fg(C_MAGENTA).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "HYDRA ",
+            Style::default().fg(C_MAGENTA).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(format!("v{}", d.version), Style::default().fg(C_PINK)),
         Span::styled("  │  ", Style::default().fg(C_DIM)),
-        Span::styled(format!("{} ", spinner), Style::default().fg(C_CYAN).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("session #{}", d.session_id), Style::default().fg(C_CYAN)),
+        Span::styled(
+            format!("{} ", spinner),
+            Style::default().fg(C_CYAN).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("session #{}", d.session_id),
+            Style::default().fg(C_CYAN),
+        ),
         Span::styled("  │  ", Style::default().fg(C_DIM)),
         Span::styled(format!("uptime {}", uptime), Style::default().fg(C_TEXT)),
         Span::styled("  │  ", Style::default().fg(C_DIM)),
@@ -105,11 +145,13 @@ fn render_header(f: &mut Frame<'_>, area: Rect, d: &DashState) {
         Span::styled(venues, Style::default().fg(C_TEXT)),
         Span::styled("   symbols: ", Style::default().fg(C_DIM)),
         Span::styled(symbols, Style::default().fg(C_TEXT)),
-        Span::styled("   read-only view · Ctrl+C to stop", Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)),
+        Span::styled(
+            "   read-only view · Ctrl+C to stop",
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        ),
     ]);
 
-    let p = Paragraph::new(vec![line1, line2])
-        .block(frame_block("live"));
+    let p = Paragraph::new(vec![line1, line2]).block(frame_block("live"));
     f.render_widget(p, area);
 }
 
@@ -129,7 +171,11 @@ fn spinner_glyph() -> &'static str {
 fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(34), Constraint::Percentage(33), Constraint::Percentage(33)])
+        .constraints([
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+        ])
         .split(area);
 
     // ─── Equity
@@ -138,7 +184,8 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     // earning, or sideways without watching the spark.
     let eq_delta_5m: Option<(f64, f64)> = {
         let cutoff = Utc::now() - chrono::Duration::minutes(5);
-        d.equity_history.iter()
+        d.equity_history
+            .iter()
             .find(|(t, _)| *t >= cutoff)
             .map(|(_, v0)| {
                 let cur = d.equity_usd;
@@ -147,19 +194,28 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
                 (abs, pct)
             })
     };
-    let mut eq_spans: Vec<Span> = vec![
-        Span::styled(format!("${:>10.2}", d.equity_usd),
-            Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)),
-    ];
+    let mut eq_spans: Vec<Span> = vec![Span::styled(
+        format!("${:>10.2}", d.equity_usd),
+        Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD),
+    )];
     if let Some((abs, pct)) = eq_delta_5m {
         let sign = if abs >= 0.0 { "+" } else { "-" };
         let color = if abs >= 0.0 { C_GREEN } else { C_RED };
         eq_spans.push(Span::styled(
-            format!("  {}${:.2} ({}{:.2}%)  5m", sign, abs.abs(), sign, pct.abs()),
+            format!(
+                "  {}${:.2} ({}{:.2}%)  5m",
+                sign,
+                abs.abs(),
+                sign,
+                pct.abs()
+            ),
             Style::default().fg(color),
         ));
     } else {
-        eq_spans.push(Span::styled("  · waiting for history", Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)));
+        eq_spans.push(Span::styled(
+            "  · waiting for history",
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        ));
     }
     let eq_line = Line::from(eq_spans);
     let spark_data: Vec<u64> = {
@@ -182,10 +238,26 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     f.render_widget(spark, rows[1]);
 
     // ─── Session P&L
-    let pnl_color = if d.session_realized_usd >= 0.0 { C_GREEN } else { C_RED };
-    let pnl_sign = if d.session_realized_usd >= 0.0 { "+" } else { "-" };
-    let daily_color  = if d.risk.daily_realized_usd  >= 0.0 { C_GREEN } else { C_RED };
-    let weekly_color = if d.risk.weekly_realized_usd >= 0.0 { C_GREEN } else { C_RED };
+    let pnl_color = if d.session_realized_usd >= 0.0 {
+        C_GREEN
+    } else {
+        C_RED
+    };
+    let pnl_sign = if d.session_realized_usd >= 0.0 {
+        "+"
+    } else {
+        "-"
+    };
+    let daily_color = if d.risk.daily_realized_usd >= 0.0 {
+        C_GREEN
+    } else {
+        C_RED
+    };
+    let weekly_color = if d.risk.weekly_realized_usd >= 0.0 {
+        C_GREEN
+    } else {
+        C_RED
+    };
     let pnl_lines = vec![
         Line::from(vec![
             Span::styled("session  ", Style::default().fg(C_DIM)),
@@ -193,7 +265,10 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
                 format!("{}${:.2}", pnl_sign, d.session_realized_usd.abs()),
                 Style::default().fg(pnl_color).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!("   trades {}", d.session_trades), Style::default().fg(C_MUTED)),
+            Span::styled(
+                format!("   trades {}", d.session_trades),
+                Style::default().fg(C_MUTED),
+            ),
         ]),
         Line::from(vec![
             Span::styled("daily    ", Style::default().fg(C_DIM)),
@@ -212,9 +287,14 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
         Line::from(vec![
             Span::styled("risk mult", Style::default().fg(C_DIM)),
             Span::raw(" "),
-            Span::styled(format!("{:.2}×", d.risk.risk_mult),
-                Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  base {:.2}%", d.risk.default_risk_pct), Style::default().fg(C_MUTED)),
+            Span::styled(
+                format!("{:.2}×", d.risk.risk_mult),
+                Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  base {:.2}%", d.risk.default_risk_pct),
+                Style::default().fg(C_MUTED),
+            ),
         ]),
     ];
     f.render_widget(Paragraph::new(pnl_lines).block(frame_block("pnl")), cols[1]);
@@ -226,7 +306,9 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     };
     let consec_pct = if d.risk.max_consecutive_losses > 0 {
         (d.risk.consec_losses as f64 / d.risk.max_consecutive_losses as f64 * 100.0).min(100.0)
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     let risk_block = frame_block("risk");
     let inner = risk_block.inner(cols[2]);
@@ -241,31 +323,44 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     let exp_gauge = Gauge::default()
         .gauge_style(gauge_color(exp_clean, d.risk.max_open_exposure_pct))
         .ratio((exp_clean / d.risk.max_open_exposure_pct.max(0.01)).clamp(0.0, 1.0))
-        .label(format!("exposure {:.0}% / {:.0}% cap",
-            exp_clean, d.risk.max_open_exposure_pct));
+        .label(format!(
+            "exposure {:.0}% / {:.0}% cap",
+            exp_clean, d.risk.max_open_exposure_pct
+        ));
     f.render_widget(exp_gauge, sub[0]);
 
     // Consec losses gauge
     let cl_gauge = Gauge::default()
         .gauge_style(gauge_color(consec_pct, 100.0))
         .ratio((consec_pct / 100.0).clamp(0.0, 1.0))
-        .label(format!("consec loss {}/{}", d.risk.consec_losses, d.risk.max_consecutive_losses));
+        .label(format!(
+            "consec loss {}/{}",
+            d.risk.consec_losses, d.risk.max_consecutive_losses
+        ));
     f.render_widget(cl_gauge, sub[1]);
 
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled("daily cap  ", Style::default().fg(C_DIM)),
-            Span::styled(format!("{:.1}%", d.risk.max_daily_loss_pct), Style::default().fg(C_YELLOW)),
+            Span::styled(
+                format!("{:.1}%", d.risk.max_daily_loss_pct),
+                Style::default().fg(C_YELLOW),
+            ),
             Span::styled("   weekly cap  ", Style::default().fg(C_DIM)),
-            Span::styled(format!("{:.1}%", d.risk.max_weekly_loss_pct), Style::default().fg(C_YELLOW)),
+            Span::styled(
+                format!("{:.1}%", d.risk.max_weekly_loss_pct),
+                Style::default().fg(C_YELLOW),
+            ),
         ])),
         sub[2],
     );
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled("per-mkt cap ", Style::default().fg(C_DIM)),
-            Span::styled(format!("${:.0}", d.risk.max_notional_per_market_usd),
-                Style::default().fg(C_YELLOW)),
+            Span::styled(
+                format!("${:.0}", d.risk.max_notional_per_market_usd),
+                Style::default().fg(C_YELLOW),
+            ),
         ])),
         sub[3],
     );
@@ -273,8 +368,11 @@ fn render_kpis(f: &mut Frame<'_>, area: Rect, d: &DashState) {
         Paragraph::new(Line::from(vec![
             Span::styled("open exposure ", Style::default().fg(C_DIM)),
             Span::styled(
-                if d.risk.open_exposure_usd.abs() < 0.005 { "$0.00".into() }
-                else { format!("${:.2}", d.risk.open_exposure_usd) },
+                if d.risk.open_exposure_usd.abs() < 0.005 {
+                    "$0.00".into()
+                } else {
+                    format!("${:.2}", d.risk.open_exposure_usd)
+                },
                 Style::default().fg(C_TEXT),
             ),
         ])),
@@ -289,11 +387,16 @@ fn render_markets_and_positions(f: &mut Frame<'_>, area: Rect, d: &DashState) {
         .split(area);
 
     // Markets table
-    let header = Row::new(vec!["sym", "mid", "spread", "atr%", "regime", "tf", "mult", "trend"])
-        .style(Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD));
+    let header = Row::new(vec![
+        "sym", "mid", "spread", "atr%", "regime", "tf", "mult", "trend",
+    ])
+    .style(Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD));
     let mut rows: Vec<Row> = Vec::new();
     for m in &d.markets {
-        let spread_txt = m.spread_bps.map(|s| format!("{:.1}bp", s)).unwrap_or_else(|| "—".into());
+        let spread_txt = m
+            .spread_bps
+            .map(|s| format!("{:.1}bp", s))
+            .unwrap_or_else(|| "—".into());
         let regime_style = regime_style(&m.regime);
         let trend_line = animated_sparkline(&m.price_history);
         let tf = m.regime_view.clone().unwrap_or_else(|| "—".into());
@@ -311,7 +414,8 @@ fn render_markets_and_positions(f: &mut Frame<'_>, area: Rect, d: &DashState) {
             _ => ("—".into(), Style::default().fg(C_DIM)),
         };
         rows.push(Row::new(vec![
-            Cell::from(m.symbol.clone()).style(Style::default().fg(C_TEXT).add_modifier(Modifier::BOLD)),
+            Cell::from(m.symbol.clone())
+                .style(Style::default().fg(C_TEXT).add_modifier(Modifier::BOLD)),
             Cell::from(format_price(m.mid)).style(Style::default().fg(C_TEXT)),
             Cell::from(spread_txt).style(Style::default().fg(C_MUTED)),
             Cell::from(format!("{:.2}%", m.atr_pct)).style(Style::default().fg(C_MUTED)),
@@ -323,7 +427,9 @@ fn render_markets_and_positions(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     }
     if rows.is_empty() {
         rows.push(Row::new(vec![Cell::from("waiting for market data…")
-            .style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC))]));
+            .style(
+                Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+            )]));
     }
     let widths = [
         Constraint::Length(6),
@@ -345,8 +451,10 @@ fn render_markets_and_positions(f: &mut Frame<'_>, area: Rect, d: &DashState) {
 }
 
 fn render_positions(f: &mut Frame<'_>, area: Rect, positions: &[PositionRow]) {
-    let header = Row::new(vec!["sym", "side", "size", "entry", "mark", "upnl", "age", "status", "strategy"])
-        .style(Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD));
+    let header = Row::new(vec![
+        "sym", "side", "size", "entry", "mark", "upnl", "age", "status", "strategy",
+    ])
+    .style(Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD));
     let mut rows: Vec<Row> = Vec::new();
     for p in positions {
         let side_style = if p.side == "LONG" {
@@ -374,7 +482,8 @@ fn render_positions(f: &mut Frame<'_>, area: Rect, positions: &[PositionRow]) {
         // FIRE   = winner running with > $0.50 unrealized AND stop above entry.
         let (status_glyphs, status_style) = position_status(p, age_secs);
         rows.push(Row::new(vec![
-            Cell::from(p.symbol.clone()).style(Style::default().fg(C_TEXT).add_modifier(Modifier::BOLD)),
+            Cell::from(p.symbol.clone())
+                .style(Style::default().fg(C_TEXT).add_modifier(Modifier::BOLD)),
             Cell::from(p.side.clone()).style(side_style),
             Cell::from(format!("{:.4}", p.size)).style(Style::default().fg(C_TEXT)),
             Cell::from(format_price(p.entry_price)).style(Style::default().fg(C_MUTED)),
@@ -386,8 +495,9 @@ fn render_positions(f: &mut Frame<'_>, area: Rect, positions: &[PositionRow]) {
         ]));
     }
     if rows.is_empty() {
-        rows.push(Row::new(vec![Cell::from("no open positions")
-            .style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC))]));
+        rows.push(Row::new(vec![Cell::from("no open positions").style(
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        )]));
     }
     let widths = [
         Constraint::Length(6),
@@ -416,10 +526,12 @@ fn position_status(p: &PositionRow, age_secs: i64) -> (String, Style) {
     // BE+: chandelier has pulled the stop to entry or beyond.
     let be_locked = match p.stop_price {
         Some(s) if is_long => s >= p.entry_price,
-        Some(s)            => s <= p.entry_price,
+        Some(s) => s <= p.entry_price,
         None => false,
     };
-    if be_locked { parts.push("BE+"); }
+    if be_locked {
+        parts.push("BE+");
+    }
 
     // HOT: meaningful unrealized profit AND stop is defending it.
     if be_locked && p.unrealized_pnl_usd > 0.50 {
@@ -427,10 +539,14 @@ fn position_status(p: &PositionRow, age_secs: i64) -> (String, Style) {
     }
 
     // OLD: position age > 75% of the 180-min time-stop default.
-    if age_secs > 135 * 60 { parts.push("OLD"); }
+    if age_secs > 135 * 60 {
+        parts.push("OLD");
+    }
 
     // RISK: still in initial-risk territory (no BE lock, position older than 5m).
-    if !be_locked && age_secs > 300 { parts.push("RISK"); }
+    if !be_locked && age_secs > 300 {
+        parts.push("RISK");
+    }
 
     let style = if parts.iter().any(|s| *s == "HOT") {
         Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)
@@ -444,7 +560,11 @@ fn position_status(p: &PositionRow, age_secs: i64) -> (String, Style) {
         Style::default().fg(C_DIM)
     };
 
-    let txt = if parts.is_empty() { "—".to_string() } else { parts.join(" ") };
+    let txt = if parts.is_empty() {
+        "—".to_string()
+    } else {
+        parts.join(" ")
+    };
     (txt, style)
 }
 
@@ -489,8 +609,9 @@ fn render_signals(f: &mut Frame<'_>, area: Rect, signals: &std::collections::Vec
         ]));
     }
     if rows.is_empty() {
-        rows.push(Row::new(vec![Cell::from("no signals yet")
-            .style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC))]));
+        rows.push(Row::new(vec![Cell::from("no signals yet").style(
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        )]));
     }
     let widths = [
         Constraint::Length(8),
@@ -507,8 +628,10 @@ fn render_signals(f: &mut Frame<'_>, area: Rect, signals: &std::collections::Vec
 }
 
 fn render_fills(f: &mut Frame<'_>, area: Rect, fills: &std::collections::VecDeque<FillRow>) {
-    let header = Row::new(vec!["time", "sym", "side", "size", "price", "kind", "realized"])
-        .style(Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD));
+    let header = Row::new(vec![
+        "time", "sym", "side", "size", "price", "kind", "realized",
+    ])
+    .style(Style::default().fg(C_MUTED).add_modifier(Modifier::BOLD));
     let mut rows: Vec<Row> = Vec::new();
     for s in fills.iter().rev().take(10) {
         let side_style = if s.side == "LONG" {
@@ -533,8 +656,9 @@ fn render_fills(f: &mut Frame<'_>, area: Rect, fills: &std::collections::VecDequ
         ]));
     }
     if rows.is_empty() {
-        rows.push(Row::new(vec![Cell::from("no fills yet")
-            .style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC))]));
+        rows.push(Row::new(vec![Cell::from("no fills yet").style(
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        )]));
     }
     let widths = [
         Constraint::Length(8),
@@ -562,9 +686,9 @@ fn render_feed(f: &mut Frame<'_>, area: Rect, d: &DashState) {
     for line in slice.iter().rev() {
         let lvl_style = match line.level.as_str() {
             "ERROR" => Style::default().fg(C_RED).add_modifier(Modifier::BOLD),
-            "WARN"  => Style::default().fg(C_YELLOW),
-            "INFO"  => Style::default().fg(C_CYAN),
-            _       => Style::default().fg(C_DIM),
+            "WARN" => Style::default().fg(C_YELLOW),
+            "INFO" => Style::default().fg(C_CYAN),
+            _ => Style::default().fg(C_DIM),
         };
         let trimmed = truncate(&line.message, inner.width.saturating_sub(22) as usize);
         lines.push(Line::from(vec![
@@ -591,14 +715,18 @@ fn render_errors(f: &mut Frame<'_>, area: Rect, d: &DashState) {
         ]));
     }
     if rows.is_empty() {
-        rows.push(Row::new(vec![Cell::from("no errors")
-            .style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC))]));
+        rows.push(Row::new(vec![Cell::from("no errors").style(
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        )]));
     }
-    let widths = [Constraint::Length(8), Constraint::Length(16), Constraint::Min(20)];
+    let widths = [
+        Constraint::Length(8),
+        Constraint::Length(16),
+        Constraint::Min(20),
+    ];
     let t = Table::new(rows, widths)
         .header(header)
-        .block(frame_block("errors · last 5")
-            .title_alignment(Alignment::Left));
+        .block(frame_block("errors · last 5").title_alignment(Alignment::Left));
     f.render_widget(t, area);
 }
 
@@ -610,25 +738,43 @@ fn hhmmss(ts: DateTime<Utc>) -> String {
 }
 
 fn format_price(px: f64) -> String {
-    if !px.is_finite() || px == 0.0 { return "—".into(); }
-    if px >= 1000.0 { format!("{:>10.2}", px) }
-    else if px >= 1.0 { format!("{:>10.4}", px) }
-    else { format!("{:>10.6}", px) }
+    if !px.is_finite() || px == 0.0 {
+        return "—".into();
+    }
+    if px >= 1000.0 {
+        format!("{:>10.2}", px)
+    } else if px >= 1.0 {
+        format!("{:>10.4}", px)
+    } else {
+        format!("{:>10.6}", px)
+    }
 }
 
 fn signed_usd(v: f64) -> String {
     // Snap tiny magnitudes to clean zero so we never render "-$0.00".
-    if v.abs() < 0.005 { return "+$0.00".into(); }
-    if v >= 0.0 { format!("+${:.2}", v) } else { format!("-${:.2}", v.abs()) }
+    if v.abs() < 0.005 {
+        return "+$0.00".into();
+    }
+    if v >= 0.0 {
+        format!("+${:.2}", v)
+    } else {
+        format!("-${:.2}", v.abs())
+    }
 }
 
 fn clean_pct(v: f64) -> f64 {
     // Treat floating-point fuzz around zero as exactly zero for display.
-    if v.abs() < 0.05 { 0.0 } else { v }
+    if v.abs() < 0.05 {
+        0.0
+    } else {
+        v
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { return s.to_string(); }
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
     out
@@ -636,21 +782,29 @@ fn truncate(s: &str, max: usize) -> String {
 
 fn regime_style(regime: &str) -> Style {
     match regime {
-        "Trending"     => Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD),
-        "VolSpike"     => Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
-        "Choppy"       => Style::default().fg(C_CYAN),
-        "Panic"        => Style::default().fg(C_RED).add_modifier(Modifier::BOLD),
+        "Trending" => Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD),
+        "VolSpike" => Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+        "Choppy" => Style::default().fg(C_CYAN),
+        "Panic" => Style::default().fg(C_RED).add_modifier(Modifier::BOLD),
         "LowLiquidity" => Style::default().fg(C_MUTED),
-        "NoTrade"      => Style::default().fg(C_DIM),
-        _              => Style::default().fg(C_MUTED),
+        "NoTrade" => Style::default().fg(C_DIM),
+        _ => Style::default().fg(C_MUTED),
     }
 }
 
 fn gauge_color(value_pct: f64, cap_pct: f64) -> Style {
-    let ratio = if cap_pct > 0.0 { value_pct / cap_pct } else { 0.0 };
-    let fg = if ratio < 0.5 { C_GREEN }
-             else if ratio < 0.8 { C_YELLOW }
-             else { C_RED };
+    let ratio = if cap_pct > 0.0 {
+        value_pct / cap_pct
+    } else {
+        0.0
+    };
+    let fg = if ratio < 0.5 {
+        C_GREEN
+    } else if ratio < 0.8 {
+        C_YELLOW
+    } else {
+        C_RED
+    };
     Style::default().fg(fg).bg(Color::Rgb(30, 41, 59))
 }
 
@@ -672,29 +826,39 @@ fn gauge_color(value_pct: f64, cap_pct: f64) -> Style {
 fn animated_sparkline(prices: &std::collections::VecDeque<f64>) -> Line<'static> {
     const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     if prices.is_empty() {
-        return Line::from(Span::styled("· · ·",
-            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)));
+        return Line::from(Span::styled(
+            "· · ·",
+            Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC),
+        ));
     }
     let n = prices.len();
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     for &p in prices {
-        if p < min { min = p; }
-        if p > max { max = p; }
+        if p < min {
+            min = p;
+        }
+        if p > max {
+            max = p;
+        }
     }
     let range = (max - min).max(1e-9);
     let first = *prices.front().unwrap();
-    let last  = *prices.back().unwrap();
-    let pct = if first > 0.0 { (last - first) / first * 100.0 } else { 0.0 };
+    let last = *prices.back().unwrap();
+    let pct = if first > 0.0 {
+        (last - first) / first * 100.0
+    } else {
+        0.0
+    };
 
     // Direction palette — base colour from price action, with a brighter
     // companion shade used for the leading edge "comet head".
     let (base, bright, glyph) = if pct > 0.05 {
         (C_GREEN, Color::Rgb(134, 239, 172), "▲")
     } else if pct < -0.05 {
-        (C_RED,   Color::Rgb(252, 165, 165), "▼")
+        (C_RED, Color::Rgb(252, 165, 165), "▼")
     } else {
-        (C_CYAN,  Color::Rgb(165, 243, 252), "◆")
+        (C_CYAN, Color::Rgb(165, 243, 252), "◆")
     };
 
     // Comet-head pulse: 0.0 = base, 1.0 = bright. Sine over a 1200ms cycle.
@@ -709,7 +873,7 @@ fn animated_sparkline(prices: &std::collections::VecDeque<f64>) -> Line<'static>
     for (i, &p) in prices.iter().enumerate() {
         let block_idx = ((p - min) / range * 7.0).round() as usize;
         let ch = BLOCKS[block_idx.min(7)];
-        let pos = i as f64 / (n.max(1) as f64);   // 0.0 (oldest) → 1.0 (newest)
+        let pos = i as f64 / (n.max(1) as f64); // 0.0 (oldest) → 1.0 (newest)
 
         // Last 2 cells = "comet head" — pulse between base and bright.
         let style = if i + 2 >= n {
@@ -745,26 +909,39 @@ fn animated_sparkline(prices: &std::collections::VecDeque<f64>) -> Line<'static>
 /// When the series is flat (min == max), render a flat line at mid-height so
 /// the panel isn't visually empty during long no-trade windows.
 fn scale_for_sparkline(points: &[f64]) -> Vec<u64> {
-    if points.is_empty() { return Vec::new(); }
+    if points.is_empty() {
+        return Vec::new();
+    }
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     for &v in points {
         if v.is_finite() {
-            if v < min { min = v; }
-            if v > max { max = v; }
+            if v < min {
+                min = v;
+            }
+            if v > max {
+                max = v;
+            }
         }
     }
-    if !min.is_finite() || !max.is_finite() { return Vec::new(); }
+    if !min.is_finite() || !max.is_finite() {
+        return Vec::new();
+    }
     let range = max - min;
     if range.abs() < 1e-6 {
         // Flat series → render as a mid-height line.
         return vec![50u64; points.len()];
     }
-    points.iter().map(|&v| {
-        if !v.is_finite() { return 0u64; }
-        let scaled = ((v - min) / range * 100.0).clamp(0.0, 100.0);
-        scaled.round() as u64
-    }).collect()
+    points
+        .iter()
+        .map(|&v| {
+            if !v.is_finite() {
+                return 0u64;
+            }
+            let scaled = ((v - min) / range * 100.0).clamp(0.0, 100.0);
+            scaled.round() as u64
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -774,10 +951,17 @@ mod tests {
 
     fn make_pos(side: &str, entry: f64, stop: Option<f64>, mark: f64, upnl: f64) -> PositionRow {
         PositionRow {
-            venue: "hyperliquid".into(), symbol: "ETH".into(), side: side.into(),
-            size: 0.04, entry_price: entry, mark_price: mark,
-            unrealized_pnl_usd: upnl, stop_price: stop, take_profit: None,
-            opened_at: Utc::now(), strategy: None,
+            venue: "hyperliquid".into(),
+            symbol: "ETH".into(),
+            side: side.into(),
+            size: 0.04,
+            entry_price: entry,
+            mark_price: mark,
+            unrealized_pnl_usd: upnl,
+            stop_price: stop,
+            take_profit: None,
+            opened_at: Utc::now(),
+            strategy: None,
         }
     }
 
@@ -828,4 +1012,3 @@ mod tests {
         assert!(txt.contains("RISK")); // age > 5min, no protection
     }
 }
-

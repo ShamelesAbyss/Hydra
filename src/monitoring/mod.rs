@@ -36,8 +36,15 @@ impl HealthReport {
         checks.push(("hyperliquid".into(), hl.0, hl.1));
 
         // Key presence
-        checks.push(("hl_key_present".into(), cfg.hl_private_key.is_some(),
-            if cfg.hl_private_key.is_some() {"set".into()} else {"missing".into()}));
+        checks.push((
+            "hl_key_present".into(),
+            cfg.hl_private_key.is_some(),
+            if cfg.hl_private_key.is_some() {
+                "set".into()
+            } else {
+                "missing".into()
+            },
+        ));
 
         // Address derived from HL key (sanity)
         if let Some(k) = &cfg.hl_private_key {
@@ -54,33 +61,56 @@ impl HealthReport {
     pub fn print(&self) {
         crate::utils::banner::section("core subsystems");
         let mut t = Table::new();
-        t.load_preset(UTF8_BORDERS_ONLY).set_content_arrangement(ContentArrangement::Dynamic);
+        t.load_preset(UTF8_BORDERS_ONLY)
+            .set_content_arrangement(ContentArrangement::Dynamic);
         t.set_header(vec![
             "Check".bright_white().bold().to_string(),
             "Status".bright_white().bold().to_string(),
             "Detail".bright_white().bold().to_string(),
         ]);
         for (k, ok, d) in &self.checks {
-            let s = if *ok { "✓ PASS".bright_green().bold().to_string() }
-                    else   { "✗ FAIL".bright_red().bold().to_string() };
+            let s = if *ok {
+                "✓ PASS".bright_green().bold().to_string()
+            } else {
+                "✗ FAIL".bright_red().bold().to_string()
+            };
             t.add_row(vec![k.clone(), s, d.clone()]);
         }
         println!("{t}");
 
         println!();
         if self.ok {
-            println!(" {}  {}", "●".bright_green().bold(), "OVERALL: HEALTHY".bright_green().bold());
+            println!(
+                " {}  {}",
+                "●".bright_green().bold(),
+                "OVERALL: HEALTHY".bright_green().bold()
+            );
         } else {
-            println!(" {}  {}", "●".bright_red().bold(), "OVERALL: DEGRADED".bright_red().bold());
+            println!(
+                " {}  {}",
+                "●".bright_red().bold(),
+                "OVERALL: DEGRADED".bright_red().bold()
+            );
         }
     }
 }
 
 /// In-process heartbeat (persisted periodically).
-pub struct Heartbeat { last_beat: std::time::Instant, ticks: u64 }
+pub struct Heartbeat {
+    last_beat: std::time::Instant,
+    ticks: u64,
+}
 impl Heartbeat {
-    pub fn new() -> Self { Self { last_beat: std::time::Instant::now(), ticks: 0 } }
-    pub fn beat(&mut self, _kind: &str) { self.ticks = self.ticks.wrapping_add(1); self.last_beat = std::time::Instant::now(); }
+    pub fn new() -> Self {
+        Self {
+            last_beat: std::time::Instant::now(),
+            ticks: 0,
+        }
+    }
+    pub fn beat(&mut self, _kind: &str) {
+        self.ticks = self.ticks.wrapping_add(1);
+        self.last_beat = std::time::Instant::now();
+    }
     pub fn persist(&self, storage: &Storage, session_id: i64) -> Result<()> {
         storage.heartbeat(session_id, "engine_tick")
     }

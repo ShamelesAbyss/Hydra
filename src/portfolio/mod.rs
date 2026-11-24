@@ -15,7 +15,7 @@ use crate::adapters::VenueAdapter;
 use crate::config::AppConfig;
 use crate::core::{MarketSnapshot, OpenPosition, OrderIntent};
 use crate::execution::ExecutionEngine;
-use crate::learning::{self, regime::RegimeView};
+use crate::learning::regime::RegimeView;
 use crate::storage::{CompoundState, Storage};
 
 /// v1.5.0 — context captured at entry time, replayed at close into the
@@ -46,28 +46,47 @@ pub struct PortfolioManager {
 impl PortfolioManager {
     pub fn new(storage: Storage) -> Self {
         Self {
-            storage, last_equity: 0.0,
+            storage,
+            last_equity: 0.0,
             initial_r: HashMap::new(),
             entry_ctx: HashMap::new(),
         }
     }
 
     pub fn last_known_equity(&self) -> f64 {
-        if self.last_equity > 0.0 { return self.last_equity; }
-        self.storage.last_equity().ok().flatten().map(|(_, e)| e).unwrap_or(1000.0)
+        if self.last_equity > 0.0 {
+            return self.last_equity;
+        }
+        self.storage
+            .last_equity()
+            .ok()
+            .flatten()
+            .map(|(_, e)| e)
+            .unwrap_or(0.0)
     }
 
     /// Total & per-market open notional in USD (approximate: size * entry).
-    pub fn exposure(&self, symbol: &str) -> (f64, f64) {
-        let positions = self.storage.list_open_positions().unwrap_or_default();
+    pub fn exposure(&self, symbol: &str) -> Result<(f64, f64)> {
+        let positions = self.storage.list_open_positions()?;
         let mut total = 0.0;
         let mut per_mk = 0.0;
         for p in positions {
+            anyhow::ensure!(
+                p.size.is_finite()
+                    && p.size > 0.0
+                    && p.entry_price.is_finite()
+                    && p.entry_price > 0.0,
+                "invalid persisted position; exposure unavailable"
+            );
             let n = p.size.abs() * p.entry_price;
+            anyhow::ensure!(n.is_finite(), "position notional overflow");
             total += n;
-            if p.symbol == symbol { per_mk += n; }
+            if p.symbol == symbol {
+                per_mk += n;
+            }
         }
-        (total, per_mk)
+        anyhow::ensure!(total.is_finite() && per_mk.is_finite(), "exposure overflow");
+        Ok((total, per_mk))
     }
 
     pub fn open_from_fill(
@@ -77,8 +96,18 @@ impl PortfolioManager {
         strategy: Option<&str>,
         entry_ctx: Option<EntryContext>,
     ) -> Result<()> {
-        if res.filled_size <= 0.0 { return Ok(()); }
-        let price = res.avg_fill_price.or(intent.limit_price).unwrap_or(0.0);
+        anyhow::ensure!(
+            res.accepted
+                && res.intent_id == intent.id
+                && res.filled_size.is_finite()
+                && res.filled_size > 0.0
+                && res.filled_size <= intent.size,
+            "invalid entry fill"
+        );
+        let price = res
+            .avg_fill_price
+            .ok_or_else(|| anyhow::anyhow!("entry fill price unavailable"))?;
+        anyhow::ensure!(price.is_finite() && price > 0.0, "invalid entry fill price");
         let p = OpenPosition {
             id: 0,
             venue: intent.venue.clone(),
@@ -133,7 +162,10 @@ impl PortfolioManager {
         let positions = self.storage.list_open_positions()?;
         let pm = &cfg.strategies.position_management;
         for p in positions {
-            let snap = match snapshots.iter().find(|s| s.venue == p.venue && s.symbol == p.symbol) {
+            let snap = match snapshots
+                .iter()
+                .find(|s| s.venue == p.venue && s.symbol == p.symbol)
+            {
                 Some(s) => s,
                 None => continue,
             };
@@ -147,13 +179,19 @@ impl PortfolioManager {
             if pm.trailing_enabled {
                 if is_long && mid > new_trail {
                     new_trail = mid;
-                    let atr_stop = mid - (mid - p.entry_price).abs() * 0.25 - pm.trailing_atr_mult * (mid * 0.001);
-                    if let Some(s) = new_stop { new_stop = Some(s.max(atr_stop)); }
+                    let atr_stop = mid
+                        - (mid - p.entry_price).abs() * 0.25
+                        - pm.trailing_atr_mult * (mid * 0.001);
+                    if let Some(s) = new_stop {
+                        new_stop = Some(s.max(atr_stop));
+                    }
                     stop_changed = true;
                 } else if !is_long && mid < new_trail {
                     new_trail = mid;
                     let atr_stop = mid + pm.trailing_atr_mult * (mid * 0.001);
-                    if let Some(s) = new_stop { new_stop = Some(s.min(atr_stop)); }
+                    if let Some(s) = new_stop {
+                        new_stop = Some(s.min(atr_stop));
+                    }
                     stop_changed = true;
                 }
             }
@@ -173,15 +211,27 @@ impl PortfolioManager {
                     };
                     if profit_r >= pm.breakeven_trigger_r {
                         let target = chandelier_target(
-                            is_long, p.entry_price, new_trail, r_init, pm.chandelier_trail_r,
+                            is_long,
+                            p.entry_price,
+                            new_trail,
+                            r_init,
+                            pm.chandelier_trail_r,
                         );
                         // Monotonic move: only raise (long) / lower (short) the stop.
                         let new_candidate = match new_stop {
                             Some(cur) => {
                                 if is_long {
-                                    if target > cur { Some(target) } else { None }
+                                    if target > cur {
+                                        Some(target)
+                                    } else {
+                                        None
+                                    }
                                 } else {
-                                    if target < cur { Some(target) } else { None }
+                                    if target < cur {
+                                        Some(target)
+                                    } else {
+                                        None
+                                    }
                                 }
                             }
                             None => Some(target),
@@ -191,7 +241,7 @@ impl PortfolioManager {
                             stop_changed = true;
                             tracing::info!(
                                 position_id = p.id,
-                                side = if is_long {"LONG"} else {"SHORT"},
+                                side = if is_long { "LONG" } else { "SHORT" },
                                 profit_r = profit_r,
                                 new_stop = nv,
                                 "chandelier: stop defended",
@@ -202,7 +252,8 @@ impl PortfolioManager {
             }
 
             if stop_changed {
-                self.storage.update_position_trailing(p.id, new_trail, new_stop)?;
+                self.storage
+                    .update_position_trailing(p.id, new_trail, new_stop)?;
             }
 
             // ── Exit conditions (UNCHANGED) ──
@@ -212,7 +263,7 @@ impl PortfolioManager {
                 _ => false,
             };
             let hit_tp = match (is_long, p.take_profit) {
-                (true, Some(t))  => mid >= t,
+                (true, Some(t)) => mid >= t,
                 (false, Some(t)) => mid <= t,
                 _ => false,
             };
@@ -220,101 +271,126 @@ impl PortfolioManager {
             let time_stop = age > Duration::minutes(pm.time_stop_minutes);
 
             if hit_stop || hit_tp || time_stop {
-                let reason = if hit_stop {"stop"} else if hit_tp {"tp"} else {"time_stop"};
-                tracing::info!(position_id=p.id, reason, mid, "closing position");
-                if let Some(v) = venues.iter().find(|v| v.kind().as_str() == p.venue) {
-                    let _res = execution.close(v.as_ref(), &p.symbol, p.size, !is_long).await.ok();
-                }
-                let realized = if is_long { (mid - p.entry_price) * p.size } else { (p.entry_price - mid) * p.size };
-                let session = self.storage.list_sessions(1)?.first().map(|s| s.id).unwrap_or(0);
-                self.storage.close_position(p.id, mid, realized, session, reason)?;
-
-                // v1.5.0: persist the trade context for the learning module.
-                // Best-effort: if we don't have entry context (position was
-                // opened before this process started, or restart), skip.
-                if let Some(ctx) = self.entry_ctx.remove(&p.id) {
-                    let r_init = self.initial_r.get(&p.id).copied().unwrap_or_else(|| {
-                        let stop = p.stop_price.unwrap_or(p.entry_price);
-                        (p.entry_price - stop).abs()
-                    });
-                    let dur = (Utc::now() - p.opened_at).num_seconds().max(0);
-                    if let Err(e) = learning::context::record_trade_context(
-                        &self.storage,
-                        &p.symbol,
-                        &ctx.strategy,
-                        &ctx.side,
-                        ctx.regime_view,
-                        ctx.atr_pct,
-                        ctx.spread_bps,
-                        ctx.edge_bps_predicted,
-                        p.entry_price,
-                        mid,
-                        r_init,
-                        realized,
-                        dur,
-                        reason,
-                        p.opened_at,
-                    ) {
-                        tracing::warn!(error=%e, position_id=p.id, "failed to record trade_context for learning");
-                    }
-                }
-
-                self.initial_r.remove(&p.id);
-                self.apply_compounding(realized)?;
+                let reason = if hit_stop {
+                    "stop"
+                } else if hit_tp {
+                    "tp"
+                } else {
+                    "time_stop"
+                };
+                tracing::info!(position_id = p.id, reason, mid, "closing position");
+                self.close_confirmed(&p, p.size, reason, execution, venues)
+                    .await?;
             }
         }
         Ok(())
     }
 
-    fn apply_compounding(&self, realized: f64) -> Result<()> {
-        let mut state = self.storage.get_compound_state()?;
-        if state.starting_capital == 0.0 {
-            state.starting_capital = self.last_known_equity();
+    /// Close only from a validated fill plus a matching post-order account position.
+    async fn close_confirmed(
+        &mut self,
+        p: &OpenPosition,
+        requested: f64,
+        reason: &str,
+        execution: &mut ExecutionEngine,
+        venues: &[Box<dyn VenueAdapter>],
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.storage
+                .list_open_positions()?
+                .iter()
+                .filter(|other| other.venue == p.venue && other.symbol == p.symbol)
+                .count()
+                == 1,
+            "ambiguous local position ownership; reconcile before closing"
+        );
+        let venue = venues
+            .iter()
+            .find(|v| v.kind().as_str() == p.venue)
+            .ok_or_else(|| anyhow::anyhow!("close venue unavailable"))?;
+        let res = execution
+            .close(venue.as_ref(), &p.symbol, requested, p.side == "SHORT")
+            .await?;
+        if !res.accepted || res.filled_size == 0.0 {
+            anyhow::bail!("close not filled: {}", res.message);
         }
-        state.realized_profit += realized;
-        let excess = (state.realized_profit - 0.0).max(0.0);
-        let scale = 1.0 + (excess / state.starting_capital.max(1.0)).min(2.0);
-        state.current_risk_mult = scale.max(0.2);
-        if state.realized_profit < 0.0 { state.current_risk_mult *= 0.6; }
-        state.updated_at = Utc::now().to_rfc3339();
-        self.storage.upsert_compound_state(&state)?;
+        anyhow::ensure!(
+            res.filled_size.is_finite() && res.filled_size > 0.0 && res.filled_size <= requested,
+            "invalid close fill quantity; reconciliation required"
+        );
+        let px = res
+            .avg_fill_price
+            .ok_or_else(|| anyhow::anyhow!("missing close fill price"))?;
+        anyhow::ensure!(px.is_finite() && px > 0.0, "invalid close fill price");
+        let remote = venue.open_positions().await?;
+        let same: Vec<_> = remote.iter().filter(|r| r.symbol == p.symbol).collect();
+        anyhow::ensure!(same.len() <= 1, "duplicate remote positions");
+        let signed = same.first().map(|r| r.size).unwrap_or(0.0);
+        anyhow::ensure!(
+            signed.is_finite() && (signed == 0.0 || (signed > 0.0) == (p.side == "LONG")),
+            "remote position side changed; reconciliation required"
+        );
+        let remaining = signed.abs();
+        let expected = p.size - res.filled_size;
+        anyhow::ensure!(
+            (remaining - expected).abs() <= 1e-10 * p.size.max(1.0),
+            "remote residual disagrees with confirmed fill; reconciliation required"
+        );
+        self.storage
+            .apply_confirmed_reduction(p, &res, remaining, reason)?;
+        if remaining == 0.0 {
+            self.initial_r.remove(&p.id);
+            self.entry_ctx.remove(&p.id);
+        }
+        tracing::info!(
+            position_id = p.id,
+            remaining,
+            "confirmed reduction; net PnL pending fee/funding reconciliation"
+        );
         Ok(())
     }
 
     pub async fn reduce_all(
         &mut self,
-        cfg: &AppConfig,
+        _cfg: &AppConfig,
         execution: &mut ExecutionEngine,
         venues: &[Box<dyn VenueAdapter>],
     ) -> Result<()> {
-        let _ = cfg;
-        for p in self.storage.list_open_positions()? {
-            if let Some(v) = venues.iter().find(|v| v.kind().as_str() == p.venue) {
-                let reduce_size = p.size * 0.5;
-                let _ = execution.close(v.as_ref(), &p.symbol, reduce_size, p.side == "SHORT").await;
-                let new_size = p.size - reduce_size;
-                let conn = self.storage.clone();
-                let _ = conn;
-                tracing::info!(position_id=p.id, remaining=new_size, "reduced on shutdown");
-            }
-        }
-        Ok(())
+        self.close_all(0.5, "shutdown_reduce", execution, venues)
+            .await
     }
 
     pub async fn flatten_all(
         &mut self,
-        cfg: &AppConfig,
+        _cfg: &AppConfig,
         execution: &mut ExecutionEngine,
         venues: &[Box<dyn VenueAdapter>],
     ) -> Result<()> {
-        let _ = cfg;
+        self.close_all(1.0, "manual_flatten", execution, venues)
+            .await
+    }
+
+    async fn close_all(
+        &mut self,
+        fraction: f64,
+        reason: &str,
+        execution: &mut ExecutionEngine,
+        venues: &[Box<dyn VenueAdapter>],
+    ) -> Result<()> {
+        let mut failures = Vec::new();
         for p in self.storage.list_open_positions()? {
-            if let Some(v) = venues.iter().find(|v| v.kind().as_str() == p.venue) {
-                let _ = execution.close(v.as_ref(), &p.symbol, p.size, p.side == "SHORT").await;
-                let session = self.storage.list_sessions(1)?.first().map(|s| s.id).unwrap_or(0);
-                self.storage.close_position(p.id, p.entry_price, 0.0, session, "manual_flatten")?;
+            if let Err(e) = self
+                .close_confirmed(&p, p.size * fraction, reason, execution, venues)
+                .await
+            {
+                failures.push(format!("{}/{}: {e}", p.venue, p.symbol));
             }
         }
+        anyhow::ensure!(
+            failures.is_empty(),
+            "close incomplete: {}",
+            failures.join("; ")
+        );
         Ok(())
     }
 
@@ -358,7 +434,9 @@ mod tests {
     use super::chandelier_target;
 
     const EPS: f64 = 1e-9;
-    fn near(a: f64, b: f64) -> bool { (a - b).abs() < EPS }
+    fn near(a: f64, b: f64) -> bool {
+        (a - b).abs() < EPS
+    }
 
     #[test]
     fn long_at_1r_profit_locks_breakeven() {
@@ -423,6 +501,9 @@ mod tests {
         // So on retrace, stop hits at 77657 instead of letting price fall back to entry.
         let t = chandelier_target(true, 77534.0, 77784.0, 254.0, 0.5);
         assert!((t - 77657.0).abs() < 0.5, "got {}", t);
-        assert!(t > 77534.0, "must be above break-even after that much profit");
+        assert!(
+            t > 77534.0,
+            "must be above break-even after that much profit"
+        );
     }
 }

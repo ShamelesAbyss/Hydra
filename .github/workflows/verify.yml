@@ -1,0 +1,67 @@
+name: Verify and package
+on:
+  push:
+    branches: [main, 'leviathan/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets
+      - run: cargo test --locked --all-targets
+      - run: cargo build --locked --release
+      - name: Verify CLI launch
+        shell: bash
+        run: ./target/release/hydra${{ runner.os == 'Windows' && '.exe' || '' }} --version
+      - name: Package portable build
+        shell: pwsh
+        run: |
+          $name = 'hydra-${{ matrix.target }}'
+          New-Item -ItemType Directory -Path "dist/$name" -Force | Out-Null
+          $extension = if ($IsWindows) { '.exe' } else { '' }
+          Copy-Item "target/release/hydra$extension" "dist/$name/"
+          Copy-Item README.md,LICENSE,PROJECT_STATUS.md,TEST_RESULTS.md "dist/$name/"
+          Copy-Item config "dist/$name/config" -Recurse
+          if ($IsWindows) {
+            $archive = "$name.zip"
+            Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$archive"
+          } else {
+            $archive = "$name.tar.gz"
+            tar -czf "dist/$archive" -C "dist/$name" .
+            if ($LASTEXITCODE -ne 0) { throw 'tar packaging failed' }
+          }
+          $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Set-Content "dist/$name.sha256" -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hydra-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.sha256
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit

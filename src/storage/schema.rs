@@ -5,6 +5,31 @@ use rusqlite::Connection;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(r#"
+
+        -- Leviathan: additive durable execution journal. Existing ledgers are preserved.
+        CREATE TABLE IF NOT EXISTS execution_intents (
+            intent_id TEXT PRIMARY KEY,
+            venue TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            intent_json TEXT NOT NULL,
+            state TEXT NOT NULL,
+            result_json TEXT,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_execution_state ON execution_intents(state);
+        CREATE TABLE IF NOT EXISTS confirmed_reductions (
+            intent_id TEXT PRIMARY KEY REFERENCES execution_intents(intent_id),
+            position_id INTEGER NOT NULL REFERENCES positions(id),
+            filled_size REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            remaining_size REAL NOT NULL,
+            gross_pnl REAL NOT NULL,
+            -- Fees/funding must be reconciled before this enters net-PnL learning.
+            net_pnl REAL,
+            reason TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             started_at TEXT NOT NULL,
@@ -169,9 +194,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // v1.6.1: idempotent ALTER. Add `exit_reason` column to closed_trades
     // for the new stop-out-specific cooldown. SQLite doesn't support
     // `ADD COLUMN IF NOT EXISTS`, so we swallow the duplicate-column error.
-    let _ = conn.execute(
-        "ALTER TABLE closed_trades ADD COLUMN exit_reason TEXT",
-        [],
-    );
+    let _ = conn.execute("ALTER TABLE closed_trades ADD COLUMN exit_reason TEXT", []);
     Ok(())
 }

@@ -41,12 +41,14 @@ mod flex_string_opt {
     }
 }
 
+use super::{VenueAdapter, VenuePosition};
 use crate::config::{defaults, AppConfig};
 use crate::core::{Candle, MarketSnapshot, OrderIntent, OrderResult, VenueKind};
-use super::{VenueAdapter, VenuePosition};
 
 pub struct HyperliquidAdapter {
     http: reqwest::Client,
+    live_authorized: bool,
+    max_slippage_bps: f64,
     base_url: String,
     account_address: Option<String>,
     exchange: Arc<Mutex<Option<hyperliquid_rust_sdk::ExchangeClient>>>,
@@ -63,19 +65,23 @@ impl HyperliquidAdapter {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
-        let derived_addr = cfg.hl_private_key.as_ref().and_then(|k| derive_eth_address(k).ok());
+        let derived_addr = cfg
+            .hl_private_key
+            .as_ref()
+            .and_then(|k| derive_eth_address(k).ok());
         let account_address = cfg.hl_account_address.clone().or(derived_addr);
         tracing::info!(network="mainnet", account=?account_address, "hyperliquid adapter init");
         let adapter = Self {
             http,
+            live_authorized: cfg.live_trading,
+            max_slippage_bps: cfg.risk.max_slippage_bps,
             base_url: defaults::HYPERLIQUID_API.to_string(),
             account_address,
             exchange: Arc::new(Mutex::new(None)),
             wallet_key: cfg.hl_private_key.clone(),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
-        // Best-effort prefetch of per-asset size precision. Any failure here
-        // falls back to a safe default of 2 decimals at order time.
+        // Prefetch metadata; orders fail closed if the instrument is unavailable.
         adapter.warm_meta().await;
         Ok(adapter)
     }
@@ -92,7 +98,9 @@ impl HyperliquidAdapter {
             sz_decimals: u8,
         }
         #[derive(Deserialize)]
-        struct Universe { universe: Vec<AssetMeta> }
+        struct Universe {
+            universe: Vec<AssetMeta>,
+        }
         match self.info::<Universe>(json!({"type":"meta"})).await {
             Ok(meta) => {
                 let mut guard = self.sz_decimals.lock().await;
@@ -109,17 +117,20 @@ impl HyperliquidAdapter {
                 );
             }
             Err(e) => {
-                tracing::warn!(error=%e, "could not warm hyperliquid meta — will use 2dp default for sizing");
+                tracing::warn!(error=%e, "could not warm hyperliquid meta — order submission blocked without instrument metadata");
             }
         }
     }
 
-    /// Per-asset size precision. Defaults to 2dp for safety if meta is unknown
-    /// (2dp works for HYPE/SUI/most newer perps; ETH/BTC asked for fewer than
-    /// 2dp would still be valid since their actual cap is 4-5).
-    async fn sz_decimals_for(&self, symbol: &str) -> u8 {
+    /// Authoritative metadata is required for every submitted instrument.
+    async fn sz_decimals_for(&self, symbol: &str) -> Result<u8> {
         let guard = self.sz_decimals.lock().await;
-        *guard.get(symbol).unwrap_or(&2)
+        let dp = guard
+            .get(symbol)
+            .copied()
+            .ok_or_else(|| anyhow!("metadata unavailable for {symbol}"))?;
+        anyhow::ensure!(dp <= 6, "unsupported perp size precision");
+        Ok(dp)
     }
 
     async fn info<T: for<'de> Deserialize<'de>>(&self, body: serde_json::Value) -> Result<T> {
@@ -131,16 +142,22 @@ impl HyperliquidAdapter {
         let mut last_err: Option<anyhow::Error> = None;
         for attempt in 0..4 {
             match self.http.post(&url).json(&body).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    match resp.text().await {
-                        Ok(txt) => match serde_json::from_str::<T>(&txt) {
-                            Ok(v) => return Ok(v),
-                            Err(e) => last_err = Some(anyhow!("decoding hyperliquid info response: {e}; body={}",
-                                if txt.len() > 256 { format!("{}…", &txt[..256]) } else { txt })),
-                        },
-                        Err(e) => last_err = Some(anyhow::Error::new(e)),
-                    }
-                }
+                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                    Ok(txt) => match serde_json::from_str::<T>(&txt) {
+                        Ok(v) => return Ok(v),
+                        Err(e) => {
+                            last_err = Some(anyhow!(
+                                "decoding hyperliquid info response: {e}; body={}",
+                                if txt.len() > 256 {
+                                    format!("{}…", &txt[..256])
+                                } else {
+                                    txt
+                                }
+                            ))
+                        }
+                    },
+                    Err(e) => last_err = Some(anyhow::Error::new(e)),
+                },
                 Ok(resp) => {
                     let s = resp.status();
                     let txt = resp.text().await.unwrap_or_default();
@@ -158,13 +175,24 @@ impl HyperliquidAdapter {
 
     async fn ensure_exchange(&self) -> Result<()> {
         let mut guard = self.exchange.lock().await;
-        if guard.is_some() { return Ok(()); }
-        let key = self.wallet_key.as_ref().ok_or_else(|| anyhow!("HYPERLIQUID_PRIVATE_KEY not set"))?;
+        if guard.is_some() {
+            return Ok(());
+        }
+        let key = self
+            .wallet_key
+            .as_ref()
+            .ok_or_else(|| anyhow!("HYPERLIQUID_PRIVATE_KEY not set"))?;
         let wallet = ethers::signers::LocalWallet::from_str(key.trim_start_matches("0x"))
             .context("parsing Hyperliquid private key")?;
         let client = hyperliquid_rust_sdk::ExchangeClient::new(
-            None, wallet, Some(hyperliquid_rust_sdk::BaseUrl::Mainnet), None, None
-        ).await.map_err(|e| anyhow!("init Hyperliquid ExchangeClient: {e}"))?;
+            None,
+            wallet,
+            Some(hyperliquid_rust_sdk::BaseUrl::Mainnet),
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| anyhow!("init Hyperliquid ExchangeClient: {e}"))?;
         *guard = Some(client);
         Ok(())
     }
@@ -172,67 +200,98 @@ impl HyperliquidAdapter {
 
 fn derive_eth_address(priv_hex: &str) -> Result<String> {
     use ethers::signers::{LocalWallet, Signer};
-    let w = LocalWallet::from_str(priv_hex.trim_start_matches("0x")).context("parse private key")?;
+    let w =
+        LocalWallet::from_str(priv_hex.trim_start_matches("0x")).context("parse private key")?;
     Ok(format!("{:?}", w.address()))
 }
 
 /// Round a perp price to Hyperliquid's tick rule: max 5 significant figures,
 /// max 6 decimals. For integer-range prices (e.g. BTC > $10k) it returns an int.
-fn round_perp_price(px: f64) -> f64 {
-    if px <= 0.0 || !px.is_finite() { return 0.0; }
+fn round_perp_price(px: f64, sz_decimals: u8, buy: bool) -> f64 {
+    if px <= 0.0 || !px.is_finite() {
+        return 0.0;
+    }
     let magnitude = px.abs().log10().floor() as i32;
     // 5 sig figs → decimals = 4 - magnitude. Floor at 0 (integer), cap at 6.
-    let decimals = (4 - magnitude).max(0).min(6);
+    let decimals = (4 - magnitude).clamp(0, 6_i32.saturating_sub(sz_decimals as i32));
     let scale = 10f64.powi(decimals);
-    (px * scale).round() / scale
+    if buy {
+        (px * scale).floor() / scale
+    } else {
+        (px * scale).ceil() / scale
+    }
 }
 
 /// Floor `value` to `dp` decimal places. Uses `floor` (not `round`) so we
 /// never accidentally bump a position above the requested risk-budget size.
 fn round_to_decimals(value: f64, dp: u8) -> f64 {
-    if value <= 0.0 || !value.is_finite() { return 0.0; }
+    if value <= 0.0 || !value.is_finite() {
+        return 0.0;
+    }
     let scale = 10f64.powi(dp as i32);
     (value * scale).floor() / scale
 }
 
-/// Parse an ExchangeResponse debug string to determine real acceptance.
-/// ethers Debug format for enum tuple variants is `Filled(FilledOrder { ... })`,
-/// `Resting(RestingOrder { ... })`, `Error("...")`.
-fn parse_order_response(raw: &str, fallback_sz: f64) -> (bool, f64, Option<f64>, Option<String>) {
-    let has_filled  = raw.contains("Filled(")  || raw.contains("Filled {");
-    let has_resting = raw.contains("Resting(") || raw.contains("Resting {");
-    let has_error   = raw.contains("Error(");
-
-    let accepted = !has_error && (has_filled || has_resting);
-
-    // Extract total_sz / avg_px from the Filled(...) payload if present.
-    let filled_sz = if has_filled {
-        extract_quoted(raw, "total_sz: ").and_then(|s| s.parse::<f64>().ok()).unwrap_or(fallback_sz)
-    } else { 0.0 };
-    let avg_px = if has_filled {
-        extract_quoted(raw, "avg_px: ").and_then(|s| s.parse::<f64>().ok())
-    } else { None };
-
-    // oid is an unquoted integer.
-    let oid = raw.split("oid: ").nth(1)
-        .map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
-        .filter(|s| !s.is_empty());
-
-    (accepted, filled_sz, avg_px, oid)
-}
-
-fn extract_quoted(raw: &str, prefix: &str) -> Option<String> {
-    let start = raw.find(prefix)?;
-    let after = &raw[start + prefix.len()..];
-    let q_start = after.find('"')? + 1;
-    let after_q = &after[q_start..];
-    let q_end = after_q.find('"')?;
-    Some(after_q[..q_end].to_string())
+/// Single-order typed acknowledgment. Unrecognized/malformed responses stay unresolved.
+fn parse_order_response(
+    resp: hyperliquid_rust_sdk::ExchangeResponseStatus,
+    id: &str,
+) -> Result<OrderResult> {
+    use hyperliquid_rust_sdk::{ExchangeDataStatus as Status, ExchangeResponseStatus as Response};
+    let mut out = OrderResult {
+        intent_id: id.into(),
+        accepted: false,
+        venue_order_id: None,
+        filled_size: 0.0,
+        avg_fill_price: None,
+        message: String::new(),
+    };
+    let response = match resp {
+        Response::Err(_) => {
+            out.message = "exchange rejected request".into();
+            return Ok(out);
+        }
+        Response::Ok(r) => r,
+    };
+    anyhow::ensure!(
+        response.response_type == "order",
+        "unexpected exchange response type"
+    );
+    let statuses = response
+        .data
+        .ok_or_else(|| anyhow!("missing order statuses"))?
+        .statuses;
+    anyhow::ensure!(statuses.len() == 1, "expected exactly one order status");
+    match statuses.into_iter().next().unwrap() {
+        Status::Filled(fill) => {
+            let qty: f64 = fill.total_sz.parse().context("invalid filled size")?;
+            let px: f64 = fill.avg_px.parse().context("invalid fill price")?;
+            anyhow::ensure!(
+                qty.is_finite() && qty > 0.0 && px.is_finite() && px > 0.0,
+                "invalid fill"
+            );
+            out.accepted = true;
+            out.filled_size = qty;
+            out.avg_fill_price = Some(px);
+            out.venue_order_id = Some(fill.oid.to_string());
+            out.message = "confirmed fill; fees/funding pending".into();
+        }
+        Status::Resting(order) => {
+            out.accepted = true;
+            out.venue_order_id = Some(order.oid.to_string());
+            out.message = "resting; no confirmed fill".into();
+        }
+        Status::Error(_) => out.message = "exchange rejected order".into(),
+        _ => anyhow::bail!("order acknowledgment unresolved; reconciliation required"),
+    }
+    Ok(out)
 }
 
 #[async_trait]
 impl VenueAdapter for HyperliquidAdapter {
-    fn kind(&self) -> VenueKind { VenueKind::Hyperliquid }
+    fn kind(&self) -> VenueKind {
+        VenueKind::Hyperliquid
+    }
 
     async fn ping(&self) -> Result<()> {
         let _mids: serde_json::Value = self.info(json!({"type":"allMids"})).await?;
@@ -241,7 +300,9 @@ impl VenueAdapter for HyperliquidAdapter {
 
     async fn snapshot(&self, symbol: &str, lookback: usize) -> Result<MarketSnapshot> {
         let mids: serde_json::Value = self.info(json!({"type":"allMids"})).await?;
-        let mid_str = mids.get(symbol).and_then(|v| v.as_str())
+        let mid_str = mids
+            .get(symbol)
+            .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("hyperliquid: no mid for {symbol}"))?;
         let mid: f64 = mid_str.parse()?;
         let now_ms = Utc::now().timestamp_millis();
@@ -253,8 +314,16 @@ impl VenueAdapter for HyperliquidAdapter {
         let book: Result<BookResp> = self.info(json!({"type":"l2Book","coin":symbol})).await;
         let (bid, ask, spread_bps) = match book {
             Ok(b) => {
-                let bid = b.levels.get(0).and_then(|lv| lv.first()).and_then(|l| l.px.parse::<f64>().ok());
-                let ask = b.levels.get(1).and_then(|lv| lv.first()).and_then(|l| l.px.parse::<f64>().ok());
+                let bid = b
+                    .levels
+                    .get(0)
+                    .and_then(|lv| lv.first())
+                    .and_then(|l| l.px.parse::<f64>().ok());
+                let ask = b
+                    .levels
+                    .get(1)
+                    .and_then(|lv| lv.first())
+                    .and_then(|l| l.px.parse::<f64>().ok());
                 let sp = match (bid, ask) {
                     (Some(b), Some(a)) if a > 0.0 => Some((a - b) / a * 10_000.0),
                     _ => None,
@@ -266,59 +335,96 @@ impl VenueAdapter for HyperliquidAdapter {
         Ok(MarketSnapshot {
             venue: "hyperliquid".into(),
             symbol: symbol.to_string(),
-            mid, bid, ask, spread_bps,
+            mid,
+            bid,
+            ask,
+            spread_bps,
             last_update: Utc::now(),
             candles,
         })
     }
 
     async fn open_positions(&self) -> Result<Vec<VenuePosition>> {
-        let addr = self.account_address.as_ref().ok_or_else(|| anyhow!("no account address"))?;
-        let state: ClearingHouseState = self.info(json!({"type":"clearinghouseState","user":addr})).await?;
+        let addr = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("no account address"))?;
+        let state: ClearingHouseState = self
+            .info(json!({"type":"clearinghouseState","user":addr}))
+            .await?;
         let mut out = Vec::new();
         for p in state.asset_positions {
-            let sz: f64 = p.position.szi.parse().unwrap_or(0.0);
-            if sz.abs() < 1e-12 { continue; }
-            let entry: f64 = p.position.entry_px.parse().unwrap_or(0.0);
-            let upnl: f64 = p.position.unrealized_pnl.parse().unwrap_or(0.0);
-            let lev: f64 = p.position.leverage.value.parse().unwrap_or(1.0);
-            out.push(VenuePosition { symbol: p.position.coin, size: sz, entry_price: entry, unrealized_pnl: upnl, leverage: lev });
+            let sz: f64 = p.position.szi.parse().context("invalid position size")?;
+            anyhow::ensure!(sz.is_finite(), "non-finite position size");
+            if sz.abs() < 1e-12 {
+                continue;
+            }
+            let entry: f64 = p.position.entry_px.parse().context("invalid entry price")?;
+            let upnl: f64 = p
+                .position
+                .unrealized_pnl
+                .parse()
+                .context("invalid unrealized PnL")?;
+            let lev: f64 = p
+                .position
+                .leverage
+                .value
+                .parse()
+                .context("invalid leverage")?;
+            anyhow::ensure!(
+                entry.is_finite()
+                    && entry > 0.0
+                    && upnl.is_finite()
+                    && lev.is_finite()
+                    && lev > 0.0,
+                "invalid account position"
+            );
+            out.push(VenuePosition {
+                symbol: p.position.coin,
+                size: sz,
+                entry_price: entry,
+                unrealized_pnl: upnl,
+                leverage: lev,
+            });
         }
         Ok(out)
     }
 
     async fn submit_order(&self, intent: &OrderIntent) -> Result<OrderResult> {
-        self.ensure_exchange().await?;
-
-        // ---- Resolve price for IOC execution ----
-        // If caller didn't supply one, fetch the venue mid and cross by 3% so the
-        // order is marketable. Hyperliquid rejects price = 0.
+        anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
+        anyhow::ensure!(
+            self.max_slippage_bps.is_finite()
+                && self.max_slippage_bps > 0.0
+                && self.max_slippage_bps <= 1000.0,
+            "MAX_SLIPPAGE_BPS must be in (0, 1000]"
+        );
+        let dp = self.sz_decimals_for(&intent.symbol).await?;
         let raw_px = match intent.limit_price {
-            Some(p) if p > 0.0 => p,
-            _ => {
+            Some(p) if p.is_finite() && p > 0.0 => p,
+            Some(_) => anyhow::bail!("invalid limit price"),
+            None => {
                 let mids: serde_json::Value = self.info(json!({"type":"allMids"})).await?;
-                let mid: f64 = mids.get(&intent.symbol)
+                let mid: f64 = mids
+                    .get(&intent.symbol)
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse().ok())
-                    .ok_or_else(|| anyhow!("no live mid for {}", intent.symbol))?;
-                if intent.side.is_buy() { mid * 1.03 } else { mid * 0.97 }
+                    .ok_or_else(|| anyhow!("missing mid"))?;
+                anyhow::ensure!(mid.is_finite() && mid > 0.0, "invalid mid");
+                let slip = self.max_slippage_bps / 10_000.0;
+                mid * if intent.side.is_buy() {
+                    1.0 + slip
+                } else {
+                    1.0 - slip
+                }
             }
         };
-        // Hyperliquid perp: max 5 sig figs, max 6 decimals. Round to 5 sig figs.
-        let limit_px = round_perp_price(raw_px);
-        // v1.4.0: round size to the venue's per-asset szDecimals, not a fixed
-        // 4dp. This was the root cause of every HYPE order being rejected
-        // (HYPE = 2dp, while sizes like 2.2553 had 4dp).
-        let dp = self.sz_decimals_for(&intent.symbol).await;
+        let limit_px = round_perp_price(raw_px, dp, intent.side.is_buy());
         let sz = round_to_decimals(intent.size, dp);
-        if sz <= 0.0 {
-            return Ok(OrderResult {
-                intent_id: intent.id.clone(), accepted: false,
-                venue_order_id: None, filled_size: 0.0, avg_fill_price: None,
-                message: format!("size {} rounds to 0 at {}dp for {}", intent.size, dp, intent.symbol),
-            });
-        }
-
+        anyhow::ensure!(
+            limit_px.is_finite() && limit_px > 0.0 && sz > 0.0,
+            "order rounds to zero"
+        );
+        self.ensure_exchange().await?;
         let guard = self.exchange.lock().await;
         let client = guard.as_ref().unwrap();
         let order = hyperliquid_rust_sdk::ClientOrderRequest {
@@ -327,80 +433,92 @@ impl VenueAdapter for HyperliquidAdapter {
             reduce_only: intent.reduce_only,
             limit_px,
             sz,
-            cloid: None,
+            cloid: Some(intent.id.parse().context("invalid client order UUID")?),
             order_type: hyperliquid_rust_sdk::ClientOrder::Limit(
-                hyperliquid_rust_sdk::ClientLimit { tif: "Ioc".to_string() },
+                hyperliquid_rust_sdk::ClientLimit {
+                    tif: "Ioc".to_string(),
+                },
             ),
         };
-        let resp = client.order(order, None).await.map_err(|e| anyhow!("hyperliquid order error: {e}"))?;
+        let resp = client
+            .order(order, None)
+            .await
+            .map_err(|e| anyhow!("hyperliquid order error: {e}"))?;
 
-        // Deep-inspect the response: an outer Ok() with an inner Error(...) status
-        // is still a rejection. Only count it as accepted if we saw a Filled or
-        // Resting status (no inner Error).
-        let raw = format!("{:?}", resp);
-        let (accepted, filled_sz, avg_px, venue_oid) = parse_order_response(&raw, sz);
-        let message = if accepted {
-            match avg_px {
-                Some(px) => format!("FILLED @ ${:.4} sz={:.4}", px, filled_sz),
-                None => format!("accepted @ ~${:.4}", limit_px),
-            }
-        } else {
-            // Truncate noisy raw debug in rejection messages.
-            let short = if raw.len() > 200 { format!("{}…", &raw[..200]) } else { raw.clone() };
-            format!("REJECTED  {}", short)
-        };
-        Ok(OrderResult {
-            intent_id: intent.id.clone(),
-            accepted,
-            venue_order_id: venue_oid,
-            filled_size: filled_sz,
-            avg_fill_price: avg_px,
-            message,
-        })
+        parse_order_response(resp, &intent.id)
     }
 
-    async fn close_position(&self, symbol: &str, size: f64, side_is_buy_to_close: bool) -> Result<OrderResult> {
+    async fn close_position(
+        &self,
+        symbol: &str,
+        size: f64,
+        side_is_buy_to_close: bool,
+    ) -> Result<OrderResult> {
         let intent = OrderIntent {
             id: uuid::Uuid::new_v4().to_string(),
             venue: "hyperliquid".into(),
             symbol: symbol.to_string(),
-            side: if side_is_buy_to_close { crate::core::Side::Long } else { crate::core::Side::Short },
+            side: if side_is_buy_to_close {
+                crate::core::Side::Long
+            } else {
+                crate::core::Side::Short
+            },
             size: size.abs(),
-            limit_price: None, reduce_only: true,
-            stop_price: None, take_profit: None, source_signal: None,
+            limit_price: None,
+            reduce_only: true,
+            stop_price: None,
+            take_profit: None,
+            source_signal: None,
             created_at: Utc::now(),
         };
         self.submit_order(&intent).await
     }
 
     async fn account_equity_usd(&self) -> Result<f64> {
-        let addr = match &self.account_address { Some(a) => a.clone(), None => return Ok(0.0) };
+        let addr = match &self.account_address {
+            Some(a) => a.clone(),
+            None => return Ok(0.0),
+        };
 
         // Perps sub-account equity (zero until a perp position is opened,
         // even under unified margin mode).
-        let perps_eq: f64 = match self.info::<ClearingHouseState>(
-            json!({"type":"clearinghouseState","user":addr}),
-        ).await {
+        let perps_eq: f64 = match self
+            .info::<ClearingHouseState>(json!({"type":"clearinghouseState","user":addr}))
+            .await
+        {
             Ok(s) => s.margin_summary.account_value.parse().unwrap_or(0.0),
-            Err(e) => { tracing::warn!(error=%e, "clearinghouseState failed"); 0.0 }
+            Err(e) => {
+                tracing::warn!(error=%e, "clearinghouseState failed");
+                0.0
+            }
         };
 
         // Spot sub-account balances. Under unified margin this USDC collateralises
         // perps automatically; we sum USDC + any stablecoins + (optionally) valued
         // HYPE to report the true unified equity.
-        let spot_usdc: f64 = match self.info::<SpotClearinghouseState>(
-            json!({"type":"spotClearinghouseState","user":addr}),
-        ).await {
-            Ok(s) => s.balances.iter()
+        let spot_usdc: f64 = match self
+            .info::<SpotClearinghouseState>(json!({"type":"spotClearinghouseState","user":addr}))
+            .await
+        {
+            Ok(s) => s
+                .balances
+                .iter()
                 .filter(|b| matches!(b.coin.as_str(), "USDC" | "USDT" | "USD"))
                 .filter_map(|b| b.total.parse::<f64>().ok())
                 .sum(),
-            Err(e) => { tracing::warn!(error=%e, "spotClearinghouseState failed"); 0.0 }
+            Err(e) => {
+                tracing::warn!(error=%e, "spotClearinghouseState failed");
+                0.0
+            }
         };
 
         let total = perps_eq + spot_usdc;
-        tracing::info!(perps_equity=perps_eq, spot_stables=spot_usdc, unified_total=total,
-            "hyperliquid equity breakdown");
+        tracing::info!(
+            perps_equity = perps_eq,
+            spot_stables = spot_usdc,
+            unified_total = total,
+            "hyperliquid equity breakdown"
+        );
         Ok(total)
     }
 }
@@ -408,11 +526,16 @@ impl VenueAdapter for HyperliquidAdapter {
 #[derive(Deserialize)]
 struct RawCandle {
     t: i64,
-    #[serde(deserialize_with = "flex_string::deserialize")] o: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] h: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] l: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] c: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] v: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    o: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    h: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    l: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    c: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    v: String,
 }
 impl RawCandle {
     fn to_candle(self) -> Option<Candle> {
@@ -428,12 +551,18 @@ impl RawCandle {
 }
 #[derive(Deserialize)]
 struct BookLevel {
-    #[serde(deserialize_with = "flex_string::deserialize")] px: String,
-    #[allow(dead_code)] #[serde(deserialize_with = "flex_string::deserialize")] sz: String,
-    #[allow(dead_code)] n: u64,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    px: String,
+    #[allow(dead_code)]
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    sz: String,
+    #[allow(dead_code)]
+    n: u64,
 }
 #[derive(Deserialize)]
-struct BookResp { levels: Vec<Vec<BookLevel>> }
+struct BookResp {
+    levels: Vec<Vec<BookLevel>>,
+}
 
 #[derive(Deserialize, Default)]
 struct SpotClearinghouseState {
@@ -445,43 +574,60 @@ struct SpotBalance {
     coin: String,
     #[serde(default, deserialize_with = "flex_string::deserialize")]
     total: String,
-    #[allow(dead_code)] #[serde(default, deserialize_with = "flex_string::deserialize")] hold: String,
-    #[allow(dead_code)] #[serde(default)] token: Option<i64>,
+    #[allow(dead_code)]
+    #[serde(default, deserialize_with = "flex_string::deserialize")]
+    hold: String,
+    #[allow(dead_code)]
+    #[serde(default)]
+    token: Option<i64>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ClearingHouseState {
-    #[serde(default)] asset_positions: Vec<AssetPosition>,
+    #[serde(default)]
+    asset_positions: Vec<AssetPosition>,
     margin_summary: MarginSummary,
 }
 #[derive(Deserialize)]
 struct AssetPosition {
     position: AssetPositionInner,
-    #[serde(default)] #[allow(dead_code)] r#type: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    r#type: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AssetPositionInner {
     coin: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] szi: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] entry_px: String,
-    #[serde(deserialize_with = "flex_string::deserialize")] unrealized_pnl: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    szi: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    entry_px: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    unrealized_pnl: String,
     leverage: Leverage,
 }
 #[derive(Deserialize)]
 struct Leverage {
-    #[serde(deserialize_with = "flex_string::deserialize")] value: String,
-    #[allow(dead_code)] #[serde(default)] r#type: Option<String>,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    value: String,
+    #[allow(dead_code)]
+    #[serde(default)]
+    r#type: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MarginSummary {
-    #[serde(deserialize_with = "flex_string::deserialize")] account_value: String,
-    #[allow(dead_code)] #[serde(default, deserialize_with = "flex_string_opt::deserialize")] total_margin_used: Option<String>,
-    #[allow(dead_code)] #[serde(default, deserialize_with = "flex_string_opt::deserialize")] total_ntl_pos: Option<String>,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    account_value: String,
+    #[allow(dead_code)]
+    #[serde(default, deserialize_with = "flex_string_opt::deserialize")]
+    total_margin_used: Option<String>,
+    #[allow(dead_code)]
+    #[serde(default, deserialize_with = "flex_string_opt::deserialize")]
+    total_ntl_pos: Option<String>,
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -495,18 +641,98 @@ mod tests {
     //! These tests lock in the lenient behaviour.
     use super::*;
 
+    fn response(statuses: serde_json::Value) -> hyperliquid_rust_sdk::ExchangeResponseStatus {
+        serde_json::from_value(
+            json!({"status":"ok","response":{"type":"order","data":{"statuses":statuses}}}),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn typed_fills_never_substitute_requested_quantity() {
+        let result = parse_order_response(
+            response(json!([{"filled":{"totalSz":"0.25","avgPx":"123.4","oid":42}}])),
+            "id",
+        )
+        .unwrap();
+        assert_eq!(result.filled_size, 0.25);
+        assert_eq!(result.avg_fill_price, Some(123.4));
+        assert_eq!(result.venue_order_id.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn malformed_unknown_and_multi_status_acknowledgments_are_unresolved() {
+        for statuses in [
+            json!([]),
+            json!(["success"]),
+            json!(["waitingForFill"]),
+            json!([{"filled":{"totalSz":"NaN","avgPx":"123","oid":42}}]),
+            json!([{"filled":{"totalSz":"1","avgPx":"0","oid":42}}]),
+            json!([{"resting":{"oid":1}},{"resting":{"oid":2}}]),
+        ] {
+            assert!(parse_order_response(response(statuses), "id").is_err());
+        }
+    }
+
+    #[test]
+    fn typed_resting_and_rejection_are_not_fills() {
+        let resting =
+            parse_order_response(response(json!([{"resting":{"oid":42}}])), "id").unwrap();
+        assert!(resting.accepted);
+        assert_eq!(resting.filled_size, 0.0);
+        let rejected = parse_order_response(response(json!([{"error":"rejected"}])), "id").unwrap();
+        assert!(!rejected.accepted);
+        assert_eq!(rejected.filled_size, 0.0);
+    }
+
+    #[test]
+    fn perp_ticks_respect_asset_decimals_and_never_widen_slippage_bound() {
+        assert_eq!(round_perp_price(0.012345, 5, true), 0.0);
+        assert_eq!(round_perp_price(1234.56, 2, true), 1234.5);
+        assert_eq!(round_perp_price(1234.56, 2, false), 1234.6);
+        for dp in 0..=6 {
+            for px in [0.012345, 1.23456, 123.456, 123456.7] {
+                assert!(round_perp_price(px, dp, true) <= px + 1e-10);
+                assert!(round_perp_price(px, dp, false) >= px - 1e-10);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn disabled_adapter_and_missing_metadata_fail_without_network() {
+        let adapter = HyperliquidAdapter {
+            http: reqwest::Client::new(),
+            live_authorized: false,
+            max_slippage_bps: 30.0,
+            base_url: "http://127.0.0.1:1".into(),
+            account_address: None,
+            exchange: Arc::new(Mutex::new(None)),
+            wallet_key: None,
+            sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        };
+        assert!(adapter.sz_decimals_for("ETH").await.is_err());
+        assert!(adapter
+            .close_position("ETH", 1.0, false)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("ENABLE_LIVE_TRADING"));
+    }
+
     #[test]
     fn leverage_decodes_when_value_is_integer() {
         // Observed live-market payload (TP hit on Feb 2026).
         let raw = serde_json::json!({"value": 20, "type": "cross"});
-        let lev: Leverage = serde_json::from_value(raw).expect("leverage should decode from integer");
+        let lev: Leverage =
+            serde_json::from_value(raw).expect("leverage should decode from integer");
         assert_eq!(lev.value, "20");
     }
 
     #[test]
     fn leverage_decodes_when_value_is_string() {
         let raw = serde_json::json!({"value": "10", "type": "isolated"});
-        let lev: Leverage = serde_json::from_value(raw).expect("leverage should decode from string");
+        let lev: Leverage =
+            serde_json::from_value(raw).expect("leverage should decode from string");
         assert_eq!(lev.value, "10");
     }
 
@@ -521,7 +747,8 @@ mod tests {
             "unrealizedPnl": "-1.23",
             "leverage": {"value": 5, "type": "cross"}
         });
-        let p: AssetPositionInner = serde_json::from_value(raw).expect("mixed-type position decode");
+        let p: AssetPositionInner =
+            serde_json::from_value(raw).expect("mixed-type position decode");
         assert_eq!(p.szi, "0.05");
         assert_eq!(p.entry_px, "2000.5");
         assert_eq!(p.unrealized_pnl, "-1.23");
@@ -566,9 +793,9 @@ mod tests {
         });
         let rc: RawCandle = serde_json::from_value(raw).expect("candle decode");
         let c = rc.to_candle().expect("candle convert");
-        assert!((c.open  - 100.0 ).abs() < 1e-9);
-        assert!((c.high  - 101.0 ).abs() < 1e-9);
-        assert!((c.low   -  99.5 ).abs() < 1e-9);
+        assert!((c.open - 100.0).abs() < 1e-9);
+        assert!((c.high - 101.0).abs() < 1e-9);
+        assert!((c.low - 99.5).abs() < 1e-9);
         assert!((c.close - 100.25).abs() < 1e-9);
     }
 

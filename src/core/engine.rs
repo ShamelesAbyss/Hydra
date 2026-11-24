@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 use owo_colors::OwoColorize;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
 use crate::adapters::{make_venue, VenueAdapter};
@@ -13,10 +13,11 @@ use crate::config::AppConfig;
 use crate::core::{MarketSnapshot, VenueKind};
 use crate::execution::ExecutionEngine;
 use crate::learning::{
-    self, AdaptiveContext, SignalDecisionKind,
+    self,
     memory::{regime_to_id, FeatureVec},
     regime::{classify_view, RegimeView},
     strictness::{compose as compose_strictness, DroughtState},
+    AdaptiveContext, SignalDecisionKind,
 };
 use crate::monitoring::Heartbeat;
 use crate::portfolio::{EntryContext, PortfolioManager};
@@ -87,8 +88,13 @@ impl Engine {
             let mut found_on_any = false;
             for v in &venues {
                 match v.snapshot(sym, 2).await {
-                    Ok(_) => { found_on_any = true; break; }
-                    Err(e) => tracing::debug!(venue=v.kind().as_str(), symbol=%sym, error=%e, "symbol probe failed"),
+                    Ok(_) => {
+                        found_on_any = true;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::debug!(venue=v.kind().as_str(), symbol=%sym, error=%e, "symbol probe failed")
+                    }
                 }
             }
             if found_on_any {
@@ -109,11 +115,17 @@ impl Engine {
         let strategies = make_strategies(&cfg.strategies)?;
         let risk = RiskEngine::new(cfg.risk.clone(), storage.clone(), symbols.len());
         let mut portfolio = PortfolioManager::new(storage.clone());
-        let execution = ExecutionEngine::new(storage.clone(), live_override || cfg.live_trading);
+        let execution = ExecutionEngine::new(
+            storage.clone(),
+            crate::execution::authorized_live(cfg.live_trading, live_override)?,
+        );
 
         let session_id = storage.begin_session(
             &cfg,
-            &venues.iter().map(|v| v.kind().as_str().to_string()).collect::<Vec<_>>(),
+            &venues
+                .iter()
+                .map(|v| v.kind().as_str().to_string())
+                .collect::<Vec<_>>(),
             &symbols,
         )?;
 
@@ -137,7 +149,11 @@ impl Engine {
                             "     Fund USDC (Arbitrum → Hyperliquid bridge) and HYDRA will start trading on the next tick.".dimmed()
                         );
                     } else {
-                        tracing::info!(venue=v.kind().as_str(), equity_usd=eq, "account equity ok");
+                        tracing::info!(
+                            venue = v.kind().as_str(),
+                            equity_usd = eq,
+                            "account equity ok"
+                        );
                     }
                     let _ = portfolio.sync_equity(v.kind().as_str(), eq);
                 }
@@ -150,11 +166,22 @@ impl Engine {
         ctrlc::set_handler(move || {
             tracing::warn!("SIGINT received - scheduling graceful shutdown");
             stop_signal.store(true, Ordering::SeqCst);
-        }).context("failed to install SIGINT handler")?;
+        })
+        .context("failed to install SIGINT handler")?;
 
         Ok(Self {
-            cfg, storage, venues, symbols, strategies, risk, portfolio, execution,
-            session_id, stop, heartbeat: Heartbeat::new(), live_override,
+            cfg,
+            storage,
+            venues,
+            symbols,
+            strategies,
+            risk,
+            portfolio,
+            execution,
+            session_id,
+            stop,
+            heartbeat: Heartbeat::new(),
+            live_override,
             signal_dedup: std::collections::HashMap::new(),
             dash,
             last_pulse_at: std::time::Instant::now(),
@@ -174,7 +201,11 @@ impl Engine {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        tracing::info!(session_id = self.session_id, live = self.execution.is_live(), "engine started");
+        tracing::info!(
+            session_id = self.session_id,
+            live = self.execution.is_live(),
+            "engine started"
+        );
         let poll_ms = self.cfg.poll_interval_ms.max(250);
         let mut tick: u64 = 0;
         let start = Utc::now();
@@ -190,11 +221,18 @@ impl Engine {
             let mut snapshots: Vec<MarketSnapshot> = Vec::new();
             for v in &self.venues {
                 for sym in &self.symbols {
-                    match v.snapshot(sym, self.cfg.strategies.global.lookback_candles).await {
+                    match v
+                        .snapshot(sym, self.cfg.strategies.global.lookback_candles)
+                        .await
+                    {
                         Ok(snap) => snapshots.push(snap),
                         Err(e) => {
                             tracing::warn!(venue=v.kind().as_str(), symbol=sym, error=%e, "snapshot failed");
-                            self.storage.record_error(self.session_id, "snapshot", &e.to_string())?;
+                            self.storage.record_error(
+                                self.session_id,
+                                "snapshot",
+                                &e.to_string(),
+                            )?;
                         }
                     }
                 }
@@ -202,8 +240,17 @@ impl Engine {
 
             // === 2. Position management (stops / trailing / time-stop) ===
             {
-                let Engine { portfolio, execution, venues, cfg, .. } = &mut *self;
-                if let Err(e) = portfolio.manage_open_positions(&snapshots, cfg, execution, venues).await {
+                let Engine {
+                    portfolio,
+                    execution,
+                    venues,
+                    cfg,
+                    ..
+                } = &mut *self;
+                if let Err(e) = portfolio
+                    .manage_open_positions(&snapshots, cfg, execution, venues)
+                    .await
+                {
                     tracing::warn!(error=%e, "position management error");
                 }
             }
@@ -218,11 +265,14 @@ impl Engine {
                     continue;
                 }
                 // v1.5.0: multi-timeframe regime view for adaptive context.
-                let regime_view: RegimeView = classify_view(&snap.candles, &self.cfg.strategies.regime);
+                let regime_view: RegimeView =
+                    classify_view(&snap.candles, &self.cfg.strategies.regime);
                 // Cheap snapshot features that don't depend on the strategy.
                 let atr_pct_now: f64 = if snap.candles.len() >= 15 && snap.mid > 0.0 {
                     crate::utils::math::atr(&snap.candles, 14) / snap.mid * 100.0
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 for strat in &self.strategies {
                     let maybe = strat.evaluate(snap, regime, &self.cfg);
                     if let Some(sig) = maybe {
@@ -247,26 +297,37 @@ impl Engine {
                             spread_bps: snap.spread_bps.unwrap_or(2.0),
                             edge_bps: sig.expected_edge_bps,
                             regime_5m_id: regime_to_id(&format!("{:?}", regime_view.r_5m)),
-                            hour_utc: chrono::Utc::now().format("%H").to_string()
-                                .parse::<u8>().unwrap_or(0),
-                            day_of_week: chrono::Utc::now().format("%u").to_string()
-                                .parse::<u8>().map(|d| d.saturating_sub(1)).unwrap_or(0),
+                            hour_utc: chrono::Utc::now()
+                                .format("%H")
+                                .to_string()
+                                .parse::<u8>()
+                                .unwrap_or(0),
+                            day_of_week: chrono::Utc::now()
+                                .format("%u")
+                                .to_string()
+                                .parse::<u8>()
+                                .map(|d| d.saturating_sub(1))
+                                .unwrap_or(0),
                         };
-                        let adaptive = AdaptiveContext::new(
-                            &self.storage, &self.cfg.strategies.learning,
-                        );
-                        let decision = adaptive.for_signal(
-                            &sig.symbol, &sig.strategy, sig.side.as_str(),
-                            regime_view, &feat,
-                        ).unwrap_or_else(|e| {
-                            tracing::warn!(error=%e, "adaptive context failed; using neutral");
-                            learning::SignalDecision {
-                                kind: SignalDecisionKind::Allow,
-                                size_mult: 1.0,
-                                edge_threshold_override: None,
-                                summary: format!("adaptive: error: {}", e),
-                            }
-                        });
+                        let adaptive =
+                            AdaptiveContext::new(&self.storage, &self.cfg.strategies.learning);
+                        let decision = adaptive
+                            .for_signal(
+                                &sig.symbol,
+                                &sig.strategy,
+                                sig.side.as_str(),
+                                regime_view,
+                                &feat,
+                            )
+                            .unwrap_or_else(|e| {
+                                tracing::warn!(error=%e, "adaptive context failed; using neutral");
+                                learning::SignalDecision {
+                                    kind: SignalDecisionKind::Allow,
+                                    size_mult: 1.0,
+                                    edge_threshold_override: None,
+                                    summary: format!("adaptive: error: {}", e),
+                                }
+                            });
                         // Always log the adaptive verdict so user can review
                         // what the brain saw. Same line whether allow or block.
                         match &decision.kind {
@@ -283,7 +344,9 @@ impl Engine {
                         // v1.6.0: build strictness adjustment (ATR-aware
                         // gate scaling + drought-induced trend-filter bypass).
                         let mut strictness = compose_strictness(
-                            &mut self.drought, &sig.symbol, atr_pct_now,
+                            &mut self.drought,
+                            &sig.symbol,
+                            atr_pct_now,
                             &self.cfg.strategies.learning,
                         );
                         if self.cfg.strategies.learning.strictness_enabled
@@ -296,10 +359,18 @@ impl Engine {
 
                         // Risk — first attempt with current strictness.
                         let mut attempt_label = "primary";
-                        let mut risk_outcome = self.risk.evaluate(
-                            &sig, snap, &self.cfg, &self.portfolio,
-                            Some(&decision), Some(&strictness), Some(regime),
-                        ).await;
+                        let mut risk_outcome = self
+                            .risk
+                            .evaluate(
+                                &sig,
+                                snap,
+                                &self.cfg,
+                                &self.portfolio,
+                                Some(&decision),
+                                Some(&strictness),
+                                Some(regime),
+                            )
+                            .await;
 
                         // ε-greedy retry: if the ONLY thing that blocked us
                         // was the trend filter, AND exploration is enabled,
@@ -318,36 +389,48 @@ impl Engine {
                                 && self.cfg.strategies.learning.strictness_enabled
                                 && self.cfg.strategies.learning.explore_enabled
                                 && !strictness.bypass_trend_filter
-                                && self.drought.should_explore(
-                                    self.cfg.strategies.learning.explore_one_in_n,
-                                )
+                                && self
+                                    .drought
+                                    .should_explore(self.cfg.strategies.learning.explore_one_in_n)
                             {
                                 strictness.bypass_trend_filter = true;
-                                strictness.explore_size_factor = Some(
-                                    self.cfg.strategies.learning.explore_size_factor,
-                                );
-                                strictness.summary =
-                                    format!("explored: {}", strictness.summary);
+                                strictness.explore_size_factor =
+                                    Some(self.cfg.strategies.learning.explore_size_factor);
+                                strictness.summary = format!("explored: {}", strictness.summary);
                                 attempt_label = "explored";
                                 tracing::info!(
                                     symbol=%sig.symbol, strategy=%sig.strategy,
                                     "ε-greedy explore: retrying signal with trend bypass at {}× size",
                                     self.cfg.strategies.learning.explore_size_factor,
                                 );
-                                risk_outcome = self.risk.evaluate(
-                                    &sig, snap, &self.cfg, &self.portfolio,
-                                    Some(&decision), Some(&strictness), Some(regime),
-                                ).await;
+                                risk_outcome = self
+                                    .risk
+                                    .evaluate(
+                                        &sig,
+                                        snap,
+                                        &self.cfg,
+                                        &self.portfolio,
+                                        Some(&decision),
+                                        Some(&strictness),
+                                        Some(regime),
+                                    )
+                                    .await;
                             }
                         }
 
                         match risk_outcome {
                             Ok(size) if size > 0.0 => {
                                 let intent = self.risk.build_intent(&sig, size);
-                                if let Some(venue) = self.venues.iter().find(|v| v.kind().as_str() == snap.venue) {
+                                if let Some(venue) =
+                                    self.venues.iter().find(|v| v.kind().as_str() == snap.venue)
+                                {
                                     match self.execution.submit(&intent, venue.as_ref()).await {
                                         Ok(res) => {
-                                            self.storage.record_order(self.session_id, &intent, &res)?;
+                                            self.storage.record_order(
+                                                self.session_id,
+                                                &intent,
+                                                &res,
+                                            )?;
                                             if res.accepted && res.filled_size > 0.0 {
                                                 let entry_ctx = EntryContext {
                                                     strategy: sig.strategy.clone(),
@@ -357,11 +440,31 @@ impl Engine {
                                                     spread_bps: snap.spread_bps,
                                                     edge_bps_predicted: sig.expected_edge_bps,
                                                 };
-                                                self.portfolio.open_from_fill(&intent, &res, Some(&sig.strategy), Some(entry_ctx))?;
-                                                let fill_kind = if attempt_label == "explored" { "open·explored" } else { "open" };
+                                                self.portfolio.open_from_fill(
+                                                    &intent,
+                                                    &res,
+                                                    Some(&sig.strategy),
+                                                    Some(entry_ctx),
+                                                )?;
+                                                self.storage.finish_intent(
+                                                    &intent.id,
+                                                    "applied",
+                                                    Some(&res),
+                                                )?;
+                                                let fill_kind = if attempt_label == "explored" {
+                                                    "open·explored"
+                                                } else {
+                                                    "open"
+                                                };
                                                 self.push_fill_row(&intent, &res, fill_kind, None);
-                                                self.push_signal_row(&sig,
-                                                    if attempt_label == "explored" { "filled (explored)" } else { "filled" });
+                                                self.push_signal_row(
+                                                    &sig,
+                                                    if attempt_label == "explored" {
+                                                        "filled (explored)"
+                                                    } else {
+                                                        "filled"
+                                                    },
+                                                );
                                                 // Fill clears drought state for this symbol — we earned
                                                 // back our way into respecting the trend filter again.
                                                 self.drought.clear_for(&sig.symbol);
@@ -369,7 +472,11 @@ impl Engine {
                                         }
                                         Err(e) => {
                                             tracing::error!(error=%e, "execution error");
-                                            self.storage.record_error(self.session_id, "execution", &e.to_string())?;
+                                            self.storage.record_error(
+                                                self.session_id,
+                                                "execution",
+                                                &e.to_string(),
+                                            )?;
                                         }
                                     }
                                 }
@@ -380,8 +487,15 @@ impl Engine {
                             }
                             Err(e) => {
                                 tracing::info!(reason=%e, "risk blocked signal");
-                                self.storage.record_error(self.session_id, "risk", &e.to_string())?;
-                                self.push_signal_row(&sig, &format!("blocked: {}", truncate_reason(&e.to_string())));
+                                self.storage.record_error(
+                                    self.session_id,
+                                    "risk",
+                                    &e.to_string(),
+                                )?;
+                                self.push_signal_row(
+                                    &sig,
+                                    &format!("blocked: {}", truncate_reason(&e.to_string())),
+                                );
                             }
                         }
                     }
@@ -411,7 +525,11 @@ impl Engine {
         }
 
         // === Shutdown ===
-        let reason = if self.stop_flag_path().exists() { "stop_flag" } else { "sigint" };
+        let reason = if self.stop_flag_path().exists() {
+            "stop_flag"
+        } else {
+            "sigint"
+        };
         tracing::warn!(reason, "shutting down");
         // remove stop flag so next start isn't blocked
         let _ = std::fs::remove_file(self.stop_flag_path());
@@ -421,12 +539,20 @@ impl Engine {
                 tracing::info!("keeping open positions; persisted state remains authoritative");
             }
             crate::config::ShutdownMode::Reduce => {
-                if let Err(e) = self.portfolio.reduce_all(&self.cfg, &mut self.execution, &self.venues).await {
+                if let Err(e) = self
+                    .portfolio
+                    .reduce_all(&self.cfg, &mut self.execution, &self.venues)
+                    .await
+                {
                     tracing::error!(error=%e, "reduce-on-shutdown failed");
                 }
             }
             crate::config::ShutdownMode::Flatten => {
-                if let Err(e) = self.portfolio.flatten_all(&self.cfg, &mut self.execution, &self.venues).await {
+                if let Err(e) = self
+                    .portfolio
+                    .flatten_all(&self.cfg, &mut self.execution, &self.venues)
+                    .await
+                {
                     tracing::error!(error=%e, "flatten-on-shutdown failed");
                 }
             }
@@ -434,7 +560,14 @@ impl Engine {
 
         let end = Utc::now();
         self.storage.end_session(self.session_id, reason, end)?;
-        SessionReporter::print_footer(&self.cfg, &self.storage, self.session_id, start, end, reason)?;
+        SessionReporter::print_footer(
+            &self.cfg,
+            &self.storage,
+            self.session_id,
+            start,
+            end,
+            reason,
+        )?;
         println!("{}", "session complete".green().bold());
         let _ = self.live_override; // keep field used
         Ok(())
@@ -443,7 +576,10 @@ impl Engine {
 
 impl Engine {
     fn push_signal_row(&self, sig: &crate::core::Signal, outcome: &str) {
-        let dash = match self.dash.as_ref() { Some(d) => d, None => return };
+        let dash = match self.dash.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
         if let Ok(mut d) = dash.try_write() {
             d.push_signal(crate::tui::state::SignalRow {
                 ts: Utc::now(),
@@ -463,7 +599,10 @@ impl Engine {
         kind: &str,
         realized: Option<f64>,
     ) {
-        let dash = match self.dash.as_ref() { Some(d) => d, None => return };
+        let dash = match self.dash.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
         if let Ok(mut d) = dash.try_write() {
             d.push_fill(crate::tui::state::FillRow {
                 ts: Utc::now(),
@@ -480,7 +619,10 @@ impl Engine {
     /// Write a best-effort snapshot of the engine's world into the shared
     /// dashboard. Uses `try_write` so it can never block the trading loop.
     fn update_dashboard(&mut self, tick: u64, snapshots: &[crate::core::MarketSnapshot]) {
-        let dash = match self.dash.as_ref() { Some(d) => d, None => return };
+        let dash = match self.dash.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
         let mut d = match dash.try_write() {
             Ok(g) => g,
             Err(_) => return, // contention — skip this frame
@@ -489,7 +631,11 @@ impl Engine {
         d.session_id = self.session_id;
         d.started_at = Some(self.started_at);
         d.live_trading = self.execution.is_live();
-        d.venues = self.venues.iter().map(|v| v.kind().as_str().to_string()).collect();
+        d.venues = self
+            .venues
+            .iter()
+            .map(|v| v.kind().as_str().to_string())
+            .collect();
         d.symbols = self.symbols.clone();
         d.tick = tick;
         d.last_heartbeat = Some(Utc::now());
@@ -499,21 +645,25 @@ impl Engine {
             let atr_pct = if candles.len() >= 15 && snap.mid > 0.0 {
                 let atr = crate::utils::math::atr(candles, 14);
                 atr / snap.mid * 100.0
-            } else { 0.0 };
-            let regime = crate::strategies::regime::classify_regime(
-                candles, &self.cfg.strategies.regime,
-            );
+            } else {
+                0.0
+            };
+            let regime =
+                crate::strategies::regime::classify_regime(candles, &self.cfg.strategies.regime);
             // v1.5.0: full multi-TF regime view + per-symbol adaptive mult.
             let view = classify_view(candles, &self.cfg.strategies.regime);
             let view_str = format!(
                 "{}/{}/{}",
-                short_regime(view.r_1m), short_regime(view.r_5m), short_regime(view.r_15m),
+                short_regime(view.r_1m),
+                short_regime(view.r_5m),
+                short_regime(view.r_15m),
             );
             let adaptive_mult = if self.cfg.strategies.learning.enabled {
-                let exp = crate::learning::expectancy::for_symbol(&self.storage, &snap.symbol)
-                    .ok();
+                let exp = crate::learning::expectancy::for_symbol(&self.storage, &snap.symbol).ok();
                 exp.map(|e| (e.to_multiplier(), e.samples))
-            } else { None };
+            } else {
+                None
+            };
             d.upsert_market(crate::tui::state::MarketRow {
                 symbol: snap.symbol.clone(),
                 mid: snap.mid,
@@ -528,33 +678,35 @@ impl Engine {
         }
 
         let open = self.storage.list_open_positions().unwrap_or_default();
-        let positions: Vec<crate::tui::state::PositionRow> = open.iter().map(|p| {
-            let mark = snapshots.iter()
-                .find(|s| s.venue == p.venue && s.symbol == p.symbol)
-                .map(|s| s.mid)
-                .unwrap_or(p.entry_price);
-            let upnl = if p.side == "LONG" {
-                (mark - p.entry_price) * p.size
-            } else {
-                (p.entry_price - mark) * p.size
-            };
-            crate::tui::state::PositionRow {
-                venue: p.venue.clone(),
-                symbol: p.symbol.clone(),
-                side: p.side.clone(),
-                size: p.size,
-                entry_price: p.entry_price,
-                mark_price: mark,
-                unrealized_pnl_usd: upnl,
-                stop_price: p.stop_price,
-                take_profit: p.take_profit,
-                opened_at: p.opened_at,
-                strategy: p.strategy.clone(),
-            }
-        }).collect();
-        let open_exposure_usd: f64 = positions.iter()
-            .map(|p| p.size.abs() * p.entry_price)
-            .sum();
+        let positions: Vec<crate::tui::state::PositionRow> = open
+            .iter()
+            .map(|p| {
+                let mark = snapshots
+                    .iter()
+                    .find(|s| s.venue == p.venue && s.symbol == p.symbol)
+                    .map(|s| s.mid)
+                    .unwrap_or(p.entry_price);
+                let upnl = if p.side == "LONG" {
+                    (mark - p.entry_price) * p.size
+                } else {
+                    (p.entry_price - mark) * p.size
+                };
+                crate::tui::state::PositionRow {
+                    venue: p.venue.clone(),
+                    symbol: p.symbol.clone(),
+                    side: p.side.clone(),
+                    size: p.size,
+                    entry_price: p.entry_price,
+                    mark_price: mark,
+                    unrealized_pnl_usd: upnl,
+                    stop_price: p.stop_price,
+                    take_profit: p.take_profit,
+                    opened_at: p.opened_at,
+                    strategy: p.strategy.clone(),
+                }
+            })
+            .collect();
+        let open_exposure_usd: f64 = positions.iter().map(|p| p.size.abs() * p.entry_price).sum();
         d.set_positions(positions);
 
         let equity = self.portfolio.last_known_equity();
@@ -562,33 +714,43 @@ impl Engine {
 
         // Live trade stats — read from closed_trades so the cockpit updates
         // during the session, not just at shutdown.
-        d.session_realized_usd = self.storage
+        d.session_realized_usd = self
+            .storage
             .sum_realized_in_session(self.session_id)
             .unwrap_or(0.0);
-        d.session_trades = self.storage
+        d.session_trades = self
+            .storage
             .count_closed_trades_in_session(self.session_id)
             .unwrap_or(0);
 
         let compound = self.storage.get_compound_state().ok();
-        let consec = self.storage.consecutive_losses(self.cfg.risk.consecutive_loss_window_hours).unwrap_or(0);
-        let daily = self.storage
+        let consec = self
+            .storage
+            .consecutive_losses(self.cfg.risk.consecutive_loss_window_hours)
+            .unwrap_or(0);
+        let daily = self
+            .storage
             .sum_realized_since(Utc::now() - chrono::Duration::days(1))
             .unwrap_or(0.0);
-        let weekly = self.storage
+        let weekly = self
+            .storage
             .sum_realized_since(Utc::now() - chrono::Duration::days(7))
             .unwrap_or(0.0);
         d.risk = crate::tui::state::RiskView {
-            default_risk_pct:            self.cfg.risk.default_risk_pct,
-            max_daily_loss_pct:          self.cfg.risk.max_daily_loss_pct,
-            max_weekly_loss_pct:         self.cfg.risk.max_weekly_loss_pct,
-            max_consecutive_losses:      self.cfg.risk.max_consecutive_losses,
-            max_open_exposure_pct:       self.cfg.risk.max_open_exposure_pct,
+            default_risk_pct: self.cfg.risk.default_risk_pct,
+            max_daily_loss_pct: self.cfg.risk.max_daily_loss_pct,
+            max_weekly_loss_pct: self.cfg.risk.max_weekly_loss_pct,
+            max_consecutive_losses: self.cfg.risk.max_consecutive_losses,
+            max_open_exposure_pct: self.cfg.risk.max_open_exposure_pct,
             max_notional_per_market_usd: self.cfg.risk.max_notional_per_market_usd,
-            risk_mult:                   compound.as_ref().map(|c| c.current_risk_mult).unwrap_or(1.0),
-            consec_losses:               consec,
+            risk_mult: compound
+                .as_ref()
+                .map(|c| c.current_risk_mult)
+                .unwrap_or(1.0),
+            consec_losses: consec,
             open_exposure_usd,
-            daily_realized_usd:          daily,
-            weekly_realized_usd:         weekly,
+            daily_realized_usd: daily,
+            weekly_realized_usd: weekly,
         };
     }
 }
@@ -609,12 +771,12 @@ fn truncate_reason(s: &str) -> String {
 /// the user can match log entries against TUI output.
 fn short_regime(r: crate::core::Regime) -> &'static str {
     match r {
-        crate::core::Regime::Trending     => "Tr",
-        crate::core::Regime::Choppy       => "Ch",
-        crate::core::Regime::Panic        => "Pn",
+        crate::core::Regime::Trending => "Tr",
+        crate::core::Regime::Choppy => "Ch",
+        crate::core::Regime::Panic => "Pn",
         crate::core::Regime::LowLiquidity => "Lq",
-        crate::core::Regime::VolSpike     => "Vs",
-        crate::core::Regime::NoTrade      => "No",
+        crate::core::Regime::VolSpike => "Vs",
+        crate::core::Regime::NoTrade => "No",
     }
 }
 
@@ -630,18 +792,29 @@ impl Engine {
             return;
         }
         // Per-market mini-summary: SYM regime ATR%
-        let parts: Vec<String> = snapshots.iter().map(|s| {
-            let regime = crate::strategies::regime::classify_regime(
-                &s.candles, &self.cfg.strategies.regime,
-            );
-            let atr_pct = if s.candles.len() >= 15 && s.mid > 0.0 {
-                crate::utils::math::atr(&s.candles, 14) / s.mid * 100.0
-            } else { 0.0 };
-            format!("{}={}({:.2}%)", s.symbol, short_regime(regime), atr_pct)
-        }).collect();
-        let open_count = self.storage.list_open_positions()
-            .map(|v| v.len()).unwrap_or(0);
-        let trades = self.storage.count_closed_trades_in_session(self.session_id)
+        let parts: Vec<String> = snapshots
+            .iter()
+            .map(|s| {
+                let regime = crate::strategies::regime::classify_regime(
+                    &s.candles,
+                    &self.cfg.strategies.regime,
+                );
+                let atr_pct = if s.candles.len() >= 15 && s.mid > 0.0 {
+                    crate::utils::math::atr(&s.candles, 14) / s.mid * 100.0
+                } else {
+                    0.0
+                };
+                format!("{}={}({:.2}%)", s.symbol, short_regime(regime), atr_pct)
+            })
+            .collect();
+        let open_count = self
+            .storage
+            .list_open_positions()
+            .map(|v| v.len())
+            .unwrap_or(0);
+        let trades = self
+            .storage
+            .count_closed_trades_in_session(self.session_id)
             .unwrap_or(0);
         tracing::info!(target: "hydra::pulse",
             "scan pulse · {} open · {} trades this session · {}",

@@ -54,7 +54,11 @@ pub struct CompoundConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShutdownMode { KeepOpen, Reduce, Flatten }
+pub enum ShutdownMode {
+    KeepOpen,
+    Reduce,
+    Flatten,
+}
 
 impl ShutdownMode {
     pub fn parse(s: &str) -> Result<Self> {
@@ -118,21 +122,32 @@ pub struct GlobalStrategyCfg {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DivergenceCfg {
-    pub enabled: bool, pub rsi_period: usize, pub rsi_threshold: f64,
-    pub min_edge_bps: f64, pub position_frac: f64,
+    pub enabled: bool,
+    pub rsi_period: usize,
+    pub rsi_threshold: f64,
+    pub min_edge_bps: f64,
+    pub position_frac: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MomentumCfg {
-    pub enabled: bool, pub fast_ema: usize, pub slow_ema: usize,
-    pub atr_period: usize, pub breakout_lookback: usize,
-    pub min_atr_pct: f64, pub position_frac: f64,
+    pub enabled: bool,
+    pub fast_ema: usize,
+    pub slow_ema: usize,
+    pub atr_period: usize,
+    pub breakout_lookback: usize,
+    pub min_atr_pct: f64,
+    pub position_frac: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MeanReversionCfg {
-    pub enabled: bool, pub bb_period: usize, pub bb_std: f64,
-    pub rsi_floor: f64, pub rsi_ceiling: f64, pub position_frac: f64,
+    pub enabled: bool,
+    pub bb_period: usize,
+    pub bb_std: f64,
+    pub rsi_floor: f64,
+    pub rsi_ceiling: f64,
+    pub position_frac: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -178,10 +193,18 @@ pub struct PositionMgmtCfg {
     pub stopout_cooldown_minutes: i64,
 }
 
-fn default_breakeven_trigger_r() -> f64 { 0.8 }
-fn default_chandelier_trail_r() -> f64 { 0.8 }
-fn default_min_stop_bps() -> f64 { 25.0 }
-fn default_stopout_cooldown_minutes() -> i64 { 45 }
+fn default_breakeven_trigger_r() -> f64 {
+    0.8
+}
+fn default_chandelier_trail_r() -> f64 {
+    0.8
+}
+fn default_min_stop_bps() -> f64 {
+    25.0
+}
+fn default_stopout_cooldown_minutes() -> i64 {
+    45
+}
 
 /// v1.3.3 strategy-gating filters. Sit in front of the risk engine and block
 /// counter-trend signals + immediate re-entries on a losing setup.
@@ -220,12 +243,24 @@ pub struct FiltersCfg {
     pub min_notional_usd: f64,
 }
 
-fn default_reentry_cooldown() -> i64 { 30 }
-fn default_trend_filter_enabled() -> bool { true }
-fn default_trend_ema_period() -> usize { 240 }
-fn default_trend_band_pct() -> f64 { 0.4 }
-fn default_min_net_edge_bps() -> f64 { 10.0 }
-fn default_min_notional_usd() -> f64 { 30.0 }
+fn default_reentry_cooldown() -> i64 {
+    30
+}
+fn default_trend_filter_enabled() -> bool {
+    true
+}
+fn default_trend_ema_period() -> usize {
+    240
+}
+fn default_trend_band_pct() -> f64 {
+    0.4
+}
+fn default_min_net_edge_bps() -> f64 {
+    10.0
+}
+fn default_min_notional_usd() -> f64 {
+    30.0
+}
 
 /// v1.5.0 adaptive learning config. The framework reads expectancy +
 /// regime + memory and produces a `SignalDecision` with size_mult and an
@@ -295,23 +330,53 @@ pub struct LearningCfg {
     pub explore_size_factor: f64,
 }
 
-fn default_learning_enabled() -> bool { true }
-fn default_memory_block_enabled() -> bool { true }
-fn default_memory_min_matches() -> usize { 10 }
-fn default_memory_block_winrate_pct() -> f64 { 30.0 }
-fn default_size_mult_enabled() -> bool { true }
-fn default_edge_override_enabled() -> bool { true }
+fn default_learning_enabled() -> bool {
+    true
+}
+fn default_memory_block_enabled() -> bool {
+    true
+}
+fn default_memory_min_matches() -> usize {
+    10
+}
+fn default_memory_block_winrate_pct() -> f64 {
+    30.0
+}
+fn default_size_mult_enabled() -> bool {
+    true
+}
+fn default_edge_override_enabled() -> bool {
+    true
+}
 
 // v1.6.0 Adaptive Strictness defaults
-fn default_strictness_enabled() -> bool { true }
-fn default_atr_aware_scaling() -> bool { true }
-fn default_drought_detector() -> bool { true }
-fn default_drought_block_threshold() -> usize { 5 }
-fn default_drought_window_hours() -> i64 { 4 }
-fn default_drought_bypass_hours() -> i64 { 2 }
-fn default_explore_enabled() -> bool { true }
-fn default_explore_one_in_n() -> u64 { 8 }
-fn default_explore_size_factor() -> f64 { 0.5 }
+fn default_strictness_enabled() -> bool {
+    true
+}
+fn default_atr_aware_scaling() -> bool {
+    true
+}
+fn default_drought_detector() -> bool {
+    true
+}
+fn default_drought_block_threshold() -> usize {
+    5
+}
+fn default_drought_window_hours() -> i64 {
+    4
+}
+fn default_drought_bypass_hours() -> i64 {
+    2
+}
+fn default_explore_enabled() -> bool {
+    true
+}
+fn default_explore_one_in_n() -> u64 {
+    8
+}
+fn default_explore_size_factor() -> f64 {
+    0.5
+}
 
 impl Default for LearningCfg {
     fn default() -> Self {
@@ -351,13 +416,19 @@ impl Default for FiltersCfg {
 fn env_opt(k: &str) -> Option<String> {
     std::env::var(k).ok().filter(|v| !v.trim().is_empty())
 }
-fn env_f(k: &str, d: f64) -> f64 { env_opt(k).and_then(|v| v.parse().ok()).unwrap_or(d) }
-fn env_u64(k: &str, d: u64) -> u64 { env_opt(k).and_then(|v| v.parse().ok()).unwrap_or(d) }
-fn env_u32(k: &str, d: u32) -> u32 { env_opt(k).and_then(|v| v.parse().ok()).unwrap_or(d) }
+fn env_f(k: &str, d: f64) -> f64 {
+    env_opt(k).and_then(|v| v.parse().ok()).unwrap_or(d)
+}
+fn env_u64(k: &str, d: u64) -> u64 {
+    env_opt(k).and_then(|v| v.parse().ok()).unwrap_or(d)
+}
+fn env_u32(k: &str, d: u32) -> u32 {
+    env_opt(k).and_then(|v| v.parse().ok()).unwrap_or(d)
+}
 fn env_bool(k: &str, d: bool) -> bool {
     match env_opt(k).map(|v| v.to_lowercase()) {
-        Some(v) if ["1","true","yes","on","y"].contains(&v.as_str()) => true,
-        Some(v) if ["0","false","no","off","n"].contains(&v.as_str()) => false,
+        Some(v) if ["1", "true", "yes", "on", "y"].contains(&v.as_str()) => true,
+        Some(v) if ["0", "false", "no", "off", "n"].contains(&v.as_str()) => false,
         _ => d,
     }
 }
@@ -366,35 +437,38 @@ impl AppConfig {
     pub fn load(strategies_path: &str, log_level_override: Option<&str>) -> Result<Self> {
         let strat_raw = std::fs::read_to_string(strategies_path)
             .with_context(|| format!("reading strategy config at {strategies_path}"))?;
-        let strategies: StrategyConfig = toml::from_str(&strat_raw)
-            .context("parsing strategies.toml")?;
+        let strategies: StrategyConfig =
+            toml::from_str(&strat_raw).context("parsing strategies.toml")?;
 
         // v1.4.3: ETH RPC pool removed — single-venue Hyperliquid only.
 
         let risk = RiskConfig {
-            default_risk_pct:            env_f("DEFAULT_RISK_PCT", 0.5),
-            max_daily_loss_pct:          env_f("MAX_DAILY_LOSS_PCT", 3.0),
-            max_weekly_loss_pct:         env_f("MAX_WEEKLY_LOSS_PCT", 8.0),
-            max_drawdown_pct:            env_f("MAX_DRAWDOWN_PCT", 15.0),
-            max_consecutive_losses:      env_u32("MAX_CONSECUTIVE_LOSSES", 4),
-            max_open_exposure_pct:       env_f("MAX_OPEN_EXPOSURE_PCT", 40.0),
+            default_risk_pct: env_f("DEFAULT_RISK_PCT", 0.5),
+            max_daily_loss_pct: env_f("MAX_DAILY_LOSS_PCT", 3.0),
+            max_weekly_loss_pct: env_f("MAX_WEEKLY_LOSS_PCT", 8.0),
+            max_drawdown_pct: env_f("MAX_DRAWDOWN_PCT", 15.0),
+            max_consecutive_losses: env_u32("MAX_CONSECUTIVE_LOSSES", 4),
+            max_open_exposure_pct: env_f("MAX_OPEN_EXPOSURE_PCT", 40.0),
             max_notional_per_market_usd: env_f("MAX_NOTIONAL_PER_MARKET_USD", 2500.0),
-            min_liquidity_usd:           env_f("MIN_LIQUIDITY_USD", 50000.0),
-            max_spread_bps:              env_f("MAX_SPREAD_BPS", 25.0),
-            max_slippage_bps:            env_f("MAX_SLIPPAGE_BPS", 30.0),
+            min_liquidity_usd: env_f("MIN_LIQUIDITY_USD", 50000.0),
+            max_spread_bps: env_f("MAX_SPREAD_BPS", 25.0),
+            max_slippage_bps: env_f("MAX_SLIPPAGE_BPS", 30.0),
             consecutive_loss_window_hours: env_opt("CONSECUTIVE_LOSS_WINDOW_HOURS")
-                .and_then(|v| v.parse().ok()).unwrap_or(4),
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(4),
         };
         let compound = CompoundConfig {
-            reinvest_pct:        env_f("COMPOUND_REINVEST_PCT", 50.0),
-            lock_pct:            env_f("COMPOUND_LOCK_PCT", 25.0),
-            min_profit_usd:      env_f("COMPOUND_MIN_PROFIT_USD", 25.0),
+            reinvest_pct: env_f("COMPOUND_REINVEST_PCT", 50.0),
+            lock_pct: env_f("COMPOUND_LOCK_PCT", 25.0),
+            min_profit_usd: env_f("COMPOUND_MIN_PROFIT_USD", 25.0),
             drawdown_reduce_pct: env_f("COMPOUND_DRAWDOWN_REDUCE_PCT", 40.0),
         };
 
-        let data_dir: PathBuf = env_opt("DATA_DIR").unwrap_or_else(|| "./data".into()).into();
-        let log_dir:  PathBuf = env_opt("LOG_DIR").unwrap_or_else(|| "./logs".into()).into();
-        let db_path:  PathBuf = env_opt("DB_PATH")
+        let data_dir: PathBuf = env_opt("DATA_DIR")
+            .unwrap_or_else(|| "./data".into())
+            .into();
+        let log_dir: PathBuf = env_opt("LOG_DIR").unwrap_or_else(|| "./logs".into()).into();
+        let db_path: PathBuf = env_opt("DB_PATH")
             .unwrap_or_else(|| data_dir.join("hydra.db").to_string_lossy().into_owned())
             .into();
         std::fs::create_dir_all(&data_dir).ok();
@@ -402,15 +476,22 @@ impl AppConfig {
 
         let cfg = AppConfig {
             live_trading: env_bool("ENABLE_LIVE_TRADING", false),
-            hl_private_key:     env_opt("HYPERLIQUID_PRIVATE_KEY"),
+            hl_private_key: env_opt("HYPERLIQUID_PRIVATE_KEY"),
             hl_account_address: env_opt("HYPERLIQUID_ACCOUNT_ADDRESS"),
 
-            risk, compound,
-            data_dir, log_dir, db_path,
-            log_level: log_level_override.map(|s| s.into())
-                .or_else(|| env_opt("LOG_LEVEL")).unwrap_or_else(|| "info".into()),
+            risk,
+            compound,
+            data_dir,
+            log_dir,
+            db_path,
+            log_level: log_level_override
+                .map(|s| s.into())
+                .or_else(|| env_opt("LOG_LEVEL"))
+                .unwrap_or_else(|| "info".into()),
             poll_interval_ms: env_u64("POLL_INTERVAL_MS", 1500),
-            shutdown_mode: ShutdownMode::parse(&env_opt("SHUTDOWN_MODE").unwrap_or_else(|| "keep_open".into()))?,
+            shutdown_mode: ShutdownMode::parse(
+                &env_opt("SHUTDOWN_MODE").unwrap_or_else(|| "keep_open".into()),
+            )?,
 
             strategies_path: PathBuf::from(strategies_path),
             strategies,
@@ -439,31 +520,86 @@ impl AppConfig {
         use owo_colors::OwoColorize;
         let h = |s: &str| format!("{}", s.bright_cyan().bold());
         println!();
-        println!("{}", "━━━━━━━━━━━━━━━━━━━ HYDRA · configuration ━━━━━━━━━━━━━━━━━━━".bright_magenta().bold());
-        println!(" {:<22} {}", h("live_trading"),
-            if self.live_trading { "TRUE  (real orders will be submitted)".bright_red().bold().to_string() }
-            else { "false (dry-run)".yellow().to_string() });
-        println!(" {:<22} {}", h("hl_account"),
-            self.hl_account_address.clone().unwrap_or_else(|| "(derived from key)".into()));
+        println!(
+            "{}",
+            "━━━━━━━━━━━━━━━━━━━ HYDRA · configuration ━━━━━━━━━━━━━━━━━━━"
+                .bright_magenta()
+                .bold()
+        );
+        println!(
+            " {:<22} {}",
+            h("live_trading"),
+            if self.live_trading {
+                "TRUE  (real orders will be submitted)"
+                    .bright_red()
+                    .bold()
+                    .to_string()
+            } else {
+                "false (dry-run)".yellow().to_string()
+            }
+        );
+        println!(
+            " {:<22} {}",
+            h("hl_account"),
+            self.hl_account_address
+                .clone()
+                .unwrap_or_else(|| "(derived from key)".into())
+        );
         println!(" {:<22} {}", h("db_path"), self.db_path.display());
         println!(" {:<22} {}", h("data_dir"), self.data_dir.display());
         println!(" {:<22} {}", h("log_dir"), self.log_dir.display());
         println!(" {:<22} {}ms", h("poll_interval"), self.poll_interval_ms);
         println!(" {:<22} {:?}", h("shutdown_mode"), self.shutdown_mode);
-        println!(" {:<22} {:?}", h("strategies"), self.strategies.global.enabled_strategies);
-        println!(" {:<22} {:?}", h("venues"), self.strategies.global.enabled_venues);
-        println!(" {:<22} {:?}", h("symbols"), self.strategies.global.default_symbols);
+        println!(
+            " {:<22} {:?}",
+            h("strategies"),
+            self.strategies.global.enabled_strategies
+        );
+        println!(
+            " {:<22} {:?}",
+            h("venues"),
+            self.strategies.global.enabled_venues
+        );
+        println!(
+            " {:<22} {:?}",
+            h("symbols"),
+            self.strategies.global.default_symbols
+        );
         println!();
         println!("{}", "─── risk caps ─".bright_magenta());
-        println!("   default_risk_pct   : {}", format!("{}%", self.risk.default_risk_pct).bright_yellow());
-        println!("   max_daily_loss     : {}", format!("{}%", self.risk.max_daily_loss_pct).bright_yellow());
-        println!("   max_weekly_loss    : {}", format!("{}%", self.risk.max_weekly_loss_pct).bright_yellow());
-        println!("   max_notional/mkt   : {}", format!("${:.0}", self.risk.max_notional_per_market_usd).bright_yellow());
-        println!("   max_open_exposure  : {}", format!("{}%", self.risk.max_open_exposure_pct).bright_yellow());
+        println!(
+            "   default_risk_pct   : {}",
+            format!("{}%", self.risk.default_risk_pct).bright_yellow()
+        );
+        println!(
+            "   max_daily_loss     : {}",
+            format!("{}%", self.risk.max_daily_loss_pct).bright_yellow()
+        );
+        println!(
+            "   max_weekly_loss    : {}",
+            format!("{}%", self.risk.max_weekly_loss_pct).bright_yellow()
+        );
+        println!(
+            "   max_notional/mkt   : {}",
+            format!("${:.0}", self.risk.max_notional_per_market_usd).bright_yellow()
+        );
+        println!(
+            "   max_open_exposure  : {}",
+            format!("{}%", self.risk.max_open_exposure_pct).bright_yellow()
+        );
         println!("{}", "─── compounding ─".bright_magenta());
-        println!("   reinvest_pct       : {}", format!("{}%", self.compound.reinvest_pct).bright_yellow());
-        println!("   lock_pct           : {}", format!("{}%", self.compound.lock_pct).bright_yellow());
-        println!("   min_profit_usd     : {}", format!("${}", self.compound.min_profit_usd).bright_yellow());
+        println!(
+            "   reinvest_pct       : {}",
+            format!("{}%", self.compound.reinvest_pct).bright_yellow()
+        );
+        println!(
+            "   lock_pct           : {}",
+            format!("{}%", self.compound.lock_pct).bright_yellow()
+        );
+        println!(
+            "   min_profit_usd     : {}",
+            format!("${}", self.compound.min_profit_usd).bright_yellow()
+        );
         println!();
     }
 }
