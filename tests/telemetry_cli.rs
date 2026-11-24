@@ -18,3 +18,19 @@ fn telemetry_reads_an_existing_database_without_loading_trading_config() {
     assert_eq!(report["schema_version"], 1);
     assert!(!directory.path().join("logs").exists());
 }
+
+#[test]
+fn initialization_command_is_offline_and_preserves_existing_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("new.db");
+    for expected_success in [true, false] {
+        let output = Command::new(env!("CARGO_BIN_EXE_hydra"))
+            .current_dir(directory.path())
+            .args(["--config", "missing.toml", "init-history", "--db"])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.success(), expected_success);
+    }
+    assert!(hydra::telemetry::load_snapshot(&path, 10).is_ok());
+}

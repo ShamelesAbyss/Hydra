@@ -77,6 +77,11 @@ pub enum Command {
     ConfigCheck,
     Recover,
     Health,
+    /// Initialize a new local history database without exchange access.
+    InitHistory {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+    },
     /// Print a versioned, read-only JSON snapshot of a local Hydra database.
     Telemetry {
         #[arg(long, default_value = "data/hydra.db")]
@@ -101,6 +106,11 @@ pub enum Command {
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
+    if let Command::InitHistory { db } = &cli.cmd {
+        crate::local_setup::initialize_history(db)?;
+        println!("Initialized local history at {}", db.display());
+        return Ok(());
+    }
     if let Command::Telemetry { db, limit } = &cli.cmd {
         let snapshot = crate::telemetry::load_snapshot(db, *limit)?;
         println!("{}", serde_json::to_string(&snapshot)?);
@@ -125,6 +135,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         .context("failed to run SQLite migrations")?;
 
     match cli.cmd {
+        Command::InitHistory { .. } => unreachable!("handled before configuration setup"),
         Command::Telemetry { .. } => unreachable!("handled before configuration and storage setup"),
         Command::Run {
             venue,
