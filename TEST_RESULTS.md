@@ -1,3 +1,21 @@
+# Release verification — 1.7.0-alpha.16
+
+All **330 offline desktop-feature all-target release-version tests pass**.
+Seven added regressions cover retained-action acknowledgment restart, rollback on
+exact overfill/sub-float limit/precision failures, sell-side limit direction,
+corrupt retained evidence on subsequent reads without fallback, historical absent
+record/table compatibility, incompatible table refusal, and the caller's single
+WAL snapshot across an external atomic action update. Synthetic SQL mutations model
+corruption/concurrency; production ingestion does not rewrite retained evidence.
+
+Formatting and Clippy complete with warnings. Fresh lockfile audit exits 0 with
+zero vulnerability entries and one Chrono maintenance warning, without ignores.
+Windows CLI/cockpit release compilation and extracted smoke are checked before
+publication. No real accounts, signed network requests or orders were used.
+Alpha.15 passed all four exact-source CI jobs, and all five asset digests and
+download URLs were verified:
+[Verified alpha.15 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45648387540).
+
 # Release verification — 1.7.0-alpha.15
 
 All **323 offline desktop-feature all-target release-version tests pass**.

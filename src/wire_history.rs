@@ -29,7 +29,7 @@ pub struct ArchivedAction {
 /// Opens an existing file without migrations, trading configuration or network.
 /// Absence of a retained record does not establish that no submission occurred.
 pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
-    let cloid = crate::order_status::client_order_id(intent_id)?;
+    crate::order_status::client_order_id(intent_id)?;
     let conn = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -66,8 +66,8 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
             && intent.size > 0.0,
         "invalid archived intent"
     );
-    let available = table(&tx, "execution_wire_requests")?;
-    let mut history = History {
+    let (available, record) = load_on(&tx, &intent, &account)?;
+    let history = History {
         schema_version: 1,
         read_only: true,
         source_is_live: false,
@@ -77,13 +77,34 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
         intent_id: intent_id.into(),
         journal_state: state,
         table_available: available,
-        record: None,
+        record,
     };
+    tx.commit()?;
+    Ok(history)
+}
+
+/// Reuse the caller's snapshot; never opens a second connection or transaction.
+pub(crate) fn load_on(
+    conn: &Connection,
+    intent: &OrderIntent,
+    account: &str,
+) -> Result<(bool, Option<ArchivedAction>)> {
+    ensure!(
+        intent.venue == "hyperliquid"
+            && intent.size.is_finite()
+            && intent.size > 0.0
+            && crate::ownership::canonical_account(account)? == account,
+        "invalid native action scope"
+    );
+    let intent_id = &intent.id;
+    let cloid = crate::order_status::client_order_id(intent_id)?;
+    let available = table(conn, "execution_wire_requests")?;
+    let mut record = None;
     if available {
         // Require the migration's single-column primary key so a selected-intent
         // read cannot become an unbounded scan over a forged ordinary table.
         let keys: Vec<String> = {
-            let mut schema = tx.prepare("SELECT name FROM pragma_table_info('execution_wire_requests') WHERE pk>0 ORDER BY pk")?;
+            let mut schema = conn.prepare("SELECT name FROM pragma_table_info('execution_wire_requests') WHERE pk>0 ORDER BY pk")?;
             let keys = schema
                 .query_map([], |r| r.get(0))?
                 .collect::<rusqlite::Result<Vec<String>>>()?;
@@ -93,7 +114,7 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
             keys == ["intent_id"],
             "unsupported wire history primary key"
         );
-        let mut stmt = tx.prepare("SELECT CASE WHEN length(CAST(account AS BLOB))=42 THEN account END,CASE WHEN length(CAST(venue AS BLOB))<=64 THEN venue END,CASE WHEN length(CAST(environment AS BLOB))<=32 THEN environment END,size_decimals,CASE WHEN length(CAST(action_json AS BLOB))<=4096 THEN action_json END,recorded_at_ms,CASE WHEN length(CAST(source AS BLOB))<=64 THEN source END FROM execution_wire_requests WHERE intent_id=?1 LIMIT 2")?;
+        let mut stmt = conn.prepare("SELECT CASE WHEN length(CAST(account AS BLOB))=42 THEN account END,CASE WHEN length(CAST(venue AS BLOB))<=64 THEN venue END,CASE WHEN length(CAST(environment AS BLOB))<=32 THEN environment END,size_decimals,CASE WHEN length(CAST(action_json AS BLOB))<=4096 THEN action_json END,recorded_at_ms,CASE WHEN length(CAST(source AS BLOB))<=64 THEN source END FROM execution_wire_requests WHERE intent_id=?1 LIMIT 2")?;
         let mut rows = stmt.query([intent_id])?;
         if let Some(row) = rows.next()? {
             let saved_account: String = row.get(0)?;
@@ -104,7 +125,7 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
             let recorded: i64 = row.get(5)?;
             let source: String = row.get(6)?;
             ensure!(
-                saved_account == history.account
+                saved_account == account
                     && venue == "hyperliquid"
                     && environment == "mainnet"
                     && source == "native_ioc_unsigned_action"
@@ -123,7 +144,7 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
                     && quantity <= Decimal::from_str_exact(&intent.size.to_string())?,
                 "archived action disagrees with intent"
             );
-            history.record = Some(ArchivedAction {
+            record = Some(ArchivedAction {
                 recorded_at_ms: recorded,
                 size_decimals: dp,
                 action,
@@ -131,8 +152,26 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
             ensure!(rows.next()?.is_none(), "duplicate archived wire records");
         }
     }
-    tx.commit()?;
-    Ok(history)
+    Ok((available, record))
+}
+
+pub(crate) fn validate_native_fill_on(
+    conn: &Connection,
+    intent: &OrderIntent,
+    account: &str,
+    facts: &crate::execution_facts::PreciseFill,
+) -> Result<()> {
+    if let Some(record) = load_on(conn, intent, account)?.1 {
+        facts.validate_wire_bounds(
+            Decimal::from_str_exact(&record.action.size)?,
+            Decimal::from_str_exact(&record.action.price)?,
+            record.action.buy,
+            record.size_decimals,
+        )?;
+    }
+    // Older acknowledgments without retained action remain historical. This does
+    // not fabricate pre-write evidence or certify complete signed provenance.
+    Ok(())
 }
 
 #[cfg(test)]
@@ -324,5 +363,193 @@ mod tests {
             .unwrap();
             assert!(inspect(&p, &i.id).is_err());
         }
+    }
+
+    fn fill(
+        i: &OrderIntent,
+        quantity: &str,
+        price: &str,
+    ) -> (
+        crate::execution_facts::PreciseFill,
+        crate::core::OrderResult,
+    ) {
+        let facts = crate::execution_facts::PreciseFill {
+            quantity: quantity.into(),
+            average_price: price.into(),
+            order_id: "42".into(),
+        };
+        let result = crate::core::OrderResult {
+            intent_id: i.id.clone(),
+            accepted: true,
+            venue_order_id: Some("42".into()),
+            filled_size: quantity.parse().unwrap(),
+            avg_fill_price: Some(price.parse().unwrap()),
+            message: "offline receipt".into(),
+        };
+        (facts, result)
+    }
+    fn persist(db: &Storage, i: &OrderIntent, quantity: &str, price: &str) -> Result<()> {
+        let (f, r) = fill(i, quantity, price);
+        crate::execution_facts::record_receipt(db, "filled", &r, Some(&f))
+    }
+    fn acknowledged(db: &Storage, i: &OrderIntent) -> Result<Option<(String, Decimal)>> {
+        db.with_conn(|c| crate::execution_facts::native_ack_quantity_on(c, &i.id))
+    }
+    #[test]
+    fn native_acknowledgment_within_retained_action_survives_restart() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("ack.db");
+        let (db, i) = setup(&p);
+        persist(&db, &i, "1.2345", "100").unwrap();
+        assert!(acknowledged(&db, &i).unwrap().is_some());
+        drop(db);
+        let db = Storage::open(&p).unwrap();
+        db.migrate().unwrap();
+        assert_eq!(
+            acknowledged(&db, &i).unwrap().unwrap().1,
+            Decimal::from_str_exact("1.2345").unwrap()
+        );
+        assert!(!inspect(&p, &i.id).unwrap().submission_or_acceptance_proven);
+        assert!(db.ensure_execution_resolved().is_err());
+    }
+    #[test]
+    fn action_overfill_limit_and_precision_fail_before_acknowledgment_commit() {
+        for (quantity, price) in [
+            ("1.5", "100"),
+            ("1.2345", "101.000000000000000001"),
+            ("1.23451", "100"),
+        ] {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("bounds.db");
+            let (db, i) = setup(&p);
+            assert!(persist(&db, &i, quantity, price).is_err());
+            let (state, count): (String, i64) = db
+                .with_conn(|c| -> rusqlite::Result<(String, i64)> {
+                    Ok((
+                        c.query_row(
+                            "SELECT state FROM execution_intents WHERE intent_id=?1",
+                            [&i.id],
+                            |r| r.get(0),
+                        )?,
+                        c.query_row("SELECT count(*) FROM execution_fill_facts", [], |r| {
+                            r.get(0)
+                        })?,
+                    ))
+                })
+                .unwrap();
+            assert_eq!(state, "submitted");
+            assert_eq!(count, 0);
+            assert!(db.ensure_execution_resolved().is_err());
+        }
+    }
+    #[test]
+    fn retained_sell_limit_is_checked_in_the_opposite_direction() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("sell.db");
+        let (db, mut i) = setup(&p);
+        i.id = uuid::Uuid::new_v4().to_string();
+        i.side = Side::Short;
+        db.reserve_intent(&i).unwrap();
+        let a = OrderAction::ioc(4, false, 101.0, 1.2345, false, &i.id).unwrap();
+        SubmissionJournal::new(&db, &i)
+            .record(ACCOUNT, &a, 4)
+            .unwrap();
+        assert!(persist(&db, &i, "1.2345", "100").is_err());
+        persist(&db, &i, "1.2345", "102").unwrap();
+        assert!(acknowledged(&db, &i).unwrap().is_some());
+    }
+    #[test]
+    fn contradictory_retained_action_cannot_fall_back_to_legacy_after_restart_read() {
+        for bad_json in [false, true] {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("corrupt.db");
+            let (db, i) = setup(&p);
+            persist(&db, &i, "1.2345", "100").unwrap();
+            let encoded = if bad_json {
+                "x".repeat(4097)
+            } else {
+                serde_json::to_string(
+                    &OrderAction::ioc(4, true, 99.0, 1.2345, false, &i.id)
+                        .unwrap()
+                        .unsigned_provenance()
+                        .unwrap(),
+                )
+                .unwrap()
+            };
+            db.with_conn(|c| {
+                c.execute(
+                    "UPDATE execution_wire_requests SET action_json=?1",
+                    [encoded],
+                )
+            })
+            .unwrap();
+            assert!(acknowledged(&db, &i).is_err());
+            assert!(db.ensure_execution_resolved().is_err());
+        }
+    }
+    #[test]
+    fn historical_acknowledgments_do_not_invent_missing_action_provenance() {
+        for missing_table in [false, true] {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("historical.db");
+            let (db, i) = setup(&p);
+            db.with_conn(|c| {
+                c.execute_batch(if missing_table {
+                    "DROP TABLE execution_wire_requests"
+                } else {
+                    "DELETE FROM execution_wire_requests"
+                })
+            })
+            .unwrap();
+            persist(&db, &i, "2", "100").unwrap();
+            assert_eq!(acknowledged(&db, &i).unwrap().unwrap().1, Decimal::from(2));
+            let h = inspect(&p, &i.id).unwrap();
+            assert!(h.record.is_none());
+            assert_eq!(h.table_available, !missing_table);
+        }
+    }
+    #[test]
+    fn incompatible_action_table_prevents_native_receipt_persistence() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("view.db");
+        let (db, i) = setup(&p);
+        db.with_conn(|c|c.execute_batch("DROP TABLE execution_wire_requests;CREATE VIEW execution_wire_requests AS SELECT 1")).unwrap();
+        assert!(persist(&db, &i, "1.2345", "100").is_err());
+        let count: i64 = db
+            .with_conn(|c| {
+                c.query_row("SELECT count(*) FROM execution_fill_facts", [], |r| {
+                    r.get(0)
+                })
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+    #[test]
+    fn action_and_acknowledgment_share_the_callers_wal_snapshot() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("snapshot.db");
+        let (db, i) = setup(&p);
+        persist(&db, &i, "1.2345", "100").unwrap();
+        db.with_conn(|c| -> Result<()> {
+            let tx = c.unchecked_transaction()?;
+            let _: String =
+                tx.query_row("SELECT action_json FROM execution_wire_requests", [], |r| {
+                    r.get(0)
+                })?;
+            let writer = Storage::open(&p)?;
+            let changed =
+                OrderAction::ioc(4, true, 99.0, 1.2345, false, &i.id)?.unsigned_provenance()?;
+            writer.with_conn(|w| {
+                w.execute(
+                    "UPDATE execution_wire_requests SET action_json=?1",
+                    [serde_json::to_string(&changed).unwrap()],
+                )
+            })?;
+            assert!(crate::execution_facts::native_ack_quantity_on(&tx, &i.id)?.is_some());
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(acknowledged(&db, &i).is_err());
     }
 }

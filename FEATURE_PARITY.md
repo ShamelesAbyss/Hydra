@@ -43,3 +43,5 @@ Alpha.13 adds exact native acknowledged-quantity coverage and consistent ledger 
 Alpha.14 retains native engine unsigned IOC action bytes before submission; nonce/signed-envelope provenance and automatic recovery remain incomplete.
 
 Alpha.15 adds bounded offline `wire-history` inspection of retained unsigned native actions. It does not prove submission, acceptance or complete signed-envelope provenance.
+
+Alpha.16 checks exact native acknowledgment bounds against any retained unsigned action on persistence and later reads, using one transaction. Historical absence remains explicit; full signed provenance and settlement remain incomplete.

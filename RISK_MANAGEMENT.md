@@ -192,3 +192,20 @@ complete net settlement remain open. Direct low-level adapter callers retain
 responsibility for journaling; custom adapters keep their compatibility path.
 Older intents receive no fabricated wire history. Risk snapshots are not refreshed
 by this record, and independent execution, reservation and financial holds remain.
+
+## Retained action / native acknowledgment consistency — alpha.16
+
+Native exact receipt persistence now validates any retained unsigned action in the
+same transaction before writing facts or changing the submitted journal. Later
+native fact reads repeat these checks in their caller's transaction, covering
+position precision, ledger acknowledgment coverage and exact residual paths.
+The shared bounded decoder checks account/client/side/reduce-only and canonical
+MessagePack consistency; fill validation requires exact quantity no greater than
+the rounded request, permitted size precision and a side-aware average-price limit.
+
+Failure leaves pre-existing intent/facts and independent holds unresolved. A corrupt
+retained record or incompatible action table cannot silently become legacy evidence.
+Older acknowledgments with no retained action remain readable as historical facts;
+missing action history is not fabricated or relabelled as pre-write provenance.
+No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
+or live readiness is established. Verification is offline.

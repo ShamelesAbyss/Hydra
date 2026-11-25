@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.16
+
+- Check retained rounded native IOC action bounds before exact receipt persistence
+  and on subsequent native fact reads in the caller's SQLite transaction.
+- Preserve historical absence without fabricated wire provenance; reject corrupt
+  retained evidence and leave independent execution/risk/financial holds intact.
+
 ## 1.7.0-alpha.15
 
 - Add bounded, read-only unsigned-action inspection through `wire-history`.

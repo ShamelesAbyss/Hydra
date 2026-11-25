@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.15** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.15^{commit}`.
-- Previous recovery: v1.7.0-alpha.14 (`4637bd4aed49e38123e0e22472dbd253c22c02dd`).
+- Version and current recovery tag: **v1.7.0-alpha.16** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.16^{commit}`.
+- Previous recovery: v1.7.0-alpha.15 (`bdbae818f385d852684617acddc63a77733c2f54`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.15 source: 323 offline desktop-feature tests pass; alpha.14 contains 314.
+- Alpha.16 source: 330 offline desktop-feature tests pass; alpha.15 contains 323.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.15 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.16 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -313,3 +313,20 @@ README renders all 20 images. No branch was created.
 Continue with retained-action/native-acknowledgment consistency in one transaction,
 then nonce/envelope provenance and conservative recovery. Preserve every unresolved
 execution, risk and financial hold and all historical release checkpoints.
+
+## Retained action / native acknowledgment consistency — alpha.16
+
+Native exact receipt persistence now validates any retained unsigned action in the
+same transaction before writing facts or changing the submitted journal. Later
+native fact reads repeat these checks in their caller's transaction, covering
+position precision, ledger acknowledgment coverage and exact residual paths.
+The shared bounded decoder checks account/client/side/reduce-only and canonical
+MessagePack consistency; fill validation requires exact quantity no greater than
+the rounded request, permitted size precision and a side-aware average-price limit.
+
+Failure leaves pre-existing intent/facts and independent holds unresolved. A corrupt
+retained record or incompatible action table cannot silently become legacy evidence.
+Older acknowledgments with no retained action remain readable as historical facts;
+missing action history is not fabricated or relabelled as pre-write provenance.
+No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
+or live readiness is established. Verification is offline.

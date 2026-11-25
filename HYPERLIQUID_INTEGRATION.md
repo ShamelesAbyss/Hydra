@@ -236,3 +236,20 @@ neither proves no submission occurred. Output explicitly marks the source offlin
 signed-envelope unavailable and submission/acceptance unproven. This validates local
 consistency, not database attestation or current venue state. No hold is released,
 no accounting result is inferred, and older history is never fabricated.
+
+## Retained action / native acknowledgment consistency — alpha.16
+
+Native exact receipt persistence now validates any retained unsigned action in the
+same transaction before writing facts or changing the submitted journal. Later
+native fact reads repeat these checks in their caller's transaction, covering
+position precision, ledger acknowledgment coverage and exact residual paths.
+The shared bounded decoder checks account/client/side/reduce-only and canonical
+MessagePack consistency; fill validation requires exact quantity no greater than
+the rounded request, permitted size precision and a side-aware average-price limit.
+
+Failure leaves pre-existing intent/facts and independent holds unresolved. A corrupt
+retained record or incompatible action table cannot silently become legacy evidence.
+Older acknowledgments with no retained action remain readable as historical facts;
+missing action history is not fabricated or relabelled as pre-write provenance.
+No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
+or live readiness is established. Verification is offline.

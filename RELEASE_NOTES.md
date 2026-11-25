@@ -1,31 +1,32 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.15
+# HYDRA — Project Leviathan 1.7.0-alpha.16
 
-Bounded offline unsigned-action inspection. Engineering prerelease on main;
-this does not certify live trading, submission or settlement.
+Exact native acknowledgment / retained unsigned-action consistency.
+Engineering prerelease on main; live readiness remains incomplete.
 
 ## Implemented
 
-- Add `hydra wire-history --db PATH --intent UUID`, dispatched before trading
-  configuration, wallet or engine storage setup. Opens existing SQLite read-only,
-  never creates files or migrates history, and reads one consistent transaction.
-- Check supported ordinary tables and primary key, bound account, intent/client
-  identity, side/reduce-only, decimal quantity/precision and retained metadata.
-  Reproduce canonical MessagePack from displayed fields and refuse inconsistencies.
-- Bound selected JSON/metadata before decoding. Preserve original recorded times.
-  Distinguish unavailable history table from no retained action; neither establishes
-  that no order was sent. Explicit JSON flags leave sending/acceptance unproven and
-  full signed-envelope provenance unavailable.
+- Reuse the bounded action decoder inside the caller's SQLite transaction.
+  Native receipt persistence validates any retained action before writing exact
+  facts or advancing the submitted journal. Later native fact reads repeat checks.
+- Require exact fill quantity no greater than the actual rounded request, supported
+  size precision and a side-aware average-price limit. Retained account/client,
+  side/reduce-only, scope and encoded-byte consistency checks also apply.
+- Refuse corrupt retained records and incompatible action tables without a legacy
+  fallback. Preserve historical receipts that have no action record without
+  inventing pre-write history. Independent execution/risk/financial holds remain.
 
-Nine added tests cover byte-preserving inspection, unavailable history without
-migration, corrupt fields/bytes/scope/precision, oversized data, incompatible table
-shape/version, intent contradictions and CLI configuration/wallet bypass.
-Full release-version tests, audit, Windows builds and portable smoke are checked
-before publication. No real account probes, signed requests or orders were used.
-Native UI remains unchanged from the actual alpha.9 screenshots.
+Seven additional tests cover accepted receipt restart, atomic refusal of overfill,
+sub-float limit breach and precision mismatch, sell-price direction, corrupted
+retained evidence on later reads, historical absence, incompatible table refusal,
+and one caller snapshot across an external atomic WAL update. Synthetic SQL updates
+model corruption/concurrency; ordinary production ingestion does not rewrite facts.
+Full release tests, audit, Windows builds and portable smoke are checked before
+publication. No real account probes, signed network requests or orders were used.
+The native interface remains unchanged from the actual alpha.9 screenshots.
 
 ## Remaining limits
 
-Local consistency checks are not database attestation or live venue evidence.
-Nonce/full signed-envelope provenance, automatic order recovery, complete fee and
-funding attribution, financial settlement and protected credential storage remain
-incomplete. Execution/risk/accounting holds are unchanged. Executables are unsigned.
+Unsigned records are not proof of sending or acceptance, and local consistency
+is not database attestation. Full signed-envelope/nonce provenance, automatic
+ambiguous-order recovery, complete entry/fee/funding attribution and net settlement
+remain incomplete. Executables are unsigned. Older releases remain immutable.

@@ -135,6 +135,7 @@ pub fn record_receipt(
             facts.validate(&intent,result)?;
             let account:String=tx.query_row("SELECT value FROM meta_kv WHERE key='trading_account_binding'",[],|r|r.get(0))?;
             ensure!(crate::ownership::canonical_account(&account)?==account,"invalid exact fill account binding");
+            crate::wire_history::validate_native_fill_on(&tx,&intent,&account,facts)?;
             tx.execute("INSERT INTO execution_fill_facts(intent_id,account,venue,symbol,side,quantity,average_price,order_id,environment,source)
                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'mainnet','native_hyperliquid_response')",
                 params![intent.id,account,intent.venue,intent.symbol,intent.side.as_str(),facts.quantity,facts.average_price,facts.order_id])?;
@@ -228,6 +229,7 @@ fn stored_fill(conn: &Connection, intent_id: &str) -> Result<Option<StoredFill>>
             "native facts disagree with durable intent scope"
         );
         fill.facts.validate(&intent, &result)?;
+        crate::wire_history::validate_native_fill_on(conn, &intent, &fill.account, &fill.facts)?;
     }
     Ok(row)
 }
