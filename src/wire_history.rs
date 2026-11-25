@@ -42,21 +42,29 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
     conn.pragma_update(None, "query_only", true)?;
     conn.pragma_update(None, "trusted_schema", false)?;
     let tx = conn.unchecked_transaction()?;
-    let version: i64 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    let history = inspect_on(&tx, intent_id)?;
+    tx.commit()?;
+    Ok(history)
+}
+
+/// Borrow the caller's existing read snapshot without opening or migrating a database.
+pub(crate) fn inspect_on(conn: &Connection, intent_id: &str) -> Result<History> {
+    crate::order_status::client_order_id(intent_id)?;
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     ensure!(
         (0..=2).contains(&version),
         "unsupported core history schema"
     );
     ensure!(
-        table(&tx, "meta_kv")? && table(&tx, "execution_intents")?,
+        table(conn, "meta_kv")? && table(conn, "execution_intents")?,
         "intent/account history unavailable"
     );
-    let account: String = tx.query_row("SELECT CASE WHEN length(CAST(value AS BLOB))=42 THEN value END FROM meta_kv WHERE key='trading_account_binding'", [], |r|r.get(0))?;
+    let account: String = conn.query_row("SELECT CASE WHEN length(CAST(value AS BLOB))=42 THEN value END FROM meta_kv WHERE key='trading_account_binding'", [], |r|r.get(0))?;
     ensure!(
         crate::ownership::canonical_account(&account)? == account,
         "invalid history account binding"
     );
-    let (state, encoded): (String, String) = tx.query_row("SELECT CASE WHEN length(CAST(state AS BLOB))<=64 THEN state END,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END FROM execution_intents WHERE intent_id=?1", [intent_id], |r|Ok((r.get(0)?,r.get(1)?)))?;
+    let (state, encoded): (String, String) = conn.query_row("SELECT CASE WHEN length(CAST(state AS BLOB))<=64 THEN state END,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END FROM execution_intents WHERE intent_id=?1", [intent_id], |r|Ok((r.get(0)?,r.get(1)?)))?;
     ensure!(
         !state.is_empty() && state.bytes().all(|b| b.is_ascii_graphic()),
         "unsupported journal state"
@@ -69,9 +77,9 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
             && intent.size > 0.0,
         "invalid archived intent"
     );
-    let (available, record) = load_on(&tx, &intent, &account)?;
+    let (available, record) = load_on(conn, &intent, &account)?;
     let (preparation_available, preparation) =
-        crate::signing_preparation::load_on(&tx, &intent, &account, record.as_ref())?;
+        crate::signing_preparation::load_on(conn, &intent, &account, record.as_ref())?;
     let history = History {
         schema_version: 2,
         read_only: true,
@@ -86,7 +94,6 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
         signing_preparation_table_available: preparation_available,
         signing_preparation: preparation,
     };
-    tx.commit()?;
     Ok(history)
 }
 

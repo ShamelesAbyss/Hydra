@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0-alpha.20
+
+- Add one-snapshot inspection-only intent evidence without repair, hold-release or
+  settlement authorization.
+- Bound native metadata before decoding and refuse unsupported fact/rowid schemas.
+
 ## 1.7.0-alpha.19
 
 - Add bounded protocol-2 offline signing-preparation inspection and shared native

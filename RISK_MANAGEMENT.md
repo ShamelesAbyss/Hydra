@@ -290,3 +290,29 @@ repair, full signed-envelope proof or complete financial settlement is introduce
 
 The permanent memorial dedication remains verbatim at the end of README.md.
 Publication checks and portable packages include its project maintenance rule.
+
+## One-snapshot local intent evidence — alpha.20
+
+`hydra intent-evidence --db PATH --intent UUID --limit N` emits an inspection-only
+protocol-1 report. A single existing read-only SQLite transaction supplies lifecycle
+history, unsigned action, signing preparation and optional exact native acknowledged
+quantity. Shared readers preserve status-history protocol 1 and wire-history
+protocol 2. Account, identity and journal state must agree. Original times remain;
+no wallet, engine migration, coordinator or venue is initialized.
+
+Lifecycle/action/preparation/native-fact table availability is explicit. Native
+quantity is null when exact receipt facts are absent, never guessed as zero or
+reconstructed from floating-point legacy values. History/record caps remain visible.
+The report always leaves exchange completeness, automatic repair authorization,
+risk release authorization and financial settlement verification false. One local
+snapshot is not an atomic exchange snapshot or current account evidence.
+
+Native fact metadata is now bounded in SQL before materialization; unsupported
+views or missing native primary keys fail rather than becoming legacy precision.
+Lifecycle scanning also rejects shadowed rowid aliases and requires SQLite's
+physical indexed row identifier for its bounded window. Corruption remains an
+error and never clears execution, risk or financial holds. The report provides
+local review evidence, not a recovery classifier or automatic state mutation.
+
+The permanent memorial remains verbatim as the final README section and is retained
+with its maintenance rule in future portable/source packages.

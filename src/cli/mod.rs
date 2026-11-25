@@ -128,6 +128,15 @@ pub enum Command {
         #[arg(long)]
         intent: String,
     },
+    /// Inspect consistent local intent evidence. No network, repair or hold release.
+    IntentEvidence {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+        #[arg(long)]
+        intent: String,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
     /// Retrieve read-only exchange fill/funding evidence. Never submits orders.
     SyncLedger {
         #[arg(long)]
@@ -202,6 +211,11 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         println!("{}", serde_json::to_string(&history)?);
         return Ok(());
     }
+    if let Command::IntentEvidence { db, intent, limit } = &cli.cmd {
+        let evidence = crate::intent_evidence::inspect(db, intent, *limit)?;
+        println!("{}", serde_json::to_string(&evidence)?);
+        return Ok(());
+    }
     if !cli.no_banner {
         banner::print_banner();
     }
@@ -228,6 +242,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),
         Command::Telemetry { .. } => unreachable!("handled before configuration and storage setup"),
         Command::StatusHistory { .. } => {
+            unreachable!("handled before configuration and storage setup")
+        }
+        Command::IntentEvidence { .. } => {
             unreachable!("handled before configuration and storage setup")
         }
         Command::WireHistory { .. } => {

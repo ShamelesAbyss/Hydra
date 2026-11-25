@@ -64,16 +64,28 @@ pub fn inspect(path: &Path, intent_id: &str, limit: usize) -> Result<History> {
     conn.pragma_update(None, "query_only", true)?;
     conn.pragma_update(None, "trusted_schema", false)?;
     let tx = conn.unchecked_transaction()?;
-    let version: i64 = tx.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    let history = inspect_on(&tx, intent_id, limit)?;
+    tx.commit()?;
+    Ok(history)
+}
+
+/// Borrow the caller's existing read snapshot without opening or migrating a database.
+pub(crate) fn inspect_on(conn: &Connection, intent_id: &str, limit: usize) -> Result<History> {
+    crate::order_status::client_order_id(intent_id)?;
+    ensure!(
+        (1..=64).contains(&limit),
+        "status history limit must be in 1..=64"
+    );
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     ensure!(
         (0..=2).contains(&version),
         "unsupported core history schema"
     );
     ensure!(
-        table(&tx, "meta_kv")? && table(&tx, "execution_intents")?,
+        table(conn, "meta_kv")? && table(conn, "execution_intents")?,
         "local intent/account history unavailable"
     );
-    let account: String = tx
+    let account: String = conn
         .query_row(
             "SELECT CASE WHEN length(CAST(value AS BLOB))=42 THEN value END FROM meta_kv WHERE key='trading_account_binding'",
             [],
@@ -84,7 +96,7 @@ pub fn inspect(path: &Path, intent_id: &str, limit: usize) -> Result<History> {
         crate::ownership::canonical_account(&account)? == account,
         "invalid history account binding"
     );
-    let (state,encoded):(String,Option<String>)=tx.query_row("SELECT CASE WHEN length(CAST(state AS BLOB))<=64 THEN state END,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END FROM execution_intents WHERE intent_id=?1",[intent_id],|r|Ok((r.get(0)?,r.get(1)?))).context("local intent unavailable")?;
+    let (state,encoded):(String,Option<String>)=conn.query_row("SELECT CASE WHEN length(CAST(state AS BLOB))<=64 THEN state END,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END FROM execution_intents WHERE intent_id=?1",[intent_id],|r|Ok((r.get(0)?,r.get(1)?))).context("local intent unavailable")?;
     ensure!(
         !state.is_empty() && state.len() <= 64 && state.bytes().all(|b| b.is_ascii_graphic()),
         "unsupported journal state"
@@ -95,7 +107,7 @@ pub fn inspect(path: &Path, intent_id: &str, limit: usize) -> Result<History> {
         intent.id == intent_id && intent.venue == "hyperliquid",
         "local intent identity disagrees"
     );
-    let available = table(&tx, "execution_status_observations")?;
+    let available = table(conn, "execution_status_observations")?;
     let mut history = History {
         schema_version: 1,
         read_only: true,
@@ -111,7 +123,11 @@ pub fn inspect(path: &Path, intent_id: &str, limit: usize) -> Result<History> {
         observations: Vec::new(),
     };
     if available {
-        let highest: Option<i64> = tx.query_row(
+        let shadowed: bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_xinfo('execution_status_observations') WHERE lower(name) IN ('rowid','_rowid_','oid'))",[],|r|r.get(0))?;
+        ensure!(!shadowed, "unsupported shadowed lifecycle row identity");
+        // Require SQLite's physical indexed rowid for the bounded scan window.
+        conn.prepare("SELECT rowid FROM execution_status_observations LIMIT 0")?;
+        let highest: Option<i64> = conn.query_row(
             "SELECT MAX(rowid) FROM execution_status_observations",
             [],
             |r| r.get(0),
@@ -120,7 +136,7 @@ pub fn inspect(path: &Path, intent_id: &str, limit: usize) -> Result<History> {
         ensure!(highest >= 0, "unsupported observation sequence");
         let floor = highest.saturating_sub(WINDOW).max(0);
         history.window_capped = floor > 0;
-        let mut statement=tx.prepare("SELECT CASE WHEN length(CAST(observation_id AS BLOB))=36 THEN observation_id END,CASE WHEN length(CAST(account AS BLOB))=42 THEN account END,CASE WHEN length(CAST(requested_cloid AS BLOB))=34 THEN requested_cloid END,acquired_started_ms,acquired_finished_ms,recorded_at_ms,CASE WHEN length(CAST(source AS BLOB))<=64 THEN source END,CASE WHEN length(CAST(observation_json AS BLOB))<=65536 THEN observation_json END FROM execution_status_observations WHERE rowid>?1 AND intent_id=?2 ORDER BY rowid DESC LIMIT ?3")?;
+        let mut statement=conn.prepare("SELECT CASE WHEN length(CAST(observation_id AS BLOB))=36 THEN observation_id END,CASE WHEN length(CAST(account AS BLOB))=42 THEN account END,CASE WHEN length(CAST(requested_cloid AS BLOB))=34 THEN requested_cloid END,acquired_started_ms,acquired_finished_ms,recorded_at_ms,CASE WHEN length(CAST(source AS BLOB))<=64 THEN source END,CASE WHEN length(CAST(observation_json AS BLOB))<=65536 THEN observation_json END FROM execution_status_observations WHERE rowid>?1 AND intent_id=?2 ORDER BY rowid DESC LIMIT ?3")?;
         let mut rows = statement.query(rusqlite::params![floor, intent_id, (limit + 1) as i64])?;
         while let Some(row) = rows.next()? {
             if history.observations.len() == limit {
@@ -159,6 +175,5 @@ pub fn inspect(path: &Path, intent_id: &str, limit: usize) -> Result<History> {
             });
         }
     }
-    tx.commit()?;
     Ok(history)
 }

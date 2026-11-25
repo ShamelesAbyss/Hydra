@@ -1,3 +1,23 @@
+# Release verification — 1.7.0-alpha.20
+
+All **368 offline desktop-feature all-target release-version tests pass**.
+Eight added regressions cover byte-preserving combined evidence, exact quantity
+without repair/settlement permission, one WAL snapshot across an external journal
+update, absent optional histories, invalid files/identity/limits, oversized native
+metadata, unsupported native views/primary keys and lifecycle rowid shadowing,
+and CLI configuration/wallet bypass without database creation.
+The shadow-rowid corruption fixture constructs a replacement table directly;
+SQLite itself rejects adding a rowid alias through ALTER TABLE.
+
+Formatting and Clippy complete with existing warnings. Fresh lockfile audit exits
+0 with zero vulnerability entries and one Chrono maintenance warning, no ignores.
+Windows CLI/cockpit compilation and extracted smoke are checked before publication.
+No real account probes, signed network requests, orders or transfers were used.
+The permanent memorial remains the exact final README section and its rule is
+included in source/portable packaging.
+Alpha.19 passed all four tagged CI jobs:
+[Verified alpha.19 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45704926835).
+
 # Release verification — 1.7.0-alpha.19
 
 All **360 offline desktop-feature all-target release-version tests pass**.

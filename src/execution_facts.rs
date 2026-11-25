@@ -193,7 +193,15 @@ fn stored_fill(conn: &Connection, intent_id: &str) -> Result<Option<StoredFill>>
     if !table_exists(conn, "execution_fill_facts")? {
         return Ok(None);
     }
-    let row=conn.query_row("SELECT account,venue,symbol,side,quantity,average_price,order_id,environment,source FROM execution_fill_facts WHERE intent_id=?1",[intent_id],|r|Ok(StoredFill {
+    let keys = {
+        let mut s = conn.prepare(
+            "SELECT name FROM pragma_table_info('execution_fill_facts') WHERE pk>0 ORDER BY pk",
+        )?;
+        let rows = s.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    ensure!(keys == ["intent_id"], "unsupported native fill primary key");
+    let row=conn.query_row("SELECT CASE WHEN length(CAST(account AS BLOB))=42 THEN account END,CASE WHEN length(CAST(venue AS BLOB))<=64 THEN venue END,CASE WHEN length(CAST(symbol AS BLOB))<=160 THEN symbol END,CASE WHEN length(CAST(side AS BLOB))<=5 THEN side END,CASE WHEN length(CAST(quantity AS BLOB))<=128 THEN quantity END,CASE WHEN length(CAST(average_price AS BLOB))<=128 THEN average_price END,CASE WHEN length(CAST(order_id AS BLOB))<=20 THEN order_id END,CASE WHEN length(CAST(environment AS BLOB))<=32 THEN environment END,CASE WHEN length(CAST(source AS BLOB))<=64 THEN source END FROM execution_fill_facts WHERE intent_id=?1",[intent_id],|r|Ok(StoredFill {
         account:r.get(0)?,venue:r.get(1)?,symbol:r.get(2)?,side:r.get(3)?,
         facts:PreciseFill {quantity:r.get(4)?,average_price:r.get(5)?,order_id:r.get(6)?},
         environment:r.get(7)?,source:r.get(8)?,
@@ -203,7 +211,7 @@ fn stored_fill(conn: &Connection, intent_id: &str) -> Result<Option<StoredFill>>
         // facts into legacy unknown precision. SQL CASE bounds reads before
         // materializing potentially oversized local JSON evidence.
         let (state,intent_json,result_json):(String,Option<String>,Option<String>)=conn.query_row(
-            "SELECT state,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END,CASE WHEN length(CAST(result_json AS BLOB))<=32768 THEN result_json END FROM execution_intents WHERE intent_id=?1",
+            "SELECT CASE WHEN length(CAST(state AS BLOB))<=64 THEN state END,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END,CASE WHEN length(CAST(result_json AS BLOB))<=32768 THEN result_json END FROM execution_intents WHERE intent_id=?1",
             [intent_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))
             .context("native receipt journal missing")?;
         ensure!(
@@ -235,11 +243,7 @@ fn stored_fill(conn: &Connection, intent_id: &str) -> Result<Option<StoredFill>>
 }
 
 fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
-    Ok(conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-        [table],
-        |r| r.get(0),
-    )?)
+    crate::status_history::table(conn, table)
 }
 
 /// None means legacy unknown precision; a recorded but unknown residual is an

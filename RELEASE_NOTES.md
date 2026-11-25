@@ -1,34 +1,36 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.19
+# HYDRA — Project Leviathan 1.7.0-alpha.20
 
-Bounded offline signing-preparation inspection and consistent native evidence.
+One-snapshot local intent evidence and bounded native history reads.
 Engineering prerelease on main; live-trading readiness remains incomplete.
 
 ## Implemented
 
-- Extend `wire-history` to protocol 2 with explicit preparation-table availability
-  and optional retained metadata. Core SQLite schema 2 and status-history protocol 1
-  remain unchanged. Inspect one existing read-only transaction without migrations,
-  wallet, configuration, global nonce coordinator or network access.
-- Bound JSON/metadata before decoding; check ordinary table/primary-key shape,
-  account/signer/nonce/domain scope and action/Agent hashes from the exact retained
-  unsigned bytes. Preserve original times and immutable capture-event phase.
-- Reuse preparation validation on exact native receipt persistence and subsequent
-  fact reads. Corrupt/orphan/index-contradictory evidence cannot silently fall back
-  to historical absence. Independent execution/risk/financial holds remain intact.
-- Preserve the owner's permanent memorial dedication verbatim at the end of the
-  README and include its maintenance rule in portable packages/publication checks.
+- Add `intent-evidence --db PATH --intent UUID --limit N`, an inspection-only
+  protocol-1 CLI/Rust report combining lifecycle, unsigned action, signing preparation
+  and optional exact native acknowledgment quantity in one read-only transaction.
+- Reuse scoped readers without changing status-history protocol 1 or wire-history
+  protocol 2. Require matching identity/account/journal state; preserve original
+  times, history caps and explicit table availability. Missing precision is null.
+- Bound native fact fields in SQL before materialization, refuse unsupported
+  views/primary keys and reject shadowed lifecycle row identifiers that could
+  undermine the bounded scan. Corrupt evidence cannot silently become legacy facts.
+- Keep live-source/completeness, automatic repair, risk release and financial
+  settlement flags false. No engine migration, wallet, coordinator or venue opens.
+  Independent execution/risk/financial holds and the permanent memorial remain.
 
-Added tests cover byte-preserving protocol-2 inspection, absent history distinction,
-scope/domain/phase/hash/nonce/index corruption, oversize input, orphan records,
-views/unindexed tables, native acknowledgment refusal and CLI wallet/config bypass.
+Eight added regressions cover byte preservation, exact quantity without repair
+permission, a deterministic shared WAL snapshot across another connection's journal
+update, absent optional history, invalid budgets/files/identity, oversized native
+metadata, unsupported table/rowid shapes, and CLI configuration/wallet bypass.
 Full tests, audit, Windows builds and extracted smoke are checked before publication.
 No real account probes, signed network requests, orders or transfers were used.
 Native UI remains unchanged from the actual alpha.9 screenshots.
 
 ## Remaining limits
 
-Preparation does not prove signing, sending or venue acceptance. Its phase records
-an earlier capture point, not current order state. Full signed envelopes are not
-stored or certified; historical metadata is not fresh venue evidence or database
-attestation. Automatic recovery and complete entry/fee/funding/net settlement
-remain incomplete. Executables are unsigned; previous artifacts stay immutable.
+This report is local evidence, not a recovery classifier or authorization. One local
+snapshot does not prove atomic venue state, complete history, signing/submission,
+acceptance or net settlement. Automatic recovery, full envelope attestation, complete
+entry/fee/funding attribution and protected credential storage remain incomplete.
+Executables are unsigned; historical artifacts remain immutable. The memorial and
+its maintenance rule are included in source/portable packages.
