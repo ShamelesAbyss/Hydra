@@ -1,7 +1,7 @@
 name: Verify and package
 on:
   push:
-    branches: [main, 'leviathan/**']
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:

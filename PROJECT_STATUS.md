@@ -2,7 +2,7 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.8** on `leviathan/execution-foundation`.
+- Version and current recovery tag: **v1.7.0-alpha.8** on `main`.
 - Exact release commit: `git rev-parse v1.7.0-alpha.8^{commit}`.
 - Previous recovery: v1.7.0-alpha.7 (`dfb2fe6ef0c297c5ec12263707657b01e2bdf55a`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
@@ -189,3 +189,7 @@ account scope, legacy fallback, contradictory provenance and reduction invalidat
 Formatting and Clippy complete with warnings. No real account, signed network
 request or exchange order was used. Published binaries remain alpha.7 until the
 next verified release.
+
+## Authoritative repository
+
+Project Leviathan is Hydra. Main is the only active development branch. The retired archive/dead-code-hydra-1.6.2 branch is for historical preservation only. Resume at the post-alpha.8 exact residual-proof bridge; complete financial settlement remains open.
