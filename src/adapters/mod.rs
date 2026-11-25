@@ -50,6 +50,17 @@ pub trait VenueAdapter: Send + Sync {
         })
     }
 
+    /// Engine submission boundary. Native implementations record actual unsigned
+    /// action provenance through this opaque capability before signing/write.
+    /// Legacy/custom adapters retain their existing evidence path.
+    async fn submit_order_journaled(
+        &self,
+        intent: &OrderIntent,
+        _journal: &crate::submission_wire::SubmissionJournal<'_>,
+    ) -> Result<OrderReceipt> {
+        self.submit_order_with_evidence(intent).await
+    }
+
     /// Close / reduce a position on the venue. Implementations may noop if N/A.
     async fn close_position(
         &self,

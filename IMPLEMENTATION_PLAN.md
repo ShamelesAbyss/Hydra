@@ -152,3 +152,23 @@ side/reduce-only/type and canonical encoded action bytes or digest, bound to the
 submitted journal/account. Database failure must prevent submission. Do not store
 private keys or signatures, or equate unsigned action provenance with complete
 signed nonce evidence. Preserve current submission semantics and independent holds.
+
+## Native unsigned-action pre-write provenance — alpha.14
+
+Engine submission now supplies an opaque journal capability to the native adapter.
+After validating the unchanged durable submitted intent and account binding, the
+adapter commits the actual rounded IOC action and canonical MessagePack bytes to
+`execution_wire_requests` before the signing/network-write boundary. Stored facts
+include asset, side, price, quantity, reduce-only, client ID, IOC/grouping and size
+precision. No keys or signatures are stored. Persistence or scope failure prevents
+this native submission; a recorded intent cannot overwrite history or pass that
+boundary a second time. Competing connections can record only one boundary.
+
+This is unsigned pre-submission evidence, not proof of sending or acceptance.
+Nonce/full signed-envelope provenance, automatic ambiguous-order recovery and
+complete net settlement remain open. Direct low-level adapter callers retain
+responsibility for journaling; custom adapters keep their compatibility path.
+Older intents receive no fabricated wire history. Risk snapshots are not refreshed
+by this record, and independent execution, reservation and financial holds remain.
+
+Next: bounded read-only inspection of retained native action provenance, then nonce/signing-boundary evidence and conservative recovery integration.

@@ -151,6 +151,19 @@ fn decimal_wire(value: f64) -> Result<String> {
     Ok(result.into())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct UnsignedAction {
+    pub asset: u32,
+    pub buy: bool,
+    pub price: String,
+    pub size: String,
+    pub reduce_only: bool,
+    pub client_order_id: String,
+    pub tif: String,
+    pub grouping: String,
+    pub messagepack_hex: String,
+}
+
 impl OrderAction {
     pub fn ioc(
         asset: u32,
@@ -194,6 +207,28 @@ impl OrderAction {
             rust_decimal::Decimal::from_str_exact(&order.p)?,
             order.b,
         ))
+    }
+    pub(crate) fn unsigned_provenance(&self) -> Result<UnsignedAction> {
+        ensure!(
+            self.action_type == "order" && self.grouping == "na" && self.orders.len() == 1,
+            "unsupported native action provenance"
+        );
+        let order = &self.orders[0];
+        ensure!(
+            order.a < 10000 && order.t.limit.tif == "Ioc",
+            "unsupported native order provenance"
+        );
+        Ok(UnsignedAction {
+            asset: order.a,
+            buy: order.b,
+            price: order.p.clone(),
+            size: order.s.clone(),
+            reduce_only: order.r,
+            client_order_id: order.c.clone(),
+            tif: order.t.limit.tif.into(),
+            grouping: self.grouping.into(),
+            messagepack_hex: hex::encode(self.packed()?),
+        })
     }
     pub fn packed(&self) -> Result<Vec<u8>> {
         Ok(rmp_serde::to_vec_named(self)?)

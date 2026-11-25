@@ -1,3 +1,20 @@
+# Release verification — 1.7.0-alpha.14
+
+All **314 offline desktop-feature all-target release-version tests pass**.
+Ten additional regressions cover durable rounded action bytes and restart,
+account/intent/side/client/quantity/precision refusal, changed or terminal journal,
+insert failures and immutable duplicate protection, competing SQLite connections,
+native simulated sender ordering and refusal, and controller journal dispatch.
+The native sender tests use an invalid signing key and a test-only simulated
+sender; they send no signed requests and do not certify live transport behavior.
+
+Formatting and Clippy complete with warnings. Fresh lockfile audit exits 0 with
+zero vulnerability entries and one Chrono maintenance warning, no ignores.
+Windows CLI/native release compilation and extracted portable smoke are checked
+before publication. No real account probes, orders or transfers were used.
+Alpha.13 passed all four tagged CI jobs and all five published asset digests match:
+[verified alpha.13 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45641564303).
+
 # Release verification — 1.7.0-alpha.13
 
 All **304 offline desktop-feature all-target release-version tests pass**.

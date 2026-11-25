@@ -57,6 +57,8 @@ pub struct HyperliquidAdapter {
     /// more decimals than the asset allows (e.g. HYPE = 2, ETH = 4, BTC = 5).
     /// Without this, HYPE orders silently bounce all day.
     sz_decimals: Arc<Mutex<std::collections::HashMap<String, (u32, u8)>>>,
+    #[cfg(test)]
+    test_submissions: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl HyperliquidAdapter {
@@ -163,6 +165,8 @@ impl HyperliquidAdapter {
             wallet_key: cfg.hl_private_key.clone(),
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            #[cfg(test)]
+            test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
         // Prefetch metadata; orders fail closed if the instrument is unavailable.
         adapter.warm_meta().await;
@@ -253,6 +257,88 @@ impl HyperliquidAdapter {
             }
         }
         Err(last_err.unwrap_or_else(|| anyhow!("hyperliquid info unknown error")))
+    }
+
+    async fn submit_order_impl(
+        &self,
+        intent: &OrderIntent,
+        journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
+    ) -> Result<super::OrderReceipt> {
+        anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
+        if let Some(journal) = journal {
+            journal.verify_intent(intent)?;
+        }
+        anyhow::ensure!(
+            self.max_slippage_bps.is_finite()
+                && self.max_slippage_bps > 0.0
+                && self.max_slippage_bps <= 1000.0,
+            "MAX_SLIPPAGE_BPS must be in (0, 1000]"
+        );
+        let dp = self.sz_decimals_for(&intent.symbol).await?;
+        let raw_px = match intent.limit_price {
+            Some(p) if p.is_finite() && p > 0.0 => p,
+            Some(_) => anyhow::bail!("invalid limit price"),
+            None => {
+                let mids: serde_json::Value = self.info(json!({"type":"allMids"})).await?;
+                let mid: f64 = mids
+                    .get(&intent.symbol)
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .ok_or_else(|| anyhow!("missing mid"))?;
+                anyhow::ensure!(mid.is_finite() && mid > 0.0, "invalid mid");
+                let slip = self.max_slippage_bps / 10_000.0;
+                mid * if intent.side.is_buy() {
+                    1.0 + slip
+                } else {
+                    1.0 - slip
+                }
+            }
+        };
+        let limit_px = round_perp_price(raw_px, dp, intent.side.is_buy());
+        let sz = round_to_decimals(intent.size, dp);
+        anyhow::ensure!(
+            limit_px.is_finite() && limit_px > 0.0 && sz > 0.0,
+            "order rounds to zero"
+        );
+        self.verify_identity().await?;
+        let action = crate::hyperliquid_wire::OrderAction::ioc(
+            self.asset_id_for(&intent.symbol).await?,
+            intent.side.is_buy(),
+            limit_px,
+            sz,
+            intent.reduce_only,
+            &intent.id,
+        )?;
+        if let Some(journal) = journal {
+            let account = self
+                .account_address
+                .as_deref()
+                .ok_or_else(|| anyhow!("native wire account missing"))?;
+            journal.record(account, &action, dp)?;
+        }
+        let key = self
+            .wallet_key
+            .as_deref()
+            .ok_or_else(|| anyhow!("signing key missing"))?;
+        #[cfg(not(test))]
+        let resp = crate::hyperliquid_wire::submit_ioc(key, &action).await?;
+        #[cfg(test)]
+        let resp = {
+            // Native adapter unit tests cannot send signed mutations. Fixtures
+            // also use an invalid signing key as an independent safety barrier.
+            let _ = key;
+            if let Some(journal) = journal {
+                journal.assert_persisted_action(&action)?;
+            }
+            self.test_submissions
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let (quantity, price, _) = action.fill_bounds()?;
+            serde_json::from_value(
+                json!({"status":"ok","response":{"type":"order","data":{"statuses":[{"filled":{"oid":42,"totalSz":quantity.to_string(),"avgPx":price.to_string()}}]}}}),
+            )?
+        };
+
+        parse_order_receipt(resp, intent, &action, dp)
     }
 
     async fn verify_identity(&self) -> Result<()> {
@@ -587,55 +673,14 @@ impl VenueAdapter for HyperliquidAdapter {
         &self,
         intent: &OrderIntent,
     ) -> Result<super::OrderReceipt> {
-        anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
-        anyhow::ensure!(
-            self.max_slippage_bps.is_finite()
-                && self.max_slippage_bps > 0.0
-                && self.max_slippage_bps <= 1000.0,
-            "MAX_SLIPPAGE_BPS must be in (0, 1000]"
-        );
-        let dp = self.sz_decimals_for(&intent.symbol).await?;
-        let raw_px = match intent.limit_price {
-            Some(p) if p.is_finite() && p > 0.0 => p,
-            Some(_) => anyhow::bail!("invalid limit price"),
-            None => {
-                let mids: serde_json::Value = self.info(json!({"type":"allMids"})).await?;
-                let mid: f64 = mids
-                    .get(&intent.symbol)
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse().ok())
-                    .ok_or_else(|| anyhow!("missing mid"))?;
-                anyhow::ensure!(mid.is_finite() && mid > 0.0, "invalid mid");
-                let slip = self.max_slippage_bps / 10_000.0;
-                mid * if intent.side.is_buy() {
-                    1.0 + slip
-                } else {
-                    1.0 - slip
-                }
-            }
-        };
-        let limit_px = round_perp_price(raw_px, dp, intent.side.is_buy());
-        let sz = round_to_decimals(intent.size, dp);
-        anyhow::ensure!(
-            limit_px.is_finite() && limit_px > 0.0 && sz > 0.0,
-            "order rounds to zero"
-        );
-        self.verify_identity().await?;
-        let action = crate::hyperliquid_wire::OrderAction::ioc(
-            self.asset_id_for(&intent.symbol).await?,
-            intent.side.is_buy(),
-            limit_px,
-            sz,
-            intent.reduce_only,
-            &intent.id,
-        )?;
-        let key = self
-            .wallet_key
-            .as_deref()
-            .ok_or_else(|| anyhow!("signing key missing"))?;
-        let resp = crate::hyperliquid_wire::submit_ioc(key, &action).await?;
-
-        parse_order_receipt(resp, intent, &action, dp)
+        self.submit_order_impl(intent, None).await
+    }
+    async fn submit_order_journaled(
+        &self,
+        intent: &OrderIntent,
+        journal: &crate::submission_wire::SubmissionJournal<'_>,
+    ) -> Result<super::OrderReceipt> {
+        self.submit_order_impl(intent, Some(journal)).await
     }
 
     async fn close_position(
@@ -948,6 +993,8 @@ mod tests {
             wallet_key: None,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            #[cfg(test)]
+            test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
         assert!(adapter.sz_decimals_for("ETH").await.is_err());
         assert!(adapter
@@ -1178,5 +1225,131 @@ mod tests {
         )
         .unwrap();
         assert!(!rejected.result.accepted && rejected.precise_fill.is_none());
+    }
+    fn wire_fixture() -> (crate::storage::Storage, OrderIntent, HyperliquidAdapter) {
+        let db = crate::storage::Storage::open(":memory:").unwrap();
+        db.migrate().unwrap();
+        db.bind_trading_account("0x1111111111111111111111111111111111111111", false)
+            .unwrap();
+        let intent = OrderIntent {
+            id: uuid::Uuid::new_v4().to_string(),
+            venue: "hyperliquid".into(),
+            symbol: "ETH".into(),
+            side: crate::core::Side::Long,
+            size: 1.234567,
+            limit_price: Some(101.12345),
+            reduce_only: false,
+            stop_price: None,
+            take_profit: None,
+            source_signal: None,
+            created_at: Utc::now(),
+        };
+        db.reserve_intent(&intent).unwrap();
+        let adapter = HyperliquidAdapter {
+            http: reqwest::Client::new(),
+            live_authorized: true,
+            max_slippage_bps: 30.0,
+            base_url: "http://127.0.0.1:1".into(),
+            account_address: Some("0x1111111111111111111111111111111111111111".into()),
+            wallet_key: Some("invalid-no-signing-key".into()),
+            identity_verified_at: Arc::new(Mutex::new(Some(std::time::Instant::now()))),
+            sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::from([(
+                "ETH".into(),
+                (4, 4),
+            )]))),
+            test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        };
+        (db, intent, adapter)
+    }
+    #[tokio::test]
+    async fn journaled_native_sender_observes_actual_rounded_action_before_send() {
+        let (db, intent, adapter) = wire_fixture();
+        let journal = crate::submission_wire::SubmissionJournal::new(&db, &intent);
+        let receipt = adapter
+            .submit_order_journaled(&intent, &journal)
+            .await
+            .unwrap();
+        assert_eq!(receipt.result.filled_size, 1.2345);
+        assert_eq!(
+            adapter
+                .test_submissions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let action = crate::hyperliquid_wire::OrderAction::ioc(
+            4,
+            true,
+            round_perp_price(101.12345, 4, true),
+            1.2345,
+            false,
+            &intent.id,
+        )
+        .unwrap();
+        journal.assert_persisted_action(&action).unwrap();
+        assert!(adapter
+            .submit_order_journaled(&intent, &journal)
+            .await
+            .is_err());
+        assert_eq!(
+            adapter
+                .test_submissions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+    #[tokio::test]
+    async fn native_wire_persistence_failure_prevents_sender() {
+        let (db, intent, adapter) = wire_fixture();
+        db.with_conn(|c|c.execute_batch("CREATE TRIGGER fail_native_wire BEFORE INSERT ON execution_wire_requests BEGIN SELECT RAISE(ABORT,'offline-wire-failure'); END;")).unwrap();
+        let error = adapter
+            .submit_order_journaled(
+                &intent,
+                &crate::submission_wire::SubmissionJournal::new(&db, &intent),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("offline-wire-failure"),
+            "{error}"
+        );
+        assert_eq!(
+            adapter
+                .test_submissions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        let count: i64 = db
+            .with_conn(|c| {
+                c.query_row("SELECT COUNT(*) FROM execution_wire_requests", [], |r| {
+                    r.get(0)
+                })
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+    #[tokio::test]
+    async fn native_capability_and_account_conflicts_prevent_sender() {
+        for account_conflict in [false, true] {
+            let (db, intent, mut adapter) = wire_fixture();
+            let mut passed = intent.clone();
+            if account_conflict {
+                adapter.account_address = Some("0x2222222222222222222222222222222222222222".into());
+            } else {
+                passed.symbol = "BTC".into();
+            }
+            assert!(adapter
+                .submit_order_journaled(
+                    &passed,
+                    &crate::submission_wire::SubmissionJournal::new(&db, &intent)
+                )
+                .await
+                .is_err());
+            assert_eq!(
+                adapter
+                    .test_submissions
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                0
+            );
+        }
     }
 }

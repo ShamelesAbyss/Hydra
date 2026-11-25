@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.13** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.13^{commit}`.
-- Previous recovery: v1.7.0-alpha.12 (`765f2548808d84291235c0292fb0e04ba8dc3c1a`).
+- Version and current recovery tag: **v1.7.0-alpha.14** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.14^{commit}`.
+- Previous recovery: v1.7.0-alpha.13 (`5037aaebf69a2b1e4d11e83a66d1ab0672c77fee`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.13 source: 304 offline desktop-feature tests pass; alpha.12 contains 295.
+- Alpha.14 source: 314 offline desktop-feature tests pass; alpha.13 contains 304.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.7 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.14 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -265,3 +265,21 @@ Next: actual unsigned wire-action provenance before native submission, then
 broader authoritative recovery and complete funding/entry attribution. Exact
 signed-wire/nonce provenance, secure credentials and stable-live certification
 remain separate open requirements. Continue directly on main.
+
+## Native unsigned-action pre-write provenance — alpha.14
+
+Engine submission now supplies an opaque journal capability to the native adapter.
+After validating the unchanged durable submitted intent and account binding, the
+adapter commits the actual rounded IOC action and canonical MessagePack bytes to
+`execution_wire_requests` before the signing/network-write boundary. Stored facts
+include asset, side, price, quantity, reduce-only, client ID, IOC/grouping and size
+precision. No keys or signatures are stored. Persistence or scope failure prevents
+this native submission; a recorded intent cannot overwrite history or pass that
+boundary a second time. Competing connections can record only one boundary.
+
+This is unsigned pre-submission evidence, not proof of sending or acceptance.
+Nonce/full signed-envelope provenance, automatic ambiguous-order recovery and
+complete net settlement remain open. Direct low-level adapter callers retain
+responsibility for journaling; custom adapters keep their compatibility path.
+Older intents receive no fabricated wire history. Risk snapshots are not refreshed
+by this record, and independent execution, reservation and financial holds remain.

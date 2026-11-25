@@ -200,7 +200,8 @@ impl ExecutionEngine {
         if let Some(ledger) = &self.ledger {
             ledger.bind_intent(&intent.id)?;
         }
-        let receipt = match venue.submit_order_with_evidence(intent).await {
+        let journal = crate::submission_wire::SubmissionJournal::new(&self.storage, intent);
+        let receipt = match venue.submit_order_journaled(intent, &journal).await {
             Ok(res) => res,
             Err(e) => {
                 self.storage

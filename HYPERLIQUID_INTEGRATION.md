@@ -202,3 +202,21 @@ explicitly leaves round-trip settlement unverified. Missing or foreign-token fee
 remain unknown in USDC; rebates remain signed and explicit zero fees remain known.
 Unverified PnL conventions and funding/entry-cost gaps do not become invented net
 profit. No API here changes execution state or releases risk/financial holds.
+
+## Native unsigned-action pre-write provenance — alpha.14
+
+Engine submission now supplies an opaque journal capability to the native adapter.
+After validating the unchanged durable submitted intent and account binding, the
+adapter commits the actual rounded IOC action and canonical MessagePack bytes to
+`execution_wire_requests` before the signing/network-write boundary. Stored facts
+include asset, side, price, quantity, reduce-only, client ID, IOC/grouping and size
+precision. No keys or signatures are stored. Persistence or scope failure prevents
+this native submission; a recorded intent cannot overwrite history or pass that
+boundary a second time. Competing connections can record only one boundary.
+
+This is unsigned pre-submission evidence, not proof of sending or acceptance.
+Nonce/full signed-envelope provenance, automatic ambiguous-order recovery and
+complete net settlement remain open. Direct low-level adapter callers retain
+responsibility for journaling; custom adapters keep their compatibility path.
+Older intents receive no fabricated wire history. Risk snapshots are not refreshed
+by this record, and independent execution, reservation and financial holds remain.

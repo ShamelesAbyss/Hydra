@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.14
+
+- Persist actual native unsigned IOC actions before engine signing/network write.
+- Bind the opaque capability to the unchanged submitted intent and account.
+- Prevent duplicate attempts, persistence failures and scope mismatches from sending.
+- Preserve all signing, receipt, financial and legacy/custom adapter behavior.
+
 ## 1.7.0-alpha.13
 
 - Reconcile exact native acknowledged quantity against scoped ledger fills.
