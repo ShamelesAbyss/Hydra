@@ -16,7 +16,7 @@ Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuo
 </div>
 
 > [!IMPORTANT]
-> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The new source checkpoint passes 210 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow its GitHub verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45563196702). Existing alpha.4 downloads precede the dependency fix.
+> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The new source checkpoint passes 210 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow its GitHub verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45563826769). Existing alpha.4 downloads precede the dependency fix.
 
 ## Project Leviathan
 
@@ -56,6 +56,8 @@ The cockpit runs independently of the trading engine. Closing its window sends n
 
 <a id="seven-heads"></a>
 ## Seven heads. Distinct responsibilities.
+
+[Hunter](#hunter) · [Fang](#fang) · [Cognition](#cognition) · [Aegis](#aegis) · [Nexus](#nexus) · [Oracle](#oracle) · [Genesis](#genesis)
 
 These are logical subsystem boundaries in an evolving Rust application. They are not seven independently deployed services, and a visible head is not a claim that every planned capability is complete.
 
@@ -232,7 +234,7 @@ Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `
 | Evidence | Verified state |
 | :--- | :--- |
 | **Local test suite** | 210 offline tests passed at `4ad92a1`; 196 at the alpha.4 release |
-| **GitHub builds** | Earlier alpha.4/recovery builds passed on Windows, Linux and desktop; [new verification is running](https://github.com/ShamelesAbyss/Hydra/actions/runs/45563196702) |
+| **GitHub builds** | Earlier alpha.4/recovery builds passed on Windows, Linux and desktop; [new verification is running](https://github.com/ShamelesAbyss/Hydra/actions/runs/45563826769) |
 | **Formatting / Clippy** | Passed locally; Clippy retains style warnings |
 | **Signing references** | Eight offline cross-language fixtures against published official Python SDK constants |
 | **Dependency audit** | **Source checkpoint passes**: 0 vulnerability entries, 1 Chrono maintenance warning; no advisory ignores. Alpha.4 binaries retain the older dependency graph |
