@@ -151,7 +151,7 @@ The native client reads consistent local snapshots; the headless engine owns sig
 | [**Windows x86_64 portable ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.5/hydra-1.7.0-alpha.5-x86_64-pc-windows-msvc.zip) | **alpha.5** | `hydra.exe` + `hydra-cockpit.exe`, config and guides; locally built and smoke checked |
 | [**Source ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.5/hydra-1.7.0-alpha.5-source.zip) | **alpha.5** | Exact release source export; excludes inherited legacy binaries |
 | [**SHA-256 manifest**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.5/hydra-1.7.0-alpha.5-SHA256SUMS.txt) | **alpha.5** | Verify the archive hash before extraction |
-| [**Linux x86_64 release assets**](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.3) | **alpha.3** | Older published headless build; older verified headless package; alpha.5 Linux publication follows tagged CI verification |
+| [**Linux x86_64 headless tar.gz**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.5/hydra-1.7.0-alpha.5-x86_64-unknown-linux-gnu.tar.gz) | **alpha.5** | Verified CI executable plus exact-tag guides/assets; [Linux SHA-256 manifest](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.5/hydra-1.7.0-alpha.5-linux-SHA256SUMS.txt) |
 
 **Dependency fix delivery:** alpha.5 includes the remediated graph. Older alpha.4 assets retain their original dependencies and are preserved as historical downloads.
 
@@ -180,6 +180,21 @@ For a local empty history and read-only snapshot, without credentials or exchang
 ```
 
 `init-history` refuses to overwrite an existing file. Existing history can be opened directly in the cockpit.
+
+### Linux headless
+
+From the download directory, verify the Linux manifest and extract into an empty folder:
+
+```sh
+sha256sum --check hydra-1.7.0-alpha.5-linux-SHA256SUMS.txt
+mkdir hydra-alpha5
+tar -xzf hydra-1.7.0-alpha.5-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha5
+cd hydra-alpha5
+./hydra --version
+./hydra --no-banner config-check
+```
+
+The GNU/Linux executable is verified on the GitHub Ubuntu runner. The Linux archive contains the CLI, guides and artwork; it does not include a native graphical executable.
 
 ### Build the experimental implementation
 
