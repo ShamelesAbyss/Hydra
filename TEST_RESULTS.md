@@ -1,3 +1,16 @@
+# Main consolidation and residual-proof verification
+
+The complete desktop-feature all-target suite passes **267 offline tests**.
+Twelve new parser/storage tests cover bounded exact position snapshots, complete
+zero proofs, signed quantities, scope/time/precision contradictions, restart,
+unknown legacy precision and atomic rollback at each persistence boundary.
+No live account, signed request or exchange order was used.
+
+Main promotion preserves all Leviathan and presentation commits. Main-specific
+Windows/Linux/native desktop CI is tracked separately from the already verified
+alpha.8 implementation and published binaries. Promotion is not stable-live
+certification. Runtime-specific residual regression coverage remains next work.
+
 # Release verification — 1.7.0-alpha.8
 
 The release-version desktop-feature all-target suite passes all **255 offline

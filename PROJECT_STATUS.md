@@ -193,3 +193,14 @@ next verified release.
 ## Authoritative repository
 
 Project Leviathan is Hydra. Main is the only active development branch. The retired archive/dead-code-hydra-1.6.2 branch is for historical preservation only. Resume at the post-alpha.8 exact residual-proof bridge; complete financial settlement remains open.
+
+## Exact residual bridge preserved during consolidation
+
+The new main source retains the native single-clearinghouse position snapshot
+and transactional Decimal residual bridge. Exact current/close facts must agree
+with post-receipt scoped quantity and entry price. Complete zero snapshots prove
+full closure; legacy or previously unknown precision is never reconstructed.
+Archived evidence, current precision, position reduction and journal application
+commit together. Net settlement remains unknown and independently blocks entry.
+The full offline desktop-feature suite passes 267 tests. Next: runtime-specific
+bridge regressions, further exact arithmetic and complete financial settlement.

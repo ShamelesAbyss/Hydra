@@ -7,7 +7,7 @@
 **A native Rust trading engine and research command center for Hyperliquid.**<br>
 Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuous evolution.
 
-[![Release](https://img.shields.io/badge/release-v1.7.0--alpha.8-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests in alpha.8](https://img.shields.io/badge/offline_tests-255_in_alpha.8-26D9FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/TEST_RESULTS.md) [![Language](https://img.shields.io/badge/engine-Rust_2021-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/Cargo.toml) [![License](https://img.shields.io/badge/license-MIT-B19BFF?style=flat-square&labelColor=101C29)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.7.0--alpha.8-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](https://img.shields.io/badge/offline_tests-267_on_main-26D9FF?style=flat-square&labelColor=101C29)](TEST_RESULTS.md) [![Language](https://img.shields.io/badge/engine-Rust_2021-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/Cargo.toml) [![License](https://img.shields.io/badge/license-MIT-B19BFF?style=flat-square&labelColor=101C29)](LICENSE)
 
 [![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/runs/45560484753/job/139022720854) [![Alpha.8 dependency audit](https://img.shields.io/badge/alpha.8_audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/DEPENDENCY_AUDIT.md)
 
@@ -19,6 +19,8 @@ Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuo
 > **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The published alpha.8 source passes 255 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow the last published release verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45575155206). Alpha.8 preserves exact native fill facts and atomically binds them to journal and position provenance. Prior releases remain available as historical checkpoints.
 
 ## Project Leviathan
+
+[Contributing and branch policy](CONTRIBUTING.md) · [Current engineering handoff](PROJECT_STATUS.md)
 
 Hydra brings market observation, strategy, adaptive context, risk, execution and research into one local quantitative workspace. Its identity is a seven-headed organism: each head has a distinct responsibility, while one engine owns the trading lifecycle and its durable evidence.
 
@@ -32,7 +34,7 @@ The native cockpit makes that evidence visible. Oracle replays historical candle
 | :--- | :--- | :--- |
 | **Authoritative main** | Complete Project Leviathan implementation, including current residual-proof development | [Browse main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
 | **Downloadable prerelease** | **1.7.0-alpha.8**, native cockpit/research, scoped risk reconciliation and atomic admission; 255 offline tests | [Release and checksums](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) |
-| **Development on main** | Exact scoped residual proof is under verification; settlement and broader recovery continue | [Authoritative main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
+| **Development on main** | Exact scoped residual proof passes 267 offline tests; settlement and broader recovery continue | [Authoritative main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
 
 Project Leviathan is Hydra. `main` contains the authoritative implementation and all continuing development. The [retired 1.6.2 archive](https://github.com/ShamelesAbyss/Hydra/tree/archive/dead-code-hydra-1.6.2) exists only for historical preservation and must not be used for live trading. Promotion to main does not establish stable-live readiness.
 
@@ -251,7 +253,7 @@ Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `
 
 | Evidence | Verified state |
 | :--- | :--- |
-| **Local test suite** | Alpha.8: 255 offline desktop-feature tests. Current residual-proof verification is recorded in [main test results](TEST_RESULTS.md) |
+| **Local test suite** | Main: **267 offline desktop-feature tests**; published alpha.8: 255. [Current test evidence](TEST_RESULTS.md) |
 | **GitHub builds** | Exact-facts implementation [passed all four jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579083275); [tagged alpha.8 verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579947107) is tracked separately |
 | **Formatting / Clippy** | Passed locally; Clippy retains style warnings |
 | **Signing references** | Eight offline cross-language fixtures against published official Python SDK constants |
