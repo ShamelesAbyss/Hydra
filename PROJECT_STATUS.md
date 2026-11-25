@@ -2,8 +2,8 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.3** on `leviathan/execution-foundation`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.3^{commit}`.
+- Version and current recovery tag: **v1.7.0-alpha.4** on `leviathan/execution-foundation`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.4^{commit}`.
 - Previous recovery: v1.7.0-alpha.1 (`141f67381eb95a2d1084ea44717cdff24fd043c6`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: authoritative financial evidence and risk foundations, followed immediately by native cockpit/research implementation.
@@ -72,3 +72,11 @@ artifacts/checksums and do not force-push, overwrite releases or fabricate resul
 Implemented optional eframe 0.35 native Windows cockpit, bounded read-only telemetry schema version 1, independent background refresh, seven subsystem selectors, recorded portfolio/risk/ledger views and diagnostic filtering. The CLI telemetry command bypasses trading configuration and migrations. Explicit local history initialization preserves existing files and requires no exchange access.
 
 The executable was launched and observed responsive. Operator screenshot feedback confirmed rendering. Automated visual interaction remains blocked by a computer-use kernel-assets error. Eight independent signing-reference tests passed against published official Python SDK constants. Full live recovery, financial settlement and the 19 remaining dependency vulnerability entries still need work. Oracle research implementation follows this release.
+
+## Alpha.4 research and correctness checkpoint
+
+Oracle and Genesis are wired through offline CLI commands and native workspaces. One bounded background research job runs at a time while telemetry remains independently refreshed. Actual reports drive equity and Pareto displays. Research configuration loading excludes wallet fields and engine storage setup.
+
+Normal protective exits now continue after another instrument close fails. Live engine history is persistently account-bound, with explicit audited adoption required for unbound legacy history. Raw exchange decimals reject excess precision. Invalid UTF-8 response previews preserve character boundaries. These changes have focused regression coverage.
+
+The focused financial code review identified and drove these fixes. The formal security plugin could not resolve the local Windows Git worktree, so a canonical plugin scan remains outstanding. Position entry-context persistence is the next active integration work.

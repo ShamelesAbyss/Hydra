@@ -24,6 +24,8 @@ pub mod ownership;
 pub mod portfolio;
 pub mod reporting;
 pub mod research;
+#[cfg(feature = "desktop")]
+pub mod research_ui;
 pub mod risk;
 pub mod state;
 pub mod storage;

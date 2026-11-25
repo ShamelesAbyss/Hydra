@@ -54,6 +54,7 @@ enum Workspace {
 type SnapshotResponse = (PathBuf, Result<TelemetrySnapshot, String>);
 
 pub struct Cockpit {
+    research: crate::research_ui::ResearchWorkspace,
     database_input: String,
     active_path: PathBuf,
     requests: SyncSender<PathBuf>,
@@ -99,6 +100,7 @@ impl Cockpit {
             })
             .expect("create read-only telemetry worker");
         let mut app = Self {
+            research: crate::research_ui::ResearchWorkspace::default(),
             database_input: path.display().to_string(),
             active_path: path,
             requests,
@@ -245,6 +247,11 @@ impl Cockpit {
         ui.label(RichText::new("Viewer lifecycle is independent of the engine. Closing this window sends no stop or trading command.").small().color(MUTED));
     }
     fn body(&mut self, ui: &mut egui::Ui) {
+        if let Workspace::Head(index @ (5 | 6)) = self.workspace {
+            ui.heading(RichText::new(HEADS[index].0).color(HEADS[index].2));
+            self.research.show(ui, index == 6);
+            return;
+        }
         let Some(data) = self.snapshot.clone() else {
             ui.add_space(50.0);
             ui.heading("Connect to your local engine history");
@@ -312,13 +319,6 @@ impl Cockpit {
                         journal(ui, &data, &self.filter);
                         ui.add_space(16.0);
                         fills(ui, &data, &self.filter);
-                    }
-                    5 | 6 => {
-                        ui.colored_label(AMBER, "Research service unavailable in this build.");
-                        ui.label(if index==5 {"A deterministic historical execution simulator is not connected. No backtests, equity curves or simulated trades are invented here."}else{"An evolutionary optimizer is not connected. No populations, generations, candidate returns or automatic deployment controls are invented here."});
-                        ui.add_space(16.0);
-                        ui.label("Available source evidence");
-                        schema(ui, &data);
                     }
                     _ => {}
                 }
@@ -447,13 +447,17 @@ impl Cockpit {
             } else {
                 0.0
             };
-            let available = data.is_some_and(|d| match i {
-                0 | 1 => d.has_table("signals"),
-                2 => d.has_table("trade_context"),
-                3 => d.has_table("aegis_accounts"),
-                4 => d.has_table("execution_intents"),
-                _ => false,
-            });
+            let available = match i {
+                5 => self.research.oracle_ready(),
+                6 => self.research.genesis_ready(),
+                _ => data.is_some_and(|d| match i {
+                    0 | 1 => d.has_table("signals"),
+                    2 => d.has_table("trade_context"),
+                    3 => d.has_table("aegis_accounts"),
+                    4 => d.has_table("execution_intents"),
+                    _ => false,
+                }),
+            };
             let active_color = if available {
                 *color
             } else {
@@ -540,7 +544,7 @@ impl Cockpit {
         painter.text(
             Pos2::new(rect.right() - 14.0, rect.bottom() - 15.0),
             egui::Align2::RIGHT_CENTER,
-            "PULSES = OBSERVED DATABASE CHANGES",
+            "PULSES = OBSERVED DATA / COMPLETED RESEARCH",
             FontId::monospace(10.0),
             MUTED,
         );
@@ -549,6 +553,9 @@ impl Cockpit {
 
 impl eframe::App for Cockpit {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if let Some(index) = self.research.poll(ui.ctx()) {
+            self.changed_at[index] = Some(Instant::now());
+        }
         self.receive();
         if !self.paused && !self.loading && self.last_request.elapsed() >= Duration::from_secs(1) {
             self.refresh();

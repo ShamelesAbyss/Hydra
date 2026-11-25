@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.0-alpha.4 — research workspaces and execution isolation
+
+- Add deterministic next-bar Oracle simulations using existing strategies with explicit costs.
+- Add seeded bounded Genesis mutation/crossover and Pareto candidate research.
+- Wire CLI and native research workspaces through bounded background execution.
+- Continue protective exits after individual instrument close failures.
+- Bind live databases to trading accounts and audit explicit legacy-history adoption.
+- Reject decimal underflow/excess precision and make malformed response previews UTF-8 safe.
+- Isolate research configuration from wallet fields and engine storage creation.
+
 ## 1.7.0-alpha.3 — native cockpit
 
 - Add optional native read-only cockpit and seven subsystem workspaces over bounded SQLite snapshots.

@@ -1,3 +1,20 @@
+# Verification — 1.7.0-alpha.4
+
+The full desktop-feature suite passes 196 offline tests. New coverage includes
+seven Oracle tests, five Genesis tests, research CLI storage/credential isolation,
+two research-worker tests, per-instrument exit failure isolation, database account
+binding, and financial decimal underflow rejection. Formatting and Clippy pass
+with documented pre-existing style warnings.
+
+The focused financial review was static. Its formal scan plugin could not resolve
+the valid Windows Git worktree, so no canonical plugin scan is claimed.
+Review findings drove the account binding, exit isolation and decimal fixes.
+The UTF-8 diagnostic preview correction addresses a pre-existing supporting-path
+panic. Complete security and financial certification remain open.
+
+The dependency inventory still contains 19 vulnerability entries and 17 warnings.
+No real exchange orders, credential probes or transfers were used in verification.
+
 # Verification — 1.7.0-alpha.3
 
 Full desktop-feature suite passes 178 offline tests. Both binaries compile with the optional desktop feature. The cockpit was launched and remained responsive, and operator screenshot feedback confirmed rendering. Automated computer-use interaction failed with a kernel-assets error. The telemetry CLI and explicit history initialization tests pass without a trading configuration.

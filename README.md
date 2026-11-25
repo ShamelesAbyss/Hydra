@@ -6,7 +6,7 @@ A native Rust, local-first Hyperliquid trading engine evolving toward a complete
 Windows quantitative command center. Existing strategies, statistical learning,
 SQLite history, Ratatui monitoring and headless operation remain at its core.
 
-> **1.7.0-alpha.3 · account evidence and independent risk · prerelease**
+> **1.7.0-alpha.4 · account evidence and independent risk · prerelease**
 >
 > This is a verified offline engineering checkpoint, **not a stable live-trading
 > release**. Mainnet integration remains present and defaults disabled. Automatic
@@ -16,7 +16,7 @@ SQLite history, Ratatui monitoring and headless operation remain at its core.
 
 ## Native cockpit
 
-Launch hydra-cockpit.exe and select an existing database, or use Initialize empty local history on first launch. Recorded positions, signals, ledger evidence, risk state and diagnostics populate their workspaces as the engine persists data. Live trading control, credential storage and research workspaces remain under development. See COCKPIT_GUIDE.md.
+Launch hydra-cockpit.exe and select an existing database, or use Initialize empty local history on first launch. Recorded positions, signals, ledger evidence, risk state and diagnostics populate their workspaces as the engine persists data. Oracle and Genesis workspaces run local candle research on a background worker. Live trading controls and protected credential storage remain under development. See COCKPIT_GUIDE.md.
 
 ## Start here
 
@@ -70,7 +70,7 @@ flowchart LR
 ```
 
 This is the target architecture. Hunter discovery, shared Fang planning,
-independent Aegis authority, Oracle and Genesis remain scheduled work.
+full risk protection remain scheduled work. Persistent Aegis authority, Oracle candle replay and Genesis bounded CPU search are implemented.
 Existing Cognition components include rolling expectancy, historical similarity,
 multi-timeframe regimes, adaptive strictness and bounded exploration.
 
@@ -108,7 +108,7 @@ assuming a published artifact was verified on Linux.
 
 The default mode is **dry-run**. Dry-run evaluates signals and risk without
 submitting exchange orders; it is not a paper-fill simulator. Historical replay,
-paper accounting and backtesting are future independent environments.
+paper accounting remains future work. Oracle provides explicit candle simulations through the backtest command and desktop workspace.
 
 The application loads environment settings (including an optional local `.env`)
 and the TOML strategy file. `--config` selects an alternative preset.
@@ -170,7 +170,7 @@ certified as authoritative.
 | `prior order unresolved` | A previous write may have happened; do not resend blindly |
 | `metadata unavailable` | Exchange precision could not be verified; do not guess it |
 | `remote residual disagrees` | Partial/external activity or stale account state needs reconciliation |
-| No GUI window | This release is terminal/headless only |
+| No GUI window | Launch hydra-cockpit.exe from the desktop package |
 
 Current exclusions and limitations are recorded in [the audit](HYDRA_AUDIT.md).
 Ethereum/Uniswap is not registered as an active adapter. No mandatory cloud,
@@ -183,3 +183,7 @@ handoff documents. Incomplete features remain prerelease. The original 1.6.2 REA
 is preserved as [historical documentation](docs/LEGACY_README_1.6.2.md), not current
 operating guidance. Hydra retains its [MIT license](LICENSE). Passivbot is an
 isolated research reference under the Unlicense; no code is copied in this milestone.
+
+## Offline research
+
+Use backtest --candles <JSON> or optimize --candles <JSON> with a strategy TOML selected by --config. Optional --options JSON files make costs and search budgets explicit. Reports identify simulated results and model limitations. See BACKTESTING.md and OPTIMIZATION.md.
