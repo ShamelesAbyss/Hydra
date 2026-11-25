@@ -184,6 +184,110 @@ impl Aegis {
         snapshot: &AccountSnapshot,
         now_ms: i64,
     ) -> Result<RiskDecision> {
+        let request = EntryRiskRequest {
+            intent_id,
+            symbol,
+            notional,
+            requested_leverage,
+            snapshot,
+            now_ms,
+        };
+        self.storage.with_conn(|conn| -> Result<RiskDecision> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let decision = self.reserve_entry_on(&tx, &request)?;
+            tx.commit()?;
+            Ok(decision)
+        })
+    }
+
+    pub(crate) fn uses_storage(&self, storage: &Storage) -> bool {
+        self.storage.shares_connection(storage)
+    }
+
+    /// Live admission persists the intent and risk reservation in one transaction.
+    /// Rejections commit their breaker state but never create a submitted intent.
+    pub fn reserve_journaled_entry(
+        &self,
+        intent: &crate::core::OrderIntent,
+        notional: Decimal,
+        requested_leverage: Decimal,
+        evidence: &crate::adapters::account_evidence::AccountExposureEvidence,
+        now_ms: i64,
+    ) -> Result<RiskDecision> {
+        evidence.validate(now_ms, self.limits.max_snapshot_age_ms)?;
+        ensure!(
+            evidence.account == self.account
+                && intent.venue == evidence.venue
+                && !intent.reduce_only,
+            "entry admission account, venue or action mismatch"
+        );
+        ensure!(
+            intent.size.is_finite() && intent.size > 0.0,
+            "invalid journaled entry size"
+        );
+        let price = intent
+            .limit_price
+            .context("journaled entry requires a bounded price")?;
+        ensure!(
+            price.is_finite() && price > 0.0,
+            "invalid journaled entry price"
+        );
+        for price in [intent.stop_price, intent.take_profit]
+            .into_iter()
+            .flatten()
+        {
+            ensure!(
+                price.is_finite() && price > 0.0,
+                "invalid entry protective price"
+            );
+        }
+        let minimum = parse(&intent.size.to_string())?
+            .checked_mul(parse(&price.to_string())?)
+            .context("entry price/size overflow")?;
+        ensure!(
+            notional >= minimum && minimum > Decimal::ZERO,
+            "entry reservation understates bounded notional"
+        );
+        let request = EntryRiskRequest {
+            intent_id: &intent.id,
+            symbol: &intent.symbol,
+            notional,
+            requested_leverage,
+            snapshot: &evidence.snapshot,
+            now_ms,
+        };
+        self.storage.with_conn(|conn| -> Result<RiskDecision> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let account:Option<String>=tx.query_row("SELECT value FROM meta_kv WHERE key='trading_account_binding'",[],|r|r.get(0)).optional()?;
+            ensure!(account.as_deref()==Some(self.account.as_str()), "entry admission requires bound trading history");
+            validate_owned_evidence(&tx,evidence)?;
+            let owned:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM positions WHERE venue=?1 AND symbol=?2 AND closed_at IS NULL)",params![intent.venue,intent.symbol],|r|r.get(0))?;
+            ensure!(!owned && !evidence.open_orders.iter().any(|order|order.symbol==intent.symbol),
+                "instrument already has a position or pending order");
+            let unresolved:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM execution_intents WHERE state NOT IN ('rejected','applied')) OR EXISTS(SELECT 1 FROM confirmed_reductions WHERE net_pnl IS NULL)",[],|r|r.get(0))?;
+            ensure!(!unresolved, "execution or financial settlement remains unresolved");
+            let decision = self.reserve_entry_on(&tx,&request)?;
+            if matches!(&decision,RiskDecision::Approved(_)) {
+                Storage::insert_intent_on(&tx,intent)?;
+            }
+            tx.commit()?;
+            Ok(decision)
+        })
+    }
+
+    fn reserve_entry_on(
+        &self,
+        tx: &Transaction<'_>,
+        request: &EntryRiskRequest<'_>,
+    ) -> Result<RiskDecision> {
+        let EntryRiskRequest {
+            intent_id,
+            symbol,
+            notional,
+            requested_leverage,
+            snapshot,
+            now_ms,
+        } = *request;
         ensure!(
             uuid::Uuid::parse_str(intent_id)?.to_string() == intent_id,
             "noncanonical intent UUID"
@@ -195,31 +299,48 @@ impl Aegis {
             "requested leverage must be at least one"
         );
         self.validate_snapshot(snapshot, now_ms)?;
-        self.storage.with_conn(|conn| -> Result<RiskDecision> {
-            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-            let duplicate: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM aegis_reservations WHERE intent_id=?1)", [intent_id], |r| r.get(0))?;
-            ensure!(!duplicate, "intent already has a risk reservation; never reserve twice");
-            self.accept_snapshot(&tx, snapshot)?;
-            let (peak, breaker) = self.account_state(&tx)?;
-            let mut latched = breaker.is_some();
-            let reason = if let Some(reason) = breaker { Some(format!("persistent circuit breaker: {reason}")) }
-            else if peak > Decimal::ZERO && snapshot.equity <= mul(peak, sub(Decimal::ONE, self.limits.max_drawdown_ratio)?)? {
-                let reason = "equity drawdown limit reached";
-                self.latch(&tx, reason, now_ms)?;
-                latched = true;
-                Some(reason.into())
-            } else if snapshot.equity <= Decimal::ZERO { Some("account equity unavailable or zero".into()) }
-            else if requested_leverage > self.limits.max_leverage { Some("requested leverage exceeds hard limit".into()) }
-            else { self.exposure_block(&tx, snapshot, symbol, notional)? };
-            if let Some(reason) = reason {
-                tx.commit()?;
-                return Ok(RiskDecision::Blocked { reason, breaker_latched: latched });
-            }
-            tx.execute("INSERT INTO aegis_reservations (intent_id,account,symbol,notional,snapshot_revision,created_at_ms,state) VALUES (?1,?2,?3,?4,?5,?6,'active')",
+        let duplicate: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM aegis_reservations WHERE intent_id=?1)",
+            [intent_id],
+            |r| r.get(0),
+        )?;
+        ensure!(
+            !duplicate,
+            "intent already has a risk reservation; never reserve twice"
+        );
+        self.accept_snapshot(tx, snapshot)?;
+        let (peak, breaker) = self.account_state(tx)?;
+        let mut latched = breaker.is_some();
+        let reason = if let Some(reason) = breaker {
+            Some(format!("persistent circuit breaker: {reason}"))
+        } else if peak > Decimal::ZERO
+            && snapshot.equity <= mul(peak, sub(Decimal::ONE, self.limits.max_drawdown_ratio)?)?
+        {
+            let reason = "equity drawdown limit reached";
+            self.latch(tx, reason, now_ms)?;
+            latched = true;
+            Some(reason.into())
+        } else if snapshot.equity <= Decimal::ZERO {
+            Some("account equity unavailable or zero".into())
+        } else if requested_leverage > self.limits.max_leverage {
+            Some("requested leverage exceeds hard limit".into())
+        } else {
+            self.exposure_block(tx, snapshot, symbol, notional)?
+        };
+        if let Some(reason) = reason {
+            return Ok(RiskDecision::Blocked {
+                reason,
+                breaker_latched: latched,
+            });
+        }
+        tx.execute("INSERT INTO aegis_reservations (intent_id,account,symbol,notional,snapshot_revision,created_at_ms,state) VALUES (?1,?2,?3,?4,?5,?6,'active')",
                 params![intent_id,self.account,symbol,notional.to_string(),snapshot.revision,now_ms])?;
-            tx.commit()?;
-            Ok(RiskDecision::Approved(Reservation { intent_id:intent_id.into(), symbol:symbol.into(), notional, snapshot_revision:snapshot.revision }))
-        })
+        Ok(RiskDecision::Approved(Reservation {
+            intent_id: intent_id.into(),
+            symbol: symbol.into(),
+            notional,
+            snapshot_revision: snapshot.revision,
+        }))
     }
 
     /// No timeout-based releases. The caller must have reconciled every named
@@ -669,3 +790,13 @@ fn validate_owned_evidence(
 
 // Position row read atomically with entry receipt and reservation proof.
 type EntryPositionRow = (i64, String, String, String, f64, f64, Option<String>);
+
+#[derive(Clone, Copy)]
+struct EntryRiskRequest<'a> {
+    intent_id: &'a str,
+    symbol: &'a str,
+    notional: Decimal,
+    requested_leverage: Decimal,
+    snapshot: &'a AccountSnapshot,
+    now_ms: i64,
+}

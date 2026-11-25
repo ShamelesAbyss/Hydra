@@ -17,10 +17,11 @@ No development milestone may submit live exchange orders.
 | Dependencies | Native narrow signer; audit 0 vulnerability entries / 1 warning | Chrono maintenance migration and ongoing review |
 
 The milestone descriptions below retain the broader target scope. A delivered
-foundation is not full acceptance or stable-live certification. The immediate
-next increment closes the reservation/journal insertion gap atomically. Scoped
-terminal-entry reconciliation now uses same-payload position/notional evidence and
-definite receipt/position proof; ambiguous and orphan holds are never guessed away.
+foundation is not full acceptance or stable-live certification. New engine admission now closes the reservation/journal insertion gap atomically.
+Scoped terminal-entry reconciliation uses same-payload position/notional evidence
+and definite receipt/position proof. The immediate next increments are fixed-point
+core-position facts and authoritative settlement; historical ambiguous/orphan holds
+are never guessed away.
 
 ## Milestone 1 — durable execution foundation (prerelease)
 

@@ -39,7 +39,9 @@ flowchart TB
 configuration is enabled; it cannot override false. The venue adapter also checks
 the gate. Dry-run sends no order and is not a simulated exchange.
 
-Each live intent is stored before network submission. Its canonical UUID becomes
+Each live intent is stored before network submission. New live entries commit
+the independent risk reservation and intent together under the same SQLite
+transaction and protected connection handle. Its canonical UUID becomes
 the exchange client order ID. Submitted, acknowledgment-unknown, resting and
 unapplied fills hold new exposure. Pending work for a symbol also prevents another
 reduction for that symbol. No blind resend is implemented.
@@ -77,8 +79,9 @@ and transactional exposure reservations. It includes pending order exposure and
 requires fresh account snapshots. Reservations do not expire on a timer; the
 reconciliation API requires explicit proof and a newer snapshot. A narrow runtime bridge now reconciles definite zero-fill rejections and proven
 untouched applied entries. It preserves scoped evidence in an immutable batch
-archive and atomically replaces the hold with observed exposure. Orphan,
-ambiguous, reduced and closed entries remain held; broader lifecycle work remains.
+archive and atomically replaces the hold with observed exposure. Historical orphan,
+ambiguous, reduced and closed entries remain held; new engine entry admission no
+longer has a reservation/journal insertion gap. Broader lifecycle work remains.
 
 Only standard Hyperliquid account abstraction (`disabled`) has a supported equity
 model. Unknown/default, unified and portfolio-margin modes fail closed. Spot

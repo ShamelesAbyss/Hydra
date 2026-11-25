@@ -110,6 +110,51 @@ impl VenueAdapter for Fake {
     async fn account_equity_usd(&self) -> Result<f64> {
         Ok(1000.0)
     }
+    async fn account_exposure_evidence(
+        &self,
+    ) -> Result<hydra::adapters::account_evidence::AccountExposureEvidence> {
+        use hydra::adapters::account_evidence::{AccountExposureEvidence, PositionEvidence};
+        use rust_decimal::Decimal;
+        let quantity = self
+            .remote
+            .ok_or_else(|| anyhow::anyhow!("offline account unavailable"))?;
+        let size = Decimal::from_str_exact(&quantity.to_string())?;
+        let now = Utc::now().timestamp_millis();
+        Ok(AccountExposureEvidence {
+            account: "0x1111111111111111111111111111111111111111".into(),
+            venue: "hyperliquid".into(),
+            environment: "mainnet".into(),
+            perp_dex: String::new(),
+            account_mode: "disabled".into(),
+            acquired_started_ms: now,
+            acquired_finished_ms: now,
+            exchange_time_ms: now,
+            snapshot: hydra::aegis::AccountSnapshot {
+                revision: now,
+                observed_at_ms: now,
+                equity: rust_decimal_macros::dec!(1000),
+                exposure_by_market: if size.is_zero() {
+                    Default::default()
+                } else {
+                    std::collections::BTreeMap::from([(
+                        "ETH".into(),
+                        size.abs() * rust_decimal_macros::dec!(100),
+                    )])
+                },
+            },
+            positions: if size.is_zero() {
+                vec![]
+            } else {
+                vec![PositionEvidence {
+                    symbol: "ETH".into(),
+                    signed_size: size,
+                    entry_price: rust_decimal_macros::dec!(100),
+                    notional: size.abs() * rust_decimal_macros::dec!(100),
+                }]
+            },
+            open_orders: vec![],
+        })
+    }
     async fn risk_snapshot(&self) -> Result<hydra::aegis::AccountSnapshot> {
         Ok(hydra::aegis::AccountSnapshot {
             revision: Utc::now().timestamp_millis(),
@@ -455,6 +500,8 @@ async fn database_write_failure_rolls_back_reduction_and_blocks_a_second_close()
 async fn configured_independent_authority_reserves_exposure_before_network_write() {
     use rust_decimal_macros::dec;
     let db = db();
+    db.bind_trading_account("0x1111111111111111111111111111111111111111", false)
+        .unwrap();
     let venue = fake(&db, Reply::Reject, Some(0.0));
     let authority = hydra::aegis::Aegis::new(
         db.clone(),
@@ -485,6 +532,8 @@ async fn configured_independent_authority_reserves_exposure_before_network_write
 async fn an_unknown_remote_position_blocks_entries_before_submission() {
     use rust_decimal_macros::dec;
     let db = db();
+    db.bind_trading_account("0x1111111111111111111111111111111111111111", false)
+        .unwrap();
     let venue = fake(&db, Reply::Fill(2.0), Some(2.0));
     let authority = hydra::aegis::Aegis::new(
         db.clone(),
@@ -503,4 +552,36 @@ async fn an_unknown_remote_position_blocks_entries_before_submission() {
         .unwrap();
     assert!(execution.submit(&intent(false), &venue).await.is_err());
     assert_eq!(venue.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn journal_write_failure_rolls_back_entry_reservation_before_any_send() {
+    use rust_decimal_macros::dec;
+    let db = db();
+    db.bind_trading_account("0x1111111111111111111111111111111111111111", false)
+        .unwrap();
+    let authority = hydra::aegis::Aegis::new(
+        db.clone(),
+        "0x1111111111111111111111111111111111111111",
+        hydra::aegis::RiskLimits {
+            max_total_exposure_ratio: dec!(1),
+            max_market_notional: dec!(1000),
+            max_leverage: dec!(1),
+            max_drawdown_ratio: dec!(0.2),
+            max_snapshot_age_ms: 30_000,
+        },
+    )
+    .unwrap();
+    db.with_conn(|c|c.execute_batch("CREATE TRIGGER fail_entry_journal BEFORE INSERT ON execution_intents BEGIN SELECT RAISE(ABORT,'offline journal failure'); END;")).unwrap();
+    let venue = fake(&db, Reply::Fill(1.0), Some(0.0));
+    let mut engine = ExecutionEngine::new(db.clone(), true)
+        .with_authority(authority.clone(), 30.0)
+        .unwrap();
+    assert!(engine.submit(&intent(false), &venue).await.is_err());
+    assert_eq!(venue.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.status().unwrap().active_reservations, 0);
+    let journals: i64 = db
+        .with_conn(|c| c.query_row("SELECT COUNT(*) FROM execution_intents", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(journals, 0);
 }

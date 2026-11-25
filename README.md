@@ -93,7 +93,9 @@ Only explicitly standard Hyperliquid account abstraction (`disabled`) is support
 
 **New in alpha.6:** a scoped terminal-entry reconciliation bridge replaces only proven rejected/applied holds with observed exposure and retains immutable batch evidence. Ambiguous, orphan, reduced and closed cases stay held.
 
-**Next:** close the orphan reservation/journal insertion gap and validate broader account models. Full protective automation is not certified.
+**Development after alpha.6:** new engine entries commit risk admission and their submitted journal record atomically, with account/ownership/financial gates checked inside the transaction. Historical orphan holds remain intact.
+
+**Next:** fixed-point core-position facts, complete settlement and broader account models. Full protective automation is not certified.
 
 <a id="nexus"></a>
 <img src="docs/assets/head-nexus.svg" width="100%" alt="05 NEXUS — Execution and evidence" />

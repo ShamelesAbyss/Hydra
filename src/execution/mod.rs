@@ -41,6 +41,10 @@ impl ExecutionEngine {
             slippage_bps.is_finite() && slippage_bps > 0.0 && slippage_bps <= 1000.0,
             "invalid execution slippage"
         );
+        ensure!(
+            authority.uses_storage(&self.storage),
+            "risk authority and execution must share one storage handle"
+        );
         self.authority = Some((authority, slippage_bps));
         Ok(self)
     }
@@ -134,25 +138,21 @@ impl ExecutionEngine {
             self.storage
                 .ensure_symbol_execution_resolved(&intent.venue, &intent.symbol)?;
         }
+        let mut journaled = false;
         let mut bounded_intent = intent.clone();
         if !intent.reduce_only {
             if let Some((authority, slippage)) = &self.authority {
                 use rust_decimal::Decimal;
-                use std::str::FromStr;
-                let account = if let Some((_, evidence)) = reconciled {
-                    // This exact scoped bundle already passed transaction-local
-                    // ownership checks. Reuse its snapshot, never a second read.
-                    evidence.snapshot
+                let evidence = if let Some((_, evidence)) = reconciled {
+                    evidence
                 } else {
-                    let account = venue.risk_snapshot().await?;
-                    let remote = venue.open_positions().await?;
-                    crate::account_positions::validate(
-                        &self.storage.list_open_positions()?,
-                        &remote,
-                        venue.kind().as_str(),
-                    )?;
-                    account
+                    venue.account_exposure_evidence().await?
                 };
+                ensure!(
+                    evidence.venue == venue.kind().as_str(),
+                    "account evidence venue mismatch"
+                );
+                let account = &evidence.snapshot;
                 ensure!(
                     !account
                         .exposure_by_market
@@ -175,25 +175,28 @@ impl ExecutionEngine {
                 );
                 ensure!(bound.is_finite() && bound > 0.0, "invalid price bound");
                 bounded_intent.limit_price = Some(bound);
-                let notional = Decimal::from_str(&intent.size.to_string())?
-                    .checked_mul(Decimal::from_str(&bound.max(market.mid).to_string())?)
+                let notional = Decimal::from_str_exact(&intent.size.to_string())?
+                    .checked_mul(Decimal::from_str_exact(&bound.max(market.mid).to_string())?)
                     .ok_or_else(|| anyhow::anyhow!("risk notional overflow"))?;
-                match authority.reserve_entry(
-                    &intent.id,
-                    &intent.symbol,
+                match authority.reserve_journaled_entry(
+                    &bounded_intent,
                     notional,
                     Decimal::ONE,
-                    &account,
+                    &evidence,
                     Utc::now().timestamp_millis(),
                 )? {
-                    crate::aegis::RiskDecision::Approved(_) => {}
+                    crate::aegis::RiskDecision::Approved(_) => {
+                        journaled = true;
+                    }
                     crate::aegis::RiskDecision::Blocked { reason, .. } => bail!("Aegis: {reason}"),
                 }
             }
         }
         let intent = &bounded_intent;
         // Cancellation after this point leaves 'submitted', blocking new exposure.
-        self.storage.reserve_intent(intent)?;
+        if !journaled {
+            self.storage.reserve_intent(intent)?;
+        }
         if let Some(ledger) = &self.ledger {
             ledger.bind_intent(&intent.id)?;
         }

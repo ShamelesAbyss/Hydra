@@ -151,3 +151,19 @@ batch evidence, rollback injection, original financial holds, bounded HTTP bodie
 and runtime reuse/reduce-only bypass. No real exchange account or order access
 was used. Orphan reservation insertion gaps, persistent ingestion sequence numbers,
 complete settlement and broader recovery remain next work.
+
+## Atomic admission checkpoint after alpha.6
+
+New engine entries now commit the Aegis reservation and submitted intent together.
+The authority/controller connection identity is checked during binding; every
+entry uses a scoped account bundle. Account ownership, pending same-market orders,
+unknown execution/financial state and conservative bounded notional are rechecked
+inside the same admission transaction. Failed journal/reservation writes leave no
+partial pair; risk denials preserve breaker state without creating an intent.
+
+All 240 offline desktop-feature tests pass, including twelve new admission/runtime
+regressions, competing connections, restart persistence, duplicate terminal IDs,
+independent financial holds and database-failure injection. Formatting and Clippy
+pass with warnings. Historical orphan holds remain untouched. Fixed-point core
+position facts, persistent snapshot sequence numbers and complete settlement are
+next priorities; no real account or signed request was used in verification.

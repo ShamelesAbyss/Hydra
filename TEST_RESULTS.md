@@ -1,3 +1,12 @@
+# Atomic admission checkpoint after alpha.6
+
+The full desktop-feature all-target suite passes **240 offline tests**. Twelve
+additional tests verify atomic reservation/journal failure rollback, durable
+restart state, duplicate IDs, competing connections, authority/connection binding,
+scoped inputs, bounded notional, pending orders, retained financial holds and no
+network send after journal failure. Formatting and Clippy complete with warnings.
+No real account access, signed requests or exchange orders were used.
+
 # Verification — 1.7.0-alpha.6
 
 The scoped reconciliation implementation passes 228 offline desktop-feature

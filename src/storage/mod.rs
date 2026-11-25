@@ -70,13 +70,23 @@ impl Storage {
 
     /// Atomically reserve a UUID before any network write. Duplicate IDs are never retried.
     pub fn reserve_intent(&self, intent: &OrderIntent) -> Result<()> {
-        self.with_conn(|conn| -> Result<()> {
-            conn.execute(
-                "INSERT INTO execution_intents (intent_id,venue,symbol,intent_json,state,updated_at) VALUES (?1,?2,?3,?4,'submitted',?5)",
-                params![intent.id, intent.venue, intent.symbol, serde_json::to_string(intent)?, Utc::now().to_rfc3339()],
-            )?;
-            Ok(())
-        })
+        self.with_conn(|conn| Self::insert_intent_on(conn, intent))
+    }
+
+    /// Shared by ordinary journaling and atomic Aegis admission. A Transaction
+    /// dereferences to its connection, keeping both facts in one commit.
+    pub(crate) fn insert_intent_on(conn: &Connection, intent: &OrderIntent) -> Result<()> {
+        conn.execute(
+            "INSERT INTO execution_intents (intent_id,venue,symbol,intent_json,state,updated_at) VALUES (?1,?2,?3,?4,'submitted',?5)",
+            params![intent.id,intent.venue,intent.symbol,serde_json::to_string(intent)?,Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// Atomic execution admission requires the same protected connection handle.
+    /// File-path equality is insufficient for memory databases or replaced files.
+    pub(crate) fn shares_connection(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
     }
 
     pub fn finish_intent(&self, id: &str, state: &str, result: Option<&OrderResult>) -> Result<()> {

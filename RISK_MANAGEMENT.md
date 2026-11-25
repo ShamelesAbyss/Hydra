@@ -60,3 +60,29 @@ Effective portfolio exposure is controlled; this is not a complete liquidation o
 instrument margin model. Instrument leverage settings, liquidation-distance checks,
 native protective stops, full loss attribution and streaming race recovery remain
 required before stable-live certification. Risk controls are not loss guarantees.
+
+## Atomic live-entry admission after alpha.6
+
+The live execution controller now uses `reserve_journaled_entry`: risk admission
+and the submitted execution intent commit together in one IMMEDIATE transaction.
+Journal or reservation write failure rolls back both, including tentative snapshot
+updates. A denied entry still commits its drawdown latch without creating an order.
+The execution controller and authority must share the same protected Storage
+handle; path equality alone is not used to assert database identity.
+
+Every new live entry uses scoped exact account evidence. Ownership, account
+binding, existing positions/pending orders and independent execution/financial
+holds are checked again within the admission transaction. A concurrent caller
+cannot pass an earlier precheck and commit a second unresolved order. Bounded
+notional must cover the intent's size/limit price. Protective reductions retain
+their separate journal path and bypass entry admission/maintenance.
+
+This closes the reserve-before-journal orphan window for new engine entries.
+Historical orphans stay held and are not deleted. The standalone `reserve_entry`
+risk API remains available for explicit offline/risk-only callers; it does not
+promise a journaled live order.
+
+Legacy core positions still use floating-point storage. Scoped ownership proof
+requires exact agreement with their decimal string representation. Values that
+cannot be matched stay unresolved; fixed-point core-position migration remains
+required. Unknown fee/funding settlement remains an independent entry gate.
