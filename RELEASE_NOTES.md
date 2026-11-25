@@ -1,35 +1,34 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.6
+# HYDRA — Project Leviathan 1.7.0-alpha.7
 
-Scoped risk-reservation reconciliation and durable evidence. This engineering
-prerelease retains all financial and live-readiness uncertainty gates.
+Atomic live-entry admission. This is an engineering prerelease, not stable-live
+certification. No real account probes, signed requests or orders were used.
 
 ## Implemented
 
-- Reconcile definite zero-fill rejected entries and known untouched applied entries
-  only when bound account, canonical intent/receipt, position and current exposure agree.
-- Obtain exact default-perp standard-account quantities/notionals, equity and server
-  time from one clearinghouse payload, with bounded separate open-order reads.
-- Require evidence newer than the journal outcome and prior reservation/snapshot.
-- Atomically update risk state, archive complete batch evidence, append events and
-  preserve or latch drawdown breakers. Replays do not duplicate releases.
-- Reuse the validated bundle for admission; maintenance reads cannot block protective
-  reduce-only submission. Unknown net settlement remains an independent hold.
-- Bound evidence acquisition to 15 seconds, decoded info responses to 4 MiB and
-  diagnostic previews to redacted Unicode-safe character limits.
-- Reject unsupported contingent entry orders and inconsistent zero-size notionals.
-- Include repository artwork in CI packages; preserve the redesigned GitHub presentation.
+- Commit risk reservation and submitted execution intent in the same IMMEDIATE
+  SQLite transaction before any exchange write. Either insert failure rolls back
+  both records and tentative account snapshot changes.
+- Require the execution controller and authority to share one protected storage
+  handle, avoiding ambiguous memory/path database identities.
+- Use scoped exact account evidence for every authority-backed entry; recheck
+  binding, local/remote ownership, same-market positions/orders and global
+  execution/financial holds inside the admission transaction.
+- Validate bounded notional against size/limit price; preserve drawdown latches
+  on denied risk without creating a submitted order.
+- Retain the separate protective reduce-only journal path. Historical orphan
+  reservations and unknown accounting state are never guessed away.
 
-## Verification and limits
+The release-version suite passes 240 offline tests. Both Windows release binaries
+compile; portable smoke checks are repeated during packaging. Dependency copies remain unchanged
+from the zero-vulnerability/one-Chrono-warning graph; the fresh release audit
+confirms zero vulnerability entries and one maintenance warning. Signing retains the eight official cross-language fixtures.
+Windows executables remain unsigned; verify the published archive checksums.
 
-228 offline tests pass on the release-version implementation. Both Windows release executables compile and pass version checks. Archive
-checks are repeated during packaging. Dependency copies remain at zero reported
-vulnerability entries and one Chrono maintenance warning, with no suppressions.
-Signing continues to pass the eight official cross-language conformance fixtures.
-Windows executables remain unsigned. No real account probes, signed requests,
-exchange orders or transfers are used during development verification.
+## Remaining limits
 
-REST reads are not an atomic exchange snapshot. Clock regression retains holds.
-Submitted, ambiguous, resting, unapplied, orphan, legacy-metadata, reduced and
-closed reservations are not automatically released. The reserve-before-journal
-crash window remains the next milestone. Complete net fee/funding settlement,
-broader recovery and stable-live certification remain open.
+Legacy core positions retain floating-point storage; exact scoped proof can
+conservatively refuse values that cannot match the stored representation.
+Fixed-point core facts, complete fee/funding settlement, broader replay/recovery,
+persistent snapshot sequencing and stable-live certification remain open.
+The standalone risk-only reserve API remains available to explicit offline/risk
+callers; the atomic journal guarantee applies to new engine live-entry admission.

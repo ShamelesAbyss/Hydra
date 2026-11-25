@@ -17,8 +17,9 @@ capture harness. The harness waits for layout/render stabilization, requests an
 egui framebuffer screenshot and exits. The Oracle capture selects the real
 navigation entry through injected application input. No account, credentials,
 exchange connection, trades or generated performance data are involved.
-The interface identifies itself as 1.7.0-alpha.4; capture occurred during the
-subsequent recovery/dependency development checkpoint. These are not design mockups.
+The primary command-center and Oracle captures identify the alpha.7 build.
+`cockpit-alpha4.png` preserves the earlier first-launch capture. These are actual
+application renders, not design mockups.
 
 The dark banner represents Hydra's seven logical subsystem boundaries; it is
 conceptual branding, not telemetry or a measured computational result.

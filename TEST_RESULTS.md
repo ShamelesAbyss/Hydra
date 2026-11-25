@@ -1,3 +1,13 @@
+# Verification — 1.7.0-alpha.7
+
+The atomic-admission source checkpoint passes 240 offline desktop-feature tests.
+The release-version suite also passes all 240 tests; the fresh release audit
+exits 0 with zero vulnerability entries and one Chrono maintenance warning. Both
+Windows release binaries compile; archive smoke checks are repeated in packaging.
+Formatting and Clippy pass with warnings. New coverage includes both insert
+failure boundaries, restart, concurrency, duplicate IDs, scoped ownership,
+conservative notional, financial holds and pre-network rollback.
+
 # Atomic admission checkpoint after alpha.6
 
 The full desktop-feature all-target suite passes **240 offline tests**. Twelve

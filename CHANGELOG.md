@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0-alpha.7
+
+- Commit live entry risk reservations and submitted intents atomically.
+- Recheck scoped ownership, same-market orders and execution/settlement holds inside admission.
+- Enforce shared storage identity and conservative bounded notional.
+- Roll back partial admission failures; preserve breaker state on risk denial.
+- Retain historical orphan/unknown holds and all independent settlement gates.
+
 ## 1.7.0-alpha.6
 
 - Reconcile only proven terminal entry reservations against fresh scoped account evidence.
