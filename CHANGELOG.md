@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0-alpha.15
+
+- Add bounded, read-only unsigned-action inspection through `wire-history`.
+- Validate canonical encoded bytes and scoped local fields without wallet access,
+  migrations, inferred submission or changes to independent holds.
+
 ## 1.7.0-alpha.14
 
 - Persist actual native unsigned IOC actions before engine signing/network write.

@@ -41,3 +41,5 @@ Read-only lifecycle provenance is implemented through the Rust API in alpha.11. 
 Alpha.13 adds exact native acknowledged-quantity coverage and consistent ledger snapshots through the Rust API. Complete order history, funding/entry attribution and round-trip settlement remain unverified.
 
 Alpha.14 retains native engine unsigned IOC action bytes before submission; nonce/signed-envelope provenance and automatic recovery remain incomplete.
+
+Alpha.15 adds bounded offline `wire-history` inspection of retained unsigned native actions. It does not prove submission, acceptance or complete signed-envelope provenance.

@@ -151,8 +151,9 @@ fn decimal_wire(value: f64) -> Result<String> {
     Ok(result.into())
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct UnsignedAction {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnsignedAction {
     pub asset: u32,
     pub buy: bool,
     pub price: String,
@@ -162,6 +163,59 @@ pub(crate) struct UnsignedAction {
     pub tif: String,
     pub grouping: String,
     pub messagepack_hex: String,
+}
+
+impl UnsignedAction {
+    /// Validate retained bytes against their displayed fields without signing.
+    pub(crate) fn validate(&self) -> Result<()> {
+        ensure!(
+            self.asset < 10_000 && self.tif == "Ioc" && self.grouping == "na",
+            "unsupported archived action"
+        );
+        for value in [&self.price, &self.size] {
+            ensure!(value.len() <= 128, "archived decimal exceeds budget");
+            let parsed = rust_decimal::Decimal::from_str_exact(value)?;
+            ensure!(
+                parsed > rust_decimal::Decimal::ZERO
+                    && parsed.normalize().scale() <= 8
+                    && parsed.normalize().to_string() == *value,
+                "noncanonical archived decimal"
+            );
+        }
+        ensure!(
+            self.client_order_id.len() == 34 && self.messagepack_hex.len() <= 2048,
+            "archived action exceeds budget"
+        );
+        let id = uuid::Uuid::parse_str(
+            self.client_order_id
+                .strip_prefix("0x")
+                .context("invalid archived client ID")?,
+        )?;
+        ensure!(
+            format!("0x{}", id.simple()) == self.client_order_id,
+            "noncanonical archived client ID"
+        );
+        let action = OrderAction {
+            action_type: "order",
+            grouping: "na",
+            orders: vec![WireOrder {
+                a: self.asset,
+                b: self.buy,
+                p: self.price.clone(),
+                s: self.size.clone(),
+                r: self.reduce_only,
+                t: LimitKind {
+                    limit: LimitOrder { tif: "Ioc" },
+                },
+                c: self.client_order_id.clone(),
+            }],
+        };
+        ensure!(
+            hex::encode(action.packed()?) == self.messagepack_hex,
+            "archived MessagePack disagrees with action"
+        );
+        Ok(())
+    }
 }
 
 impl OrderAction {

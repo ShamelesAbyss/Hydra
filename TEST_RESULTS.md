@@ -1,3 +1,19 @@
+# Release verification — 1.7.0-alpha.15
+
+All **323 offline desktop-feature all-target release-version tests pass**.
+Nine added regressions cover byte-preserving action inspection and original times,
+missing files/tables/records without creation or migration, incompatible schema,
+views and missing primary key, corrupt scope/precision/bytes/fields, oversized
+selected data and unknown intent, internally consistent intent contradictions,
+and CLI bypass of missing configuration and invalid wallet environment.
+
+Formatting and Clippy complete with warnings. Fresh audit exits 0 with zero
+vulnerability entries and one Chrono maintenance warning, no ignores. Windows CLI
+and cockpit release compilation and extracted portable smoke are checked before
+publication. No real account probes, signed requests, orders or transfers were used.
+Alpha.14 passed all four tagged CI jobs and all five release asset digests match:
+[verified alpha.14 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45646805982).
+
 # Release verification — 1.7.0-alpha.14
 
 All **314 offline desktop-feature all-target release-version tests pass**.

@@ -246,3 +246,19 @@ complete net settlement remain open. Direct low-level adapter callers retain
 responsibility for journaling; custom adapters keep their compatibility path.
 Older intents receive no fabricated wire history. Risk snapshots are not refreshed
 by this record, and independent execution, reservation and financial holds remain.
+
+## Offline unsigned-action inspection — alpha.15
+
+`hydra wire-history --db PATH --intent UUID` prints protocol-1 JSON from an existing
+read-only SQLite transaction. It bypasses trading configuration, wallet, logging
+and engine migrations. Reads use a 500 ms busy timeout, ordinary-table/schema
+checks, a required single-column action primary key, and bounded selected fields
+(4 KiB action JSON, 2 KiB encoded bytes, 32 KiB journal). Account, client identity,
+side, reduce-only, quantity and metadata precision must agree; displayed fields
+must reproduce the exact canonical MessagePack bytes. Unknown fields are refused.
+
+Original timestamps are preserved. Missing table and absent record are distinct;
+neither proves no submission occurred. Output explicitly marks the source offline,
+signed-envelope unavailable and submission/acceptance unproven. This validates local
+consistency, not database attestation or current venue state. No hold is released,
+no accounting result is inferred, and older history is never fabricated.

@@ -121,6 +121,13 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// Inspect retained unsigned native actions. No network, wallet or migrations.
+    WireHistory {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+        #[arg(long)]
+        intent: String,
+    },
     /// Retrieve read-only exchange fill/funding evidence. Never submits orders.
     SyncLedger {
         #[arg(long)]
@@ -190,6 +197,11 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         println!("{}", serde_json::to_string(&history)?);
         return Ok(());
     }
+    if let Command::WireHistory { db, intent } = &cli.cmd {
+        let history = crate::wire_history::inspect(db, intent)?;
+        println!("{}", serde_json::to_string(&history)?);
+        return Ok(());
+    }
     if !cli.no_banner {
         banner::print_banner();
     }
@@ -216,6 +228,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),
         Command::Telemetry { .. } => unreachable!("handled before configuration and storage setup"),
         Command::StatusHistory { .. } => {
+            unreachable!("handled before configuration and storage setup")
+        }
+        Command::WireHistory { .. } => {
             unreachable!("handled before configuration and storage setup")
         }
         Command::Run {

@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.14** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.14^{commit}`.
-- Previous recovery: v1.7.0-alpha.13 (`5037aaebf69a2b1e4d11e83a66d1ab0672c77fee`).
+- Version and current recovery tag: **v1.7.0-alpha.15** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.15^{commit}`.
+- Previous recovery: v1.7.0-alpha.14 (`4637bd4aed49e38123e0e22472dbd253c22c02dd`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.14 source: 314 offline desktop-feature tests pass; alpha.13 contains 304.
+- Alpha.15 source: 323 offline desktop-feature tests pass; alpha.14 contains 314.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.14 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.15 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -283,3 +283,19 @@ complete net settlement remain open. Direct low-level adapter callers retain
 responsibility for journaling; custom adapters keep their compatibility path.
 Older intents receive no fabricated wire history. Risk snapshots are not refreshed
 by this record, and independent execution, reservation and financial holds remain.
+
+## Offline unsigned-action inspection — alpha.15
+
+`hydra wire-history --db PATH --intent UUID` prints protocol-1 JSON from an existing
+read-only SQLite transaction. It bypasses trading configuration, wallet, logging
+and engine migrations. Reads use a 500 ms busy timeout, ordinary-table/schema
+checks, a required single-column action primary key, and bounded selected fields
+(4 KiB action JSON, 2 KiB encoded bytes, 32 KiB journal). Account, client identity,
+side, reduce-only, quantity and metadata precision must agree; displayed fields
+must reproduce the exact canonical MessagePack bytes. Unknown fields are refused.
+
+Original timestamps are preserved. Missing table and absent record are distinct;
+neither proves no submission occurred. Output explicitly marks the source offline,
+signed-envelope unavailable and submission/acceptance unproven. This validates local
+consistency, not database attestation or current venue state. No hold is released,
+no accounting result is inferred, and older history is never fabricated.

@@ -11,9 +11,9 @@ native client, upgrades rust_decimal to 1.43.0, and upgrades Ratatui to 0.30.2.
 manually pruned lockfile entry is used. Cargo resolves the graph from the changed
 manifests. This is a checkout result, not a deployed or stable-live certification.
 
-- Assessed lockfile SHA-256: `ce2b57cb32e0259474230130c0d5593f494c7ee24d5a5d416db357206f303a9b`.
-- Advisory database commit: `10db6998b5d74ec438bcf0763125bd425a068a8f`.
-- Advisory database updated: `2026-11-24T22:47:44+01:00`.
+- Assessed lockfile SHA-256: `ab202d4e944f2547285833588f9d4a38fbd18f40193a1b5a6319b276c867b16e`.
+- Advisory database commit: `b9b8a3c2cb1f2a3c76ab17a551193568c9f8b7a4`.
+- Advisory database updated: `2026-11-25T12:10:30+01:00`.
 - Scan target restrictions: none; Cargo.lock includes optional/platform copies.
 - The warning remains visible in CI; vulnerability auditing remains a required job.
 

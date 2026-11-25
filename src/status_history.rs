@@ -25,7 +25,7 @@ pub struct ArchivedObservation {
     pub observation: Observation,
     pub recorded_at_ms: i64,
 }
-fn table(conn: &Connection, name: &str) -> Result<bool> {
+pub(crate) fn table(conn: &Connection, name: &str) -> Result<bool> {
     let schema: Option<(String,String)> = conn
         .query_row(
             "SELECT type,CASE WHEN length(CAST(sql AS BLOB))<=65536 THEN sql END FROM sqlite_master WHERE name=?1",
