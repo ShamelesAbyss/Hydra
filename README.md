@@ -248,7 +248,7 @@ Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `
 | Evidence | Verified state |
 | :--- | :--- |
 | **Local test suite** | 210 offline tests passed for alpha.5; 196 in the historical alpha.4 release |
-| **GitHub builds** | Windows headless, Linux headless, native desktop and audit all [passed at the corrected source checkpoint](https://github.com/ShamelesAbyss/Hydra/actions/runs/45563826769); [alpha.5 tag verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45564964983) is tracked separately |
+| **GitHub builds** | Windows headless, Linux headless, native desktop and dependency audit all [passed for the alpha.5 tag](https://github.com/ShamelesAbyss/Hydra/actions/runs/45564964983) |
 | **Formatting / Clippy** | Passed locally; Clippy retains style warnings |
 | **Signing references** | Eight offline cross-language fixtures against published official Python SDK constants |
 | **Dependency audit** | **Source checkpoint passes**: 0 vulnerability entries, 1 Chrono maintenance warning; no advisory ignores. Alpha.5 includes the remediated dependency graph |
