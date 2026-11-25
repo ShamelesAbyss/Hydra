@@ -93,6 +93,11 @@ pub(crate) fn migrate_on(conn: &Connection) -> Result<()> {
         position_id INTEGER PRIMARY KEY REFERENCES positions(id),
         entry_intent_id TEXT NOT NULL UNIQUE REFERENCES execution_fill_facts(intent_id),
         current_quantity TEXT
+    );
+    CREATE TABLE IF NOT EXISTS execution_residual_evidence (
+        intent_id TEXT PRIMARY KEY REFERENCES confirmed_reductions(intent_id),
+        position_id INTEGER NOT NULL REFERENCES positions(id),
+        remaining_quantity TEXT NOT NULL, evidence_json TEXT NOT NULL
     );",
     )?;
     Ok(())
@@ -266,4 +271,117 @@ pub(crate) fn invalidate_position_on(conn: &Connection, id: i64) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// Return false only when exact current/close facts do not exist. Invalid known
+/// facts fail closed; no float comparison can substitute for contradictory proof.
+pub(crate) fn apply_residual_on(
+    conn: &Connection,
+    p: &OpenPosition,
+    res: &OrderResult,
+    remaining: f64,
+    evidence: &crate::adapters::position_evidence::PositionSnapshot,
+    now_ms: i64,
+) -> Result<bool> {
+    evidence.validate(now_ms)?;
+    let binding: String = conn.query_row(
+        "SELECT value FROM meta_kv WHERE key='trading_account_binding'",
+        [],
+        |r| r.get(0),
+    )?;
+    ensure!(
+        evidence.account == binding && p.venue == evidence.venue,
+        "residual account scope mismatch"
+    );
+    let updated: String = conn.query_row(
+        "SELECT updated_at FROM execution_intents WHERE intent_id=?1 AND state='filled'",
+        [&res.intent_id],
+        |r| r.get(0),
+    )?;
+    let updated = chrono::DateTime::parse_from_rfc3339(&updated)?.timestamp_millis();
+    ensure!(
+        evidence.acquired_started_ms >= updated && evidence.exchange_time_ms >= updated,
+        "residual snapshot predates receipt"
+    );
+    let known: Option<Option<String>> = conn
+        .query_row(
+            "SELECT current_quantity FROM position_precision_state WHERE position_id=?1",
+            [p.id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if !matches!(known, Some(Some(_))) {
+        return Ok(false);
+    }
+    let Some(close) = stored_fill(conn, &res.intent_id)? else {
+        return Ok(false);
+    };
+    ensure!(
+        close.account == binding
+            && close.venue == p.venue
+            && close.symbol == p.symbol
+            && close.side == if p.side == "LONG" { "SHORT" } else { "LONG" },
+        "exact reduction scope disagrees"
+    );
+    let (current, entry) = position_values_on(
+        conn,
+        &PositionView {
+            id: p.id,
+            venue: &p.venue,
+            symbol: &p.symbol,
+            side: &p.side,
+            size: p.size,
+            entry_price: p.entry_price,
+        },
+        &binding,
+    )?
+    .context("exact current position missing")?;
+    let (filled, price) = close.facts.values()?;
+    ensure!(
+        as_float(filled)? == res.filled_size
+            && Some(as_float(price)?) == res.avg_fill_price
+            && res.venue_order_id.as_deref() == Some(close.facts.order_id.as_str()),
+        "reduction receipt disagrees with exact facts"
+    );
+    let residual = current
+        .checked_sub(filled)
+        .context("exact residual overflow")?;
+    ensure!(
+        residual >= Decimal::ZERO,
+        "exact reduction exceeds current quantity"
+    );
+    let remote = evidence.positions.iter().find(|r| r.symbol == p.symbol);
+    if residual == Decimal::ZERO {
+        ensure!(
+            remote.is_none() && remaining == 0.0,
+            "exact zero residual not proven"
+        );
+    } else {
+        let remote = remote.context("nonzero exact residual absent")?;
+        let signed = if p.side == "LONG" {
+            residual
+        } else {
+            -residual
+        };
+        ensure!(
+            remote.signed_quantity == signed
+                && remote.entry_price == entry
+                && as_float(residual)? == remaining,
+            "exact residual disagrees with remote position"
+        );
+    }
+    let encoded = serde_json::to_string(evidence)?;
+    ensure!(
+        encoded.len() <= 4 * 1024 * 1024,
+        "residual evidence exceeds budget"
+    );
+    conn.execute("INSERT INTO execution_residual_evidence(intent_id,position_id,remaining_quantity,evidence_json) VALUES(?1,?2,?3,?4)",params![res.intent_id,p.id,residual.to_string(),encoded])?;
+    ensure!(
+        conn.execute(
+            "UPDATE position_precision_state SET current_quantity=?1 WHERE position_id=?2",
+            params![residual.to_string(), p.id]
+        )? == 1,
+        "precision row changed during reduction"
+    );
+    Ok(true)
 }

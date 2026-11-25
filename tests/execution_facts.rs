@@ -540,3 +540,198 @@ fn contradictory_journal_state_does_not_make_native_facts_look_like_legacy_data(
     assert!(db.list_open_positions().unwrap().is_empty());
     assert_eq!(count(&db), 1);
 }
+
+fn residual_snapshot(quantity: Decimal) -> hydra::adapters::position_evidence::PositionSnapshot {
+    let now = Utc::now().timestamp_millis();
+    hydra::adapters::position_evidence::PositionSnapshot {
+        account: ACCOUNT.into(),
+        venue: "hyperliquid".into(),
+        environment: "mainnet".into(),
+        perp_dex: String::new(),
+        acquired_started_ms: now,
+        acquired_finished_ms: now,
+        exchange_time_ms: now,
+        positions: if quantity == Decimal::ZERO {
+            vec![]
+        } else {
+            vec![hydra::adapters::position_evidence::ExactPosition {
+                symbol: "ETH".into(),
+                signed_quantity: quantity,
+                entry_price: Decimal::from_str_exact(EXACT_PRICE).unwrap(),
+            }]
+        },
+    }
+}
+fn residual_count(db: &Storage) -> i64 {
+    db.with_conn(|c| {
+        c.query_row(
+            "SELECT COUNT(*) FROM execution_residual_evidence",
+            [],
+            |r| r.get(0),
+        )
+    })
+    .unwrap()
+}
+fn exact_remaining(db: &Storage, id: i64) -> Option<String> {
+    db.with_conn(|c| {
+        c.query_row(
+            "SELECT current_quantity FROM position_precision_state WHERE position_id=?1",
+            [id],
+            |r| r.get(0),
+        )
+    })
+    .unwrap()
+}
+#[test]
+fn exact_residual_survives_restart_and_keeps_financial_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("residual.db");
+    let db = Storage::open(&path).unwrap();
+    db.migrate().unwrap();
+    db.bind_trading_account(ACCOUNT, false).unwrap();
+    let order = intent("ETH");
+    let entry = stage(&db, &order, true);
+    let p = open(&db, &order, &entry);
+    let (res, remaining) = close(&db, &p);
+    db.apply_confirmed_reduction_with_snapshot(
+        &p,
+        &res,
+        remaining,
+        "offline",
+        Some(&residual_snapshot(dec!(1))),
+    )
+    .unwrap();
+    assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("1.0000"));
+    assert_eq!(residual_count(&db), 1);
+    assert_eq!(state(&db, &res.intent_id), "applied");
+    assert!(db.ensure_execution_resolved().is_err());
+    drop(db);
+    let db = Storage::open(&path).unwrap();
+    db.migrate().unwrap();
+    assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("1.0000"));
+    assert_eq!(residual_count(&db), 1);
+}
+#[test]
+fn full_exact_reduction_requires_complete_zero_snapshot() {
+    let db = database();
+    let order = intent("ETH");
+    let entry = stage(&db, &order, true);
+    let p = open(&db, &order, &entry);
+    let mut close_order = intent("ETH");
+    close_order.reduce_only = true;
+    close_order.side = Side::Short;
+    db.reserve_intent(&close_order).unwrap();
+    let mut f = facts();
+    f.order_id = "43".into();
+    let res = result(&close_order, &f);
+    execution_facts::record_receipt(&db, "filled", &res, Some(&f)).unwrap();
+    assert!(db
+        .apply_confirmed_reduction_with_snapshot(
+            &p,
+            &res,
+            0.0,
+            "offline",
+            Some(&residual_snapshot(dec!(1)))
+        )
+        .is_err());
+    db.apply_confirmed_reduction_with_snapshot(
+        &p,
+        &res,
+        0.0,
+        "offline",
+        Some(&residual_snapshot(dec!(0))),
+    )
+    .unwrap();
+    assert!(db.list_open_positions().unwrap().is_empty());
+    assert_eq!(residual_count(&db), 1);
+    assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("0.0000"));
+    assert!(db.ensure_execution_resolved().is_err());
+}
+#[test]
+fn contradictory_residual_proof_cannot_use_float_tolerance() {
+    for variant in 0..7 {
+        let db = database();
+        let order = intent("ETH");
+        let entry = stage(&db, &order, true);
+        let p = open(&db, &order, &entry);
+        let (res, remaining) = close(&db, &p);
+        let mut proof = residual_snapshot(dec!(1));
+        match variant {
+            0 => proof.positions[0].signed_quantity = dec!(1.000000000000000001),
+            1 => proof.positions[0].entry_price = dec!(100.000000000000000002),
+            2 => proof.account = "0x2222222222222222222222222222222222222222".into(),
+            3 => proof.positions[0].signed_quantity = dec!(-1),
+            4 => proof.positions.clear(),
+            5 => proof.acquired_started_ms -= 1,
+            _ => proof.exchange_time_ms -= 1,
+        };
+        assert!(
+            db.apply_confirmed_reduction_with_snapshot(
+                &p,
+                &res,
+                remaining,
+                "offline",
+                Some(&proof)
+            )
+            .is_err(),
+            "variant {variant}"
+        );
+        assert_eq!(db.list_open_positions().unwrap()[0].size, 2.0);
+        assert_eq!(state(&db, &res.intent_id), "filled");
+        assert_eq!(residual_count(&db), 0);
+        assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("2.0000"));
+    }
+}
+#[test]
+fn every_residual_persistence_failure_rolls_back_all_state() {
+    for sql in ["CREATE TRIGGER fail_residual BEFORE INSERT ON execution_residual_evidence BEGIN SELECT RAISE(ABORT,'offline'); END;",
+        "CREATE TRIGGER fail_residual BEFORE UPDATE ON position_precision_state BEGIN SELECT RAISE(ABORT,'offline'); END;",
+        "CREATE TRIGGER fail_residual BEFORE UPDATE ON positions BEGIN SELECT RAISE(ABORT,'offline'); END;",
+        "CREATE TRIGGER fail_residual BEFORE UPDATE ON execution_intents BEGIN SELECT RAISE(ABORT,'offline'); END;"] {
+        let db=database();let order=intent("ETH");let entry=stage(&db,&order,true);let p=open(&db,&order,&entry);let(res,remaining)=close(&db,&p);
+        db.with_conn(|c|c.execute_batch(sql)).unwrap();
+        assert!(db.apply_confirmed_reduction_with_snapshot(&p,&res,remaining,"offline",Some(&residual_snapshot(dec!(1)))).is_err());
+        assert_eq!(db.list_open_positions().unwrap()[0].size,2.0);assert_eq!(state(&db,&res.intent_id),"filled");assert_eq!(residual_count(&db),0);assert_eq!(exact_remaining(&db,p.id).as_deref(),Some("2.0000"));
+        let n:i64=db.with_conn(|c|c.query_row("SELECT COUNT(*) FROM confirmed_reductions",[],|r|r.get(0))).unwrap();assert_eq!(n,0);
+    }
+}
+#[test]
+fn known_unknown_residual_is_not_reconstructed_from_a_new_snapshot() {
+    let db = database();
+    let order = intent("ETH");
+    let entry = stage(&db, &order, true);
+    let p = open(&db, &order, &entry);
+    let (res, remaining) = close(&db, &p);
+    db.with_conn(|c| {
+        c.execute(
+            "UPDATE position_precision_state SET current_quantity=NULL",
+            [],
+        )
+    })
+    .unwrap();
+    db.apply_confirmed_reduction_with_snapshot(
+        &p,
+        &res,
+        remaining,
+        "offline",
+        Some(&residual_snapshot(dec!(1))),
+    )
+    .unwrap();
+    assert_eq!(exact_remaining(&db, p.id), None);
+    assert_eq!(residual_count(&db), 0);
+    assert!(db.ensure_execution_resolved().is_err());
+}
+#[test]
+fn changed_entry_identity_prevents_application_even_without_exact_proof() {
+    let db = database();
+    let order = intent("ETH");
+    let entry = stage(&db, &order, true);
+    let p = open(&db, &order, &entry);
+    let (res, remaining) = close(&db, &p);
+    db.with_conn(|c| c.execute("UPDATE positions SET entry_price=101 WHERE id=?1", [p.id]))
+        .unwrap();
+    assert!(db
+        .apply_confirmed_reduction(&p, &res, remaining, "offline")
+        .is_err());
+    assert_eq!(state(&db, &res.intent_id), "filled");
+}

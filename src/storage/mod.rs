@@ -132,6 +132,17 @@ impl Storage {
         remaining: f64,
         reason: &str,
     ) -> Result<()> {
+        self.apply_confirmed_reduction_with_snapshot(p, res, remaining, reason, None)
+    }
+
+    pub fn apply_confirmed_reduction_with_snapshot(
+        &self,
+        p: &OpenPosition,
+        res: &OrderResult,
+        remaining: f64,
+        reason: &str,
+        evidence: Option<&crate::adapters::position_evidence::PositionSnapshot>,
+    ) -> Result<()> {
         let px = res
             .avg_fill_price
             .ok_or_else(|| anyhow::anyhow!("missing fill price"))?;
@@ -166,13 +177,18 @@ impl Storage {
                 && recorded.filled_size == res.filled_size && recorded.avg_fill_price == res.avg_fill_price
                 && recorded.accepted && recorded.intent_id == res.intent_id,
                 "reduction does not match durable exchange evidence");
+            let unchanged:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM positions WHERE id=?1 AND venue=?2 AND symbol=?3 AND side=?4 AND size=?5 AND entry_price=?6 AND closed_at IS NULL)",params![p.id,p.venue,p.symbol,p.side,p.size,p.entry_price],|r|r.get(0))?;
+            anyhow::ensure!(unchanged,"position identity changed during close");
             let now = Utc::now().to_rfc3339();
             tx.execute("INSERT INTO confirmed_reductions (intent_id,position_id,filled_size,exit_price,remaining_size,gross_pnl,reason,confirmed_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                 params![res.intent_id,p.id,res.filled_size,px,remaining,gross,reason,now])?;
             let n = tx.execute("UPDATE positions SET size=?1,closed_at=?2 WHERE id=?3 AND closed_at IS NULL AND size=?4",
                 params![remaining,if remaining == 0.0 {Some(&now)} else {None},p.id,p.size])?;
             anyhow::ensure!(n == 1, "position changed during close; reconciliation required");
-            crate::execution_facts::invalidate_position_on(&tx,p.id)?;
+            let precise=if let Some(evidence)=evidence {
+                crate::execution_facts::apply_residual_on(&tx,p,res,remaining,evidence,Utc::now().timestamp_millis())?
+            } else {false};
+            if !precise {crate::execution_facts::invalidate_position_on(&tx,p.id)?;}
             tx.execute("UPDATE execution_intents SET state='applied',updated_at=?1 WHERE intent_id=?2", params![now,res.intent_id])?;
             tx.commit()?;
             Ok(())

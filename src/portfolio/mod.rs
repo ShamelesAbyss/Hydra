@@ -378,10 +378,22 @@ impl PortfolioManager {
             .avg_fill_price
             .ok_or_else(|| anyhow::anyhow!("missing close fill price"))?;
         anyhow::ensure!(px.is_finite() && px > 0.0, "invalid close fill price");
-        let remote = venue.open_positions().await?;
-        let same: Vec<_> = remote.iter().filter(|r| r.symbol == p.symbol).collect();
-        anyhow::ensure!(same.len() <= 1, "duplicate remote positions");
-        let signed = same.first().map(|r| r.size).unwrap_or(0.0);
+        let exact = venue.position_snapshot().await?;
+        let signed: f64 = if let Some(snapshot) = &exact {
+            snapshot.validate(Utc::now().timestamp_millis())?;
+            snapshot
+                .positions
+                .iter()
+                .find(|r| r.symbol == p.symbol)
+                .map(|r| r.signed_quantity.to_string().parse())
+                .transpose()?
+                .unwrap_or(0.0)
+        } else {
+            let remote = venue.open_positions().await?;
+            let same: Vec<_> = remote.iter().filter(|r| r.symbol == p.symbol).collect();
+            anyhow::ensure!(same.len() <= 1, "duplicate remote positions");
+            same.first().map(|r| r.size).unwrap_or(0.0)
+        };
         anyhow::ensure!(
             signed.is_finite() && (signed == 0.0 || (signed > 0.0) == (p.side == "LONG")),
             "remote position side changed; reconciliation required"
@@ -392,8 +404,13 @@ impl PortfolioManager {
             (remaining - expected).abs() <= 1e-10 * p.size.max(1.0),
             "remote residual disagrees with confirmed fill; reconciliation required"
         );
-        self.storage
-            .apply_confirmed_reduction(p, &res, remaining, reason)?;
+        self.storage.apply_confirmed_reduction_with_snapshot(
+            p,
+            &res,
+            remaining,
+            reason,
+            exact.as_ref(),
+        )?;
         if remaining == 0.0 {
             self.initial_r.remove(&p.id);
             self.entry_ctx.remove(&p.id);

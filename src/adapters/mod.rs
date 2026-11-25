@@ -13,6 +13,7 @@ use crate::core::{MarketSnapshot, OrderIntent, OrderResult, VenueKind};
 
 pub mod account_evidence;
 pub mod hyperliquid;
+pub mod position_evidence;
 
 #[derive(Clone, Debug)]
 pub struct OrderReceipt {
@@ -32,6 +33,11 @@ pub trait VenueAdapter: Send + Sync {
 
     /// Pull the venue-reported open positions for the configured account.
     async fn open_positions(&self) -> Result<Vec<VenuePosition>>;
+
+    /// Optional exact post-order proof. Legacy adapters retain unknown precision.
+    async fn position_snapshot(&self) -> Result<Option<position_evidence::PositionSnapshot>> {
+        Ok(None)
+    }
 
     /// Submit an order. When live_trading is disabled upstream, this is never called.
     async fn submit_order(&self, intent: &OrderIntent) -> Result<OrderResult>;

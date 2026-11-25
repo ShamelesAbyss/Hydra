@@ -548,6 +548,29 @@ impl VenueAdapter for HyperliquidAdapter {
         Ok(out)
     }
 
+    async fn position_snapshot(
+        &self,
+    ) -> Result<Option<super::position_evidence::PositionSnapshot>> {
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            let account = self
+                .account_address
+                .as_ref()
+                .ok_or_else(|| anyhow!("account missing"))?;
+            let started = Utc::now().timestamp_millis();
+            let state: serde_json::Value = self
+                .info(json!({"type":"clearinghouseState","user":account,"dex":""}))
+                .await?;
+            Ok(Some(super::position_evidence::parse_hyperliquid(
+                account,
+                &serde_json::to_string(&state)?,
+                started,
+                Utc::now().timestamp_millis(),
+            )?))
+        })
+        .await
+        .map_err(|_| anyhow!("position evidence acquisition exceeded 15 seconds"))?
+    }
+
     async fn submit_order(&self, intent: &OrderIntent) -> Result<OrderResult> {
         Ok(self.submit_order_with_evidence(intent).await?.result)
     }
