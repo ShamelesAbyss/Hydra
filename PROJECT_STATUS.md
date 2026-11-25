@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.20** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.20^{commit}`.
-- Previous recovery: v1.7.0-alpha.19 (`81a5b9ff3eeee960c9d1e96e7801f405509f8655`).
+- Version and current recovery tag: **v1.7.0-alpha.21** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.21^{commit}`.
+- Previous recovery: v1.7.0-alpha.20 (`19307270b866b02ad109ab72e15927e9760e2333`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: balanced seven-head progression; next HUNTER Radar/native cockpit, then ORACLE/GENESIS validation. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
+- Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, next ORACLE/GENESIS validation. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.20 source: 368 offline desktop-feature tests pass; alpha.19 contains 360.
+- Alpha.21 source: 377 offline desktop-feature tests pass; alpha.20 contains 368.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.20 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.21 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -469,7 +469,7 @@ canonical project rule ships with the packages; the publication check is enabled
 No new development branch was created. Main remains authoritative and historical
 tags/releases plus the retired legacy archive remain preserved.
 
-Continue with bounded pure recovery classification over the alpha.20 snapshot.
+Historical next action (superseded by the balanced matrix): bounded pure recovery classification over the alpha.20 snapshot.
 Unknown/capped/missing/stale/contradictory evidence must remain unresolved; do not
 infer net settlement, automatic replay or permission to clear independent holds.
 Full signed-envelope proof, complete fee/funding/entry attribution, broader recovery

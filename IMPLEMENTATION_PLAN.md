@@ -342,7 +342,7 @@ repair, full signed-envelope proof or complete financial settlement is introduce
 The permanent memorial dedication remains verbatim at the end of README.md.
 Publication checks and portable packages include its project maintenance rule.
 
-## Current next acceptance work after alpha.20
+## Historical next acceptance proposal after alpha.20 (deferred by balanced matrix)
 
 Prioritize conservative recovery admission from consistent local execution evidence:
 classify missing, ambiguous, rejected, resting and filled evidence without guessing
@@ -382,7 +382,7 @@ local review evidence, not a recovery classifier or automatic state mutation.
 The permanent memorial remains verbatim as the final README section and is retained
 with its maintenance rule in future portable/source packages.
 
-## Recovery-classification design notes (planned after alpha.20)
+## Recovery-classification design notes (deferred certification track)
 
 Public API documentation was checked without making account queries. It distinguishes
 trading-account addresses from agent addresses, documents a missing-order result,
