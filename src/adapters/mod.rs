@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use crate::config::AppConfig;
 use crate::core::{MarketSnapshot, OrderIntent, OrderResult, VenueKind};
 
+pub mod account_evidence;
 pub mod hyperliquid;
 
 #[async_trait]
@@ -39,6 +40,12 @@ pub trait VenueAdapter: Send + Sync {
 
     /// USD-denominated equity for compounding/risk sizing.
     async fn account_equity_usd(&self) -> Result<f64>;
+
+    /// Scoped, identity-preserving evidence for conservative reservation release.
+    /// Unsupported adapters cannot authorize automatic reconciliation.
+    async fn account_exposure_evidence(&self) -> Result<account_evidence::AccountExposureEvidence> {
+        anyhow::bail!("venue does not supply scoped account exposure evidence")
+    }
 
     /// Fresh positions plus pending entry exposure. No fallback to local estimates.
     async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {

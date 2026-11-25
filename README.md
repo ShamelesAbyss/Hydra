@@ -9,7 +9,7 @@ Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuo
 
 [![Release](https://img.shields.io/badge/release-v1.7.0--alpha.5-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.5) [![Development workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=leviathan%2Fexecution-foundation)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Aleviathan%2Fexecution-foundation) [![Offline tests at 4ad92a1](https://img.shields.io/badge/offline_tests-210_at_4ad92a1-26D9FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/4ad92a1df6b1dacf656bbf572bfc3fdb2c5d4846/TEST_RESULTS.md) [![Language](https://img.shields.io/badge/engine-Rust_2021-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/4ad92a1df6b1dacf656bbf572bfc3fdb2c5d4846/Cargo.toml) [![License](https://img.shields.io/badge/license-MIT-B19BFF?style=flat-square&labelColor=101C29)](LICENSE)
 
-[![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.5) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/runs/45560484753/job/139022720854) [![Dependency audit at a941c68](https://img.shields.io/badge/audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/4ad92a1df6b1dacf656bbf572bfc3fdb2c5d4846/DEPENDENCY_AUDIT.md)
+[![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.5) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/runs/45560484753/job/139022720854) [![Alpha.5 dependency audit](https://img.shields.io/badge/alpha.5_audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/4ad92a1df6b1dacf656bbf572bfc3fdb2c5d4846/DEPENDENCY_AUDIT.md)
 
 [**Download**](#download) · [**Cockpit**](#cockpit) · [**Seven heads**](#seven-heads) · [**Architecture**](#architecture) · [**Quick start**](#quick-start) · [**Readiness**](#readiness) · [**Roadmap**](#roadmap)
 
@@ -91,7 +91,9 @@ These are logical subsystem boundaries in an evolving Rust application. They are
 
 Only explicitly standard Hyperliquid account abstraction (`disabled`) is supported for valuation. Unknown, unified and portfolio-margin modes are refused; spot balances are not added to perp equity.
 
-**Next:** evidence-driven runtime reservation reconciliation and broader independently validated account models. Full protective automation is not certified.
+**Development after alpha.5:** a scoped terminal-entry reconciliation bridge replaces only proven rejected/applied holds with observed exposure and retains immutable batch evidence. Ambiguous, orphan, reduced and closed cases stay held.
+
+**Next:** close the orphan reservation/journal insertion gap and validate broader account models. Full protective automation is not certified.
 
 <a id="nexus"></a>
 <img src="docs/assets/head-nexus.svg" width="100%" alt="05 NEXUS — Execution and evidence" />
@@ -269,7 +271,7 @@ Open readiness work includes complete trade settlement, broader recovery, risk-r
 | **02 / Account evidence & Aegis** | Implemented foundation | Decimal ledger, account binding, ownership, persistent risk reservations/breakers |
 | **03 / Native command center** | Implemented in alpha.3+ | Read-only telemetry, first-launch local setup, seven workspaces |
 | **04 / Oracle & Genesis** | Implemented in alpha.4 | Deterministic candle replay and bounded CPU parameter search |
-| **05 / Recovery & settlement** | Active | Original entry context landed; full cloid/fill replay, net accounting and reservation proof remain |
+| **05 / Recovery & settlement** | Active | Original entry context and narrow scoped reservation proof landed; full cloid/fill replay, net accounting and orphan atomicity remain |
 | **06 / Secure execution modernization** | Implemented source checkpoint | Legacy affected dependency paths removed; signing conformance preserved; Chrono maintenance work remains |
 | **07 / Shared planning & discovery** | Planned | Hunter ranking/rotation, deterministic Fang planner, explicit strategy ownership |
 | **08 / Research depth** | Planned | Out-of-sample testing, resumable optimization, multi-scenario/portfolio models |

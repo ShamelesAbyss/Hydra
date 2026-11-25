@@ -9,7 +9,7 @@ No development milestone may submit live exchange orders.
 | Area | Delivered foundation | Remaining acceptance boundary |
 |---|---|---|
 | Execution | Durable intents, typed receipts, residual proof, ownership and narrow entry recovery | Broader cloid/fill replay and complete settlement |
-| Ledger/risk | Decimal fill/funding facts, account binding, persistent Aegis | Scoped authoritative reservation lifecycle and net outcomes |
+| Ledger/risk | Decimal fill/funding facts, account binding, persistent Aegis | Scoped terminal-entry reconciliation landed; orphan atomicity and net outcomes remain |
 | Native desktop | eframe/glow cockpit, read-only SQLite telemetry and explicit local setup | Richer authenticated IPC and operational UI verification |
 | Cognition | Existing adaptive components and durable original entry context | Authoritative outcome provenance and shared planner |
 | Research | Oracle fixed-cost replay; Genesis bounded seeded CPU Pareto search | Full execution models, out-of-sample work and resumability |
@@ -18,8 +18,9 @@ No development milestone may submit live exchange orders.
 
 The milestone descriptions below retain the broader target scope. A delivered
 foundation is not full acceptance or stable-live certification. The immediate
-next increment is scoped reservation reconciliation: same-payload account evidence,
-definite receipt/position proof, and no release of ambiguous or orphan holds.
+next increment closes the reservation/journal insertion gap atomically. Scoped
+terminal-entry reconciliation now uses same-payload position/notional evidence and
+definite receipt/position proof; ambiguous and orphan holds are never guessed away.
 
 ## Milestone 1 — durable execution foundation (prerelease)
 

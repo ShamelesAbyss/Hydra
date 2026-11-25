@@ -75,8 +75,10 @@ synthetic positions, certify financial settlement or release reservations.
 Aegis retains immutable policy, equity high-water marks, latched drawdown breakers
 and transactional exposure reservations. It includes pending order exposure and
 requires fresh account snapshots. Reservations do not expire on a timer; the
-reconciliation API requires explicit proof and a newer snapshot. Automatic runtime
-reservation lifecycle integration remains open.
+reconciliation API requires explicit proof and a newer snapshot. A narrow runtime bridge now reconciles definite zero-fill rejections and proven
+untouched applied entries. It preserves scoped evidence in an immutable batch
+archive and atomically replaces the hold with observed exposure. Orphan,
+ambiguous, reduced and closed entries remain held; broader lifecycle work remains.
 
 Only standard Hyperliquid account abstraction (`disabled`) has a supported equity
 model. Unknown/default, unified and portfolio-margin modes fail closed. Spot
@@ -94,7 +96,7 @@ conventions remain unverified, so ingestion is not complete trade settlement.
 | Hunter | Configured instruments, market snapshots and eligibility checks | Discovery, ranking, rotation and hysteresis |
 | Fang | Divergence, momentum/breakout and mean-reversion signals | Shared deterministic planner and explicit strategy ownership |
 | Cognition | Expectancy, similarity, regimes, strictness, persisted entry context | Authoritative net outcomes and legacy provenance |
-| Aegis | Persistent risk authority, breakers and reservations | Automatic evidence-driven reservation reconciliation |
+| Aegis | Persistent risk authority, breakers, reservations and scoped terminal-entry reconciliation | Orphan insertion gap and broader lifecycle proof |
 | Nexus | Durable intents, typed receipts, decimal ledger and narrow recovery | Broad cloid/fill recovery and complete net settlement |
 | Oracle | Deterministic single-instrument candle replay | Full live/simulation parity and richer execution models |
 | Genesis | Seeded mutation/crossover and Pareto filtering through Oracle | Out-of-sample validation, resumability and richer scenarios |

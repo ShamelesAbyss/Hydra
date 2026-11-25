@@ -54,6 +54,43 @@ impl ExecutionEngine {
         self.live
     }
 
+    /// Conservative maintenance path. It is never invoked for protective
+    /// reductions, so an unavailable account read cannot block their submission.
+    pub async fn reconcile_reservations(&self, venue: &dyn VenueAdapter) -> Result<usize> {
+        Ok(self
+            .reconciliation_evidence(venue)
+            .await?
+            .map_or(0, |value| value.0))
+    }
+    async fn reconciliation_evidence(
+        &self,
+        venue: &dyn VenueAdapter,
+    ) -> Result<
+        Option<(
+            usize,
+            crate::adapters::account_evidence::AccountExposureEvidence,
+        )>,
+    > {
+        if !self.live {
+            return Ok(None);
+        }
+        let Some((authority, _)) = &self.authority else {
+            return Ok(None);
+        };
+        if !authority.has_terminal_reservations()? {
+            return Ok(None);
+        }
+        let evidence = venue.account_exposure_evidence().await?;
+        ensure!(
+            evidence.venue == venue.kind().as_str(),
+            "account evidence venue mismatch"
+        );
+        let count = authority
+            .reconcile_terminal_entries(&evidence, Utc::now().timestamp_millis())?
+            .len();
+        Ok(Some((count, evidence)))
+    }
+
     pub async fn submit(
         &mut self,
         intent: &OrderIntent,
@@ -84,6 +121,11 @@ impl ExecutionEngine {
                 message: "dry-run: ENABLE_LIVE_TRADING=false; no exchange write".into(),
             });
         }
+        let reconciled = if !intent.reduce_only {
+            self.reconciliation_evidence(venue).await?
+        } else {
+            None
+        };
         if !intent.reduce_only {
             self.storage.ensure_execution_resolved()?;
             ensure!(!self.storage.list_open_positions()?.iter().any(|p| p.venue == intent.venue && p.symbol == intent.symbol),
@@ -97,13 +139,20 @@ impl ExecutionEngine {
             if let Some((authority, slippage)) = &self.authority {
                 use rust_decimal::Decimal;
                 use std::str::FromStr;
-                let account = venue.risk_snapshot().await?;
-                let remote = venue.open_positions().await?;
-                crate::account_positions::validate(
-                    &self.storage.list_open_positions()?,
-                    &remote,
-                    venue.kind().as_str(),
-                )?;
+                let account = if let Some((_, evidence)) = reconciled {
+                    // This exact scoped bundle already passed transaction-local
+                    // ownership checks. Reuse its snapshot, never a second read.
+                    evidence.snapshot
+                } else {
+                    let account = venue.risk_snapshot().await?;
+                    let remote = venue.open_positions().await?;
+                    crate::account_positions::validate(
+                        &self.storage.list_open_positions()?,
+                        &remote,
+                        venue.kind().as_str(),
+                    )?;
+                    account
+                };
                 ensure!(
                     !account
                         .exposure_by_market

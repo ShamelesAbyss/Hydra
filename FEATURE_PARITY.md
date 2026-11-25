@@ -14,8 +14,8 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 | Dynamic entry grids | Not integrated | Metadata and exposure-aware order planning |
 | Dynamic take-profit grids | Not integrated | Partial-fill ownership/net-position semantics |
 | Wallet exposure limits | Existing risk sizing | Configuration validation and accounting gaps remain |
-| Total wallet exposure | Standard-mode account snapshot plus pending-order exposure and reservations | Broader account models and runtime reconciliation remain |
-| Exposure enforcement | Persistent Aegis authority, reservations, unresolved gate and position ownership | Complete reservation lifecycle remains |
+| Total wallet exposure | Standard-mode account snapshot plus pending-order exposure and reservations | Narrow terminal-entry reconciliation implemented; broader account/lifecycle models remain |
+| Exposure enforcement | Persistent Aegis authority, reservations, unresolved gate and position ownership | Orphan, reduced/closed and ambiguous lifecycle cases remain held |
 | Auto-Unstuck | Not integrated | Budget and realized-loss accounting first |
 | Equity hard stop-loss | Persistent drawdown entry breaker and explicit audited rearm | Complete protective flattening is not certified |
 | Market Forager | Configured symbols only | Approved instrument ranking/rotation pending |

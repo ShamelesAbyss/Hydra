@@ -51,7 +51,9 @@ impl RiskLimits {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AccountSnapshot {
-    /// Persistent ingestion sequence assigned after authoritative reconciliation.
+    /// Accepted revisions cannot regress. The current adapter uses acquisition-
+    /// start milliseconds; clock regression retains holds rather than inventing
+    /// a later observation. A persistent ingestion counter remains future work.
     pub revision: i64,
     pub observed_at_ms: i64,
     pub equity: Decimal,
@@ -146,6 +148,13 @@ impl Aegis {
                 CREATE TABLE IF NOT EXISTS aegis_events (
                     id INTEGER PRIMARY KEY, account TEXT NOT NULL, kind TEXT NOT NULL,
                     reason TEXT NOT NULL, operator_id TEXT, at_ms INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS aegis_reconciliations (
+                    account TEXT NOT NULL REFERENCES aegis_accounts(account),
+                    snapshot_revision INTEGER NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    recorded_at_ms INTEGER NOT NULL,
+                    PRIMARY KEY(account,snapshot_revision)
                 );"
             )?;
             let serialized = serde_json::to_string(&limits)?;
@@ -260,6 +269,128 @@ impl Aegis {
             }
             tx.commit()?;
             Ok(())
+        })
+    }
+
+    /// Whether a bounded reconciliation read may make progress. Orphan,
+    /// submitted, ambiguous and resting reservations are deliberately excluded.
+    pub fn has_terminal_reservations(&self) -> Result<bool> {
+        self.storage.with_conn(|conn| -> Result<bool> {
+            Ok(conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM aegis_reservations r JOIN execution_intents e ON e.intent_id=r.intent_id
+                 WHERE r.account=?1 AND r.state='active' AND e.state IN ('rejected','applied'))",
+                [&self.account], |row| row.get(0))?)
+        })
+    }
+
+    /// Replace only proven terminal entry reservations with current exposure.
+    /// Journal and position proof is re-read under the same immediate transaction
+    /// that records the snapshot and releases reservations. No financial/journal
+    /// state or breaker is cleared by this operation.
+    pub fn reconcile_terminal_entries(
+        &self,
+        evidence: &crate::adapters::account_evidence::AccountExposureEvidence,
+        now_ms: i64,
+    ) -> Result<Vec<String>> {
+        evidence.validate(now_ms, self.limits.max_snapshot_age_ms)?;
+        ensure!(
+            evidence.account == self.account,
+            "account evidence belongs to another account"
+        );
+        self.validate_snapshot(&evidence.snapshot, now_ms)?;
+        let evidence_json = serde_json::to_string(evidence)?;
+        ensure!(
+            evidence_json.len() <= 4 * 1024 * 1024,
+            "reservation reconciliation proof exceeds byte budget"
+        );
+        self.storage.with_conn(|conn| -> Result<Vec<String>> {
+            let tx=Transaction::new_unchecked(conn,TransactionBehavior::Immediate)?;
+            let binding:Option<String>=tx.query_row("SELECT value FROM meta_kv WHERE key='trading_account_binding'",[],|row|row.get(0)).optional()?;
+            ensure!(binding.as_deref()==Some(self.account.as_str()),"reservation reconciliation requires bound trading history");
+            validate_owned_evidence(&tx,evidence)?;
+            let metadata_exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='position_entry_state')",[],|r|r.get(0))?;
+            let rows={
+                let mut statement=tx.prepare(
+                    "SELECT r.intent_id,r.symbol,r.snapshot_revision,r.created_at_ms,e.state,e.intent_json,e.result_json,e.updated_at,e.venue,e.symbol
+                     FROM aegis_reservations r JOIN execution_intents e ON e.intent_id=r.intent_id
+                     WHERE r.account=?1 AND r.state='active' AND e.state IN ('rejected','applied') LIMIT 1025")?;
+                let values=statement.query_map([&self.account],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,i64>(2)?,
+                    row.get::<_,i64>(3)?,row.get::<_,String>(4)?,row.get::<_,String>(5)?,row.get::<_,Option<String>>(6)?,
+                    row.get::<_,String>(7)?,row.get::<_,String>(8)?,row.get::<_,String>(9)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                values
+            };
+            ensure!(rows.len()<=1024,"reservation reconciliation exceeds work budget");
+            let mut resolved=Vec::new();
+            for (id,symbol,revision,reserved_at,state,intent_json,result_json,updated_at,venue,journal_symbol) in rows {
+                ensure!(intent_json.len()<=32768 && result_json.as_ref().is_some_and(|s|s.len()<=8192) && updated_at.len()<=64,"invalid or unbounded terminal entry evidence");
+                let intent:crate::core::OrderIntent=serde_json::from_str(&intent_json)?;
+                let receipt:crate::core::OrderResult=serde_json::from_str(result_json.as_deref().unwrap())?;
+                ensure!(uuid::Uuid::parse_str(&id)?.to_string()==id && intent.id==id && receipt.intent_id==id
+                    && intent.venue==evidence.venue && venue==evidence.venue && intent.symbol==symbol && journal_symbol==symbol,
+                    "terminal intent identity does not match reservation");
+                // Only entry reservations are in scope. A manually attached
+                // reduction journal cannot be used to cancel an entry hold.
+                ensure!(!intent.reduce_only && intent.size.is_finite() && intent.size>0.0,"reservation does not describe a valid entry");
+                let terminal_at=chrono::DateTime::parse_from_rfc3339(&updated_at)?.timestamp_millis();
+                ensure!(terminal_at>=0 && evidence.acquired_started_ms>=terminal_at && evidence.exchange_time_ms>=terminal_at
+                    && evidence.acquired_started_ms>=reserved_at && evidence.snapshot.revision>revision,
+                    "account evidence predates entry outcome or reservation");
+                let mut position_id=None;
+                if state=="rejected" {
+                    ensure!(!receipt.accepted && receipt.filled_size==0.0 && receipt.avg_fill_price.is_none() && receipt.venue_order_id.is_none(),
+                        "rejection does not prove a definite zero-fill outcome");
+                    if metadata_exists {
+                        let applied:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM position_entry_state WHERE entry_intent_id=?1)",[&id],|r|r.get(0))?;
+                        ensure!(!applied,"rejected entry has persisted position metadata");
+                    }
+                } else {
+                    if !metadata_exists { continue; }
+                    let recorded:Option<EntryPositionRow>=tx.query_row(
+                        "SELECT p.id,p.venue,p.symbol,p.side,p.size,p.entry_price,p.closed_at FROM position_entry_state m JOIN positions p ON p.id=m.position_id WHERE m.entry_intent_id=?1",
+                        [&id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?;
+                    let Some((pid,pvenue,psymbol,side,size,price,closed))=recorded else {continue;};
+                    if closed.is_some() {continue;}
+                    let reduced:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM confirmed_reductions WHERE position_id=?1)",[pid],|r|r.get(0))?;
+                    if reduced {continue;}
+                    ensure!(pvenue==venue && psymbol==symbol && side==intent.side.as_str() && receipt.accepted
+                        && receipt.filled_size.is_finite() && receipt.filled_size>0.0 && receipt.filled_size<=intent.size
+                        && receipt.filled_size==size && receipt.avg_fill_price==Some(price),"applied entry receipt and original position disagree");
+                    let oid=receipt.venue_order_id.as_deref().context("applied entry lacks order identity")?.parse::<u64>()?;
+                    ensure!(oid>0,"invalid applied entry order identity");
+                    // An order still visible as outstanding cannot be assumed
+                    // fully represented by the known position receipt.
+                    if evidence.open_orders.iter().any(|order|order.oid==oid) {continue;}
+                    position_id=Some(pid);
+                }
+                let reconciliation_id=format!("auto-entry:{}",evidence.snapshot.revision);
+                let changed=tx.execute("UPDATE aegis_reservations SET state='reconciled',reconciliation_id=?1 WHERE intent_id=?2 AND account=?3 AND state='active'",
+                    params![reconciliation_id,id,self.account])?;
+                ensure!(changed==1,"reservation changed during reconciliation");
+                let proof=serde_json::json!({"intent_id":id,"journal_state":state,"position_id":position_id,
+                    "snapshot_revision":evidence.snapshot.revision,"acquired_started_ms":evidence.acquired_started_ms,
+                    "acquired_finished_ms":evidence.acquired_finished_ms,"exchange_time_ms":evidence.exchange_time_ms,
+                    "venue":evidence.venue,"environment":evidence.environment,"perp_dex":evidence.perp_dex});
+                tx.execute("INSERT INTO aegis_events(account,kind,reason,at_ms) VALUES(?1,'reservation_reconciled',?2,?3)",
+                    params![self.account,serde_json::to_string(&proof)?,now_ms])?;
+                resolved.push(id);
+            }
+            // A prior/newer accepted snapshot must not be overwritten. Replays
+            // with no active candidates are accepted only for identical data.
+            if !resolved.is_empty() {
+                let prior:Option<i64>=tx.query_row("SELECT snapshot_revision FROM aegis_accounts WHERE account=?1",[&self.account],|r|r.get(0))?;
+                ensure!(prior.is_none_or(|old|evidence.snapshot.revision>old),"reservation release requires a newer accepted snapshot");
+                // One immutable bundle per batch, referenced by the events'
+                // account/revision. Later snapshots cannot erase release proof.
+                tx.execute("INSERT INTO aegis_reconciliations(account,snapshot_revision,evidence_json,recorded_at_ms) VALUES(?1,?2,?3,?4)",
+                    params![self.account,evidence.snapshot.revision,evidence_json,now_ms])?;
+            }
+            self.accept_snapshot(&tx,&evidence.snapshot)?;
+            let (peak,_)=self.account_state(&tx)?;
+            if peak>Decimal::ZERO && evidence.snapshot.equity<=mul(peak,sub(Decimal::ONE,self.limits.max_drawdown_ratio)?)? {
+                self.latch(&tx,"equity drawdown limit reached",now_ms)?;
+            }
+            tx.commit()?;
+            Ok(resolved)
         })
     }
 
@@ -486,3 +617,55 @@ fn sub(a: Decimal, b: Decimal) -> Result<Decimal> {
 fn mul(a: Decimal, b: Decimal) -> Result<Decimal> {
     a.checked_mul(b).context("risk arithmetic overflow")
 }
+
+fn validate_owned_evidence(
+    tx: &Transaction<'_>,
+    evidence: &crate::adapters::account_evidence::AccountExposureEvidence,
+) -> Result<()> {
+    let mut statement=tx.prepare("SELECT symbol,side,size,entry_price FROM positions WHERE venue=?1 AND closed_at IS NULL LIMIT 1025")?;
+    let local = statement
+        .query_map([&evidence.venue], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get::<_, f64>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ensure!(
+        local.len() <= 1024 && local.len() == evidence.positions.len(),
+        "local and observed position ownership differs"
+    );
+    let mut symbols = std::collections::BTreeSet::new();
+    for (symbol, side, size, price) in local {
+        ensure!(
+            symbols.insert(symbol.clone())
+                && size.is_finite()
+                && size > 0.0
+                && price.is_finite()
+                && price > 0.0
+                && matches!(side.as_str(), "LONG" | "SHORT"),
+            "invalid or duplicate persisted position"
+        );
+        let remote = evidence
+            .positions
+            .iter()
+            .find(|p| p.symbol == symbol)
+            .context("persisted position is missing from account evidence")?;
+        let signed = parse(&size.to_string())?
+            * if side == "LONG" {
+                Decimal::ONE
+            } else {
+                -Decimal::ONE
+            };
+        ensure!(
+            remote.signed_size == signed && remote.entry_price == parse(&price.to_string())?,
+            "account position does not match local ownership"
+        );
+    }
+    Ok(())
+}
+
+// Position row read atomically with entry receipt and reservation proof.
+type EntryPositionRow = (i64, String, String, String, f64, f64, Option<String>);

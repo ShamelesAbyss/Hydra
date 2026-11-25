@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::json;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -226,26 +225,25 @@ impl HyperliquidAdapter {
         let mut last_err: Option<anyhow::Error> = None;
         for attempt in 0..4 {
             match self.http.post(&url).json(&body).send().await {
-                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                Ok(resp) if resp.status().is_success() => match read_info_response(resp).await {
                     Ok(txt) => match serde_json::from_str::<T>(&txt) {
                         Ok(v) => return Ok(v),
                         Err(e) => {
                             last_err = Some(anyhow!(
                                 "decoding hyperliquid info response: {e}; body={}",
-                                if txt.len() > 256 {
-                                    format!("{}…", txt.chars().take(256).collect::<String>())
-                                } else {
-                                    txt
-                                }
+                                info_diagnostic_preview(&txt)
                             ))
                         }
                     },
-                    Err(e) => last_err = Some(anyhow::Error::new(e)),
+                    Err(e) => last_err = Some(e),
                 },
                 Ok(resp) => {
                     let s = resp.status();
-                    let txt = resp.text().await.unwrap_or_default();
-                    last_err = Some(anyhow!("hyperliquid info {s}: {txt}"));
+                    let txt = read_info_response(resp).await.unwrap_or_default();
+                    last_err = Some(anyhow!(
+                        "hyperliquid info {s}: {}",
+                        info_diagnostic_preview(&txt)
+                    ));
                 }
                 Err(e) => last_err = Some(anyhow::Error::new(e)),
             }
@@ -287,6 +285,37 @@ impl HyperliquidAdapter {
             .map(|value| value.0)
             .ok_or_else(|| anyhow!("metadata unavailable for {symbol}"))
     }
+}
+
+fn info_diagnostic_preview(value: &str) -> String {
+    crate::telemetry::redact_diagnostic(value)
+        .chars()
+        .take(256)
+        .collect()
+}
+
+/// Bound decoded response bytes before JSON allocation, including compressed
+/// responses. Read-only retries keep the existing bounded backoff policy.
+async fn read_info_response(mut response: reqwest::Response) -> Result<String> {
+    const MAX_INFO_BYTES: usize = 4 * 1024 * 1024;
+    if let Some(length) = response.content_length() {
+        anyhow::ensure!(
+            length <= MAX_INFO_BYTES as u64,
+            "info response exceeds byte budget"
+        );
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        anyhow::ensure!(
+            bytes
+                .len()
+                .checked_add(chunk.len())
+                .is_some_and(|len| len <= MAX_INFO_BYTES),
+            "info response exceeds byte budget"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| anyhow!("info response is not valid UTF-8"))
 }
 
 fn derive_eth_address(priv_hex: &str) -> Result<String> {
@@ -576,92 +605,43 @@ impl VenueAdapter for HyperliquidAdapter {
         crate::account::standard_perp_equity(&mode, &state.margin_summary.account_value)
     }
 
-    async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
-        use rust_decimal::Decimal;
-        let account = self
-            .account_address
-            .as_ref()
-            .ok_or_else(|| anyhow!("account missing"))?;
-        let started = Utc::now().timestamp_millis();
-        let mode: String = self
-            .info(json!({"type":"userAbstraction","user":account}))
-            .await?;
-        anyhow::ensure!(mode == "disabled", "unsupported collateral model for Aegis");
-        let state: ClearingHouseState = self
-            .info(json!({"type":"clearinghouseState","user":account}))
-            .await?;
-        let orders: Vec<RiskOpenOrder> = self
-            .info(json!({"type":"frontendOpenOrders","user":account}))
-            .await?;
-        let mids: std::collections::BTreeMap<String, String> =
-            self.info(json!({"type":"allMids"})).await?;
-        let equity = Decimal::from_str(&state.margin_summary.account_value)?;
-        anyhow::ensure!(equity >= Decimal::ZERO, "invalid equity");
-        let mut exposure = std::collections::BTreeMap::<String, Decimal>::new();
-        for position in state.asset_positions {
-            let size = Decimal::from_str(&position.position.szi)?.abs();
-            let symbol = position.position.coin;
-            let price = Decimal::from_str(
-                mids.get(&symbol)
-                    .ok_or_else(|| anyhow!("missing account position mark"))?,
-            )?;
-            anyhow::ensure!(price > Decimal::ZERO, "invalid mark");
-            let notional = size
-                .checked_mul(price)
-                .ok_or_else(|| anyhow!("exposure overflow"))?;
-            let prior = exposure.entry(symbol).or_default();
-            *prior = prior
-                .checked_add(notional)
-                .ok_or_else(|| anyhow!("exposure overflow"))?;
-        }
-        for order in orders {
-            anyhow::ensure!(
-                order.children.is_empty(),
-                "nested open orders require explicit risk reconciliation"
-            );
-            if order.reduce_only {
-                continue;
-            }
-            let qty = Decimal::from_str(&order.sz)?;
-            let price = Decimal::from_str(&order.limit_px)?;
-            let mark = Decimal::from_str(
-                mids.get(&order.coin)
-                    .ok_or_else(|| anyhow!("unsupported open-order instrument"))?,
-            )?;
-            anyhow::ensure!(
-                qty > Decimal::ZERO && price > Decimal::ZERO && mark > Decimal::ZERO,
-                "invalid pending order"
-            );
-            let value = qty
-                .checked_mul(price.max(mark))
-                .ok_or_else(|| anyhow!("pending exposure overflow"))?;
-            let prior = exposure.entry(order.coin).or_default();
-            *prior = prior
-                .checked_add(value)
-                .ok_or_else(|| anyhow!("pending exposure overflow"))?;
-        }
-        anyhow::ensure!(
-            Utc::now().timestamp_millis() - started <= 15_000,
-            "account snapshot acquisition stale"
-        );
-        Ok(crate::aegis::AccountSnapshot {
-            revision: started,
-            observed_at_ms: started,
-            equity,
-            exposure_by_market: exposure,
+    async fn account_exposure_evidence(
+        &self,
+    ) -> Result<super::account_evidence::AccountExposureEvidence> {
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            let account = self
+                .account_address
+                .as_ref()
+                .ok_or_else(|| anyhow!("account missing"))?;
+            let started = Utc::now().timestamp_millis();
+            let mode: String = self
+                .info(json!({"type":"userAbstraction","user":account}))
+                .await?;
+            anyhow::ensure!(mode == "disabled", "unsupported collateral model for Aegis");
+            let state: serde_json::Value = self
+                .info(json!({"type":"clearinghouseState","user":account,"dex":""}))
+                .await?;
+            let orders: serde_json::Value = self
+                .info(json!({"type":"frontendOpenOrders","user":account,"dex":""}))
+                .await?;
+            let mids: serde_json::Value = self.info(json!({"type":"allMids","dex":""})).await?;
+            super::account_evidence::parse_hyperliquid(
+                account,
+                &mode,
+                &serde_json::to_string(&state)?,
+                &serde_json::to_string(&orders)?,
+                &serde_json::to_string(&mids)?,
+                started,
+                Utc::now().timestamp_millis(),
+            )
         })
+        .await
+        .map_err(|_| anyhow!("account evidence acquisition exceeded 15 seconds"))?
     }
-}
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RiskOpenOrder {
-    coin: String,
-    sz: String,
-    limit_px: String,
-    reduce_only: bool,
-    #[serde(default)]
-    children: Vec<serde_json::Value>,
+    async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
+        Ok(self.account_exposure_evidence().await?.snapshot)
+    }
 }
 
 #[derive(Deserialize)]
@@ -777,6 +757,16 @@ mod tests {
     //! `invalid type: integer 20, expected a string`, killing position reads.
     //! These tests lock in the lenient behaviour.
     use super::*;
+
+    #[test]
+    fn info_failure_previews_are_utf8_bounded_and_sensitive_fields_are_redacted() {
+        let preview = info_diagnostic_preview(&"界".repeat(300));
+        assert_eq!(preview.chars().count(), 256);
+        assert_eq!(
+            info_diagnostic_preview("signature: PRIVATE_FIXTURE"),
+            "[redacted sensitive diagnostic]"
+        );
+    }
 
     fn response(statuses: serde_json::Value) -> crate::hyperliquid_wire::ExchangeResponseStatus {
         serde_json::from_value(
@@ -976,6 +966,41 @@ mod tests {
                 let r = round_to_decimals(input, dp);
                 assert!(r <= input + 1e-12, "dp={} input={} got={}", dp, input, r);
             }
+        }
+    }
+    #[tokio::test]
+    async fn info_reader_bounds_declared_and_chunked_bodies_before_json_decoding() {
+        use std::io::{Read, Write};
+        for chunked in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request);
+                if chunked {
+                    let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n400001\r\n");
+                    let _ = stream.write_all(&vec![b'x'; 4 * 1024 * 1024 + 1]);
+                    let _ = stream.write_all(b"\r\n0\r\n\r\n");
+                } else {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 4194305\r\nConnection: close\r\n\r\n",
+                    );
+                }
+            });
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap();
+            let response = client
+                .get(format!("http://{address}"))
+                .send()
+                .await
+                .unwrap();
+            let error = read_info_response(response).await.unwrap_err();
+            assert!(error.to_string().contains("byte budget"), "{error}");
+            server.join().unwrap();
         }
     }
 }

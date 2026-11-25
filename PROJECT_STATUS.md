@@ -119,17 +119,35 @@ owned and proves the next owner cannot be unlocked by a stale duplicate close.
 The full offline desktop-feature suite now passes 210 tests. No lock file is
 unlinked and no acquisition retry hides contention.
 
-## Next milestone — scoped reservation reconciliation
+## Scoped reconciliation constraints — implemented after alpha.5
 
-Read-only design review identifies two proof gaps before automatic release:
+Design review identified two proof gaps before automatic release:
 AccountSnapshot currently omits account/venue/environment identity and individual
 position/order identities, and remote positions may come from a different
 clearinghouse read than aggregate risk exposure. Reservation insertion also
 precedes journal insertion, so orphan reservations must remain held.
 
-Introduce a scoped authoritative evidence bundle with positions and exposure
-from one clearinghouse payload. Initially allow release only for definite
+The implemented scoped evidence bundle retains positions and exposure
+from one clearinghouse payload. Releases are limited to for definite
 zero-fill rejected entries, or known applied entries whose receipt, unique entry
 metadata and exact owned remote position agree. Ambiguous/resting/missing-journal,
 reduced and closed cases remain held. Keep financial-settlement gates separate.
 No timeout, missing row or guessed zero may release exposure.
+
+## Scoped reservation reconciliation checkpoint after alpha.5
+
+Implemented the narrow bridge described above. Fresh account/mainnet/default-perp
+bundles preserve exact clearinghouse position notionals and server time, with
+separate bounded open-order reads. Definite zero-fill rejections and unchanged
+applied entry positions can replace reservations with current observed exposure.
+Journal/position proof is re-read within the same immediate transaction that
+archives batch evidence, updates holds and snapshots, records events and latches
+any drawdown. Protective reductions bypass maintenance reads; new entries reuse
+the validated bundle. Ambiguous and net-settlement holds remain independent.
+
+The full desktop-feature all-target suite passes 228 offline tests. Added coverage
+includes the causal/account/ownership proof boundaries, restart replay, immutable
+batch evidence, rollback injection, original financial holds, bounded HTTP bodies
+and runtime reuse/reduce-only bypass. No real exchange account or order access
+was used. Orphan reservation insertion gaps, persistent ingestion sequence numbers,
+complete settlement and broader recovery remain next work.

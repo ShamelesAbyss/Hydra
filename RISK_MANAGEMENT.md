@@ -18,8 +18,37 @@ silently replace a persistent policy.
 
 Reservations have no timeout expiry. `apply_reconciled_snapshot` requires a newer
 account state and an explicit reconciliation identity before releasing named intents.
-The runtime does not yet automate this proof, so reservations may conservatively
-block further exposure. Do not delete them to make trading resume.
+The runtime now automates a narrow terminal-entry proof before new entries:
+
+- Definite rejected entries require zero fill, no order/fill price, matching
+  canonical journal/reservation identity and no persisted position metadata.
+- Applied entries require their unique original entry metadata, a matching known
+  receipt, an untouched open position matching the same account evidence, and no
+  outstanding order with that receipt identity.
+
+The complete scoped account bundle is retained once per reconciliation batch in
+`aegis_reconciliations`. Reservation changes, evidence archive, events, replacement
+snapshot and any drawdown latch commit in one IMMEDIATE transaction. Newer
+snapshots do not erase historical release evidence. Replay never duplicates a
+release or overwrites an older proof.
+
+Account bundles require canonical account/mainnet/default-perp/standard-mode scope,
+exact decimals, bounded rows/bytes and a bounded acquisition window. Positions,
+position notionals, equity and server time come from one clearinghouse response;
+open orders and their conservative mark bounds require separate REST reads.
+Non-reduce orders must be ordinary non-trigger limit orders. Contingent/unknown
+entry types, unsupported spot/DEX symbols and inconsistent zero-quantity notionals
+fail closed rather than understating exposure.
+These reads are not an atomic exchange snapshot. Evidence must postdate the
+journal outcome locally and at the exchange. The entire acquisition has a
+15-second deadline. The validated bundle is reused for entry reservation, avoiding
+an immediate second account read.
+
+Submitted, unknown, resting, unapplied, orphan, legacy-metadata, reduced and closed
+entries remain held. Conflicts and missing evidence do not authorize release.
+Unknown net settlement still blocks new exposure independently. The
+reserve-before-journal crash gap remains open; orphan reservations cannot be
+removed automatically. Do not delete holds to make trading resume.
 
 Protective reductions bypass ordinary entry exposure/breaker checks, but still
 require live authorization, reduce-only semantics and confirmed position/fill

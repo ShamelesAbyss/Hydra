@@ -76,3 +76,25 @@ remains open work. A passing dependency audit is not live-trading certification.
 ## Database account ownership
 
 Live startup binds an empty engine database to one trading account. A bound database rejects another account. Existing unbound history requires an explicit operator assertion through bind-history --db <path> --account <address> --adopt-existing-history. Adoption records its origin in metadata and preserves existing records. It does not settle uncertain financial outcomes.
+
+## Scoped account evidence and reservation lifecycle
+
+The default-perp standard-account evidence reader retains canonical account scope,
+clearinghouse server time, exact signed quantities/entry prices and `positionValue`
+notionals from the same clearinghouse response. Outstanding order IDs and
+conservative entry-order valuations are retained separately. Acquisition has a
+15-second total timeout; decoded info responses are stream-capped at 4 MiB before
+JSON parsing. Diagnostic previews are redacted and bounded on character boundaries.
+
+New entries may reconcile only definitely rejected zero-fill entries or known,
+untouched applied positions. Aegis rechecks the local journal/position proof under
+one SQLite transaction and archives the complete validated evidence once per
+batch. It never clears unknown net accounting or ambiguous acknowledgments.
+REST reads are not an atomic exchange snapshot, and wall-clock revision regression
+retains holds. See RISK_MANAGEMENT.md for the accepted and held categories.
+
+Only ordinary non-trigger limit entry orders are valued automatically; unsupported
+contingent entry types are refused. The default-perp endpoint may include spot
+orders; unsupported symbols are refused rather than silently omitted. The
+[official info schema](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+is the protocol reference for the retained order-type/trigger fields.

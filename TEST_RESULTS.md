@@ -1,3 +1,12 @@
+# Scoped reconciliation checkpoint after alpha.5
+
+The full desktop-feature all-target suite passes **228 offline tests**. Eighteen
+additional tests cover scoped/exact account evidence, rejected/applied release
+proofs, retained ambiguous/orphan/reduced/closed holds, causality/freshness, durable
+batch evidence, restart replay, injected transaction failures, independent financial
+settlement holds, runtime snapshot reuse/reduction bypass and HTTP byte/diagnostic
+limits. Transport fixtures use loopback only; no account probes or signed requests.
+
 # Verification — 1.7.0-alpha.5
 
 The release-version full desktop-feature all-target suite passes **210 offline
