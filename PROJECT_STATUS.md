@@ -449,3 +449,28 @@ local review evidence, not a recovery classifier or automatic state mutation.
 
 The permanent memorial remains verbatim as the final README section and is retained
 with its maintenance rule in future portable/source packages.
+
+## Published alpha.17–20 campaign verification and continuation
+
+- Alpha.17: `e5b502e1d354733fb089149d31c2f3daea830c81`, 341 tests, run 45700688152.
+- Alpha.18: `c3282e09734e4ff8bbb83d65b2758f40778879f2`, 351 tests, run 45702690919.
+- Alpha.19: `81a5b9ff3eeee960c9d1e96e7801f405509f8655`, 360 tests, run 45704926835.
+- Alpha.20: `19307270b866b02ad109ab72e15927e9760e2333`, 368 tests, run 45708423982.
+
+All four tagged jobs passed for each source: Linux, Windows, native desktop and
+audit. Windows/source and verified Linux packages plus checksum manifests are
+published as engineering prereleases. All five asset digests per release match.
+Alpha.19's interrupted Linux upload was retried only after remote-state checks;
+native HTTPS upload completed without replacing existing published assets.
+
+The standing memorial dedication is verbatim at the end of main README.md, in
+user-wide/project guidance, and in alpha.19/20 source and portable packages. Its
+canonical project rule ships with the packages; the publication check is enabled.
+No new development branch was created. Main remains authoritative and historical
+tags/releases plus the retired legacy archive remain preserved.
+
+Continue with bounded pure recovery classification over the alpha.20 snapshot.
+Unknown/capped/missing/stale/contradictory evidence must remain unresolved; do not
+infer net settlement, automatic replay or permission to clear independent holds.
+Full signed-envelope proof, complete fee/funding/entry attribution, broader recovery
+and protected credential storage remain open. Keep development verification offline.

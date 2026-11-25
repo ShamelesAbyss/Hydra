@@ -333,7 +333,7 @@ repair, full signed-envelope proof or complete financial settlement is introduce
 The permanent memorial dedication remains verbatim at the end of README.md.
 Publication checks and portable packages include its project maintenance rule.
 
-## Current next acceptance work after alpha.19
+## Current next acceptance work after alpha.20
 
 Prioritize conservative recovery admission from consistent local execution evidence:
 classify missing, ambiguous, rejected, resting and filled evidence without guessing
@@ -372,3 +372,19 @@ local review evidence, not a recovery classifier or automatic state mutation.
 
 The permanent memorial remains verbatim as the final README section and is retained
 with its maintenance rule in future portable/source packages.
+
+## Recovery-classification design notes (planned after alpha.20)
+
+Public API documentation was checked without making account queries. It distinguishes
+trading-account addresses from agent addresses, documents a missing-order result,
+and limits retained time-based fill history to the most recent 10,000 fills with
+up to 2,000 per response. The fill example also describes the reported fee as already
+including builder fees. These limits do not establish complete lifetime coverage.
+[Primary API reference](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint).
+
+Conservative classifier policy must keep missing/unrecognized observations unresolved,
+never equate cancellation with proof of zero executions, and never double count
+builder fees. Match scoped client/order identities and exact known quantities;
+retain partial/contradictory/stale histories as review requirements. This is planned
+policy, not a new mutation path or certification. No archival report may independently
+authorize replay, financial settlement or release of execution/risk/financial holds.

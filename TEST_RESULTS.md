@@ -15,8 +15,12 @@ Windows CLI/cockpit compilation and extracted smoke are checked before publicati
 No real account probes, signed network requests, orders or transfers were used.
 The permanent memorial remains the exact final README section and its rule is
 included in source/portable packaging.
-Alpha.19 passed all four tagged CI jobs:
-[Verified alpha.19 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45704926835).
+Alpha.20 passed all four tagged CI jobs for source
+`19307270b866b02ad109ab72e15927e9760e2333`. All five published asset digests
+match the local archives/manifests. Extracted Windows CLI/cockpit packages pass
+eight smoke checks. Linux bytes come from the verified tagged job; its README and
+maintenance rule preserve the exact memorial footer.
+[Verified alpha.20 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45708423982).
 
 # Release verification — 1.7.0-alpha.19
 
