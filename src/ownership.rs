@@ -23,6 +23,14 @@ pub fn canonical_account(address: &str) -> Result<String> {
 pub struct AccountOwnership {
     _file: File,
 }
+impl Drop for AccountOwnership {
+    fn drop(&mut self) {
+        // Closing only this handle can leave the lock alive through a duplicated
+        // handle (including a descriptor briefly inherited by a spawning child).
+        // Release ownership at the guard boundary, then let File close normally.
+        let _ = self._file.unlock();
+    }
+}
 impl AccountOwnership {
     /// Root must be an operator-owned directory shared by all Hydra databases.
     pub fn acquire(root: &Path, account: &str) -> Result<Self> {
@@ -70,4 +78,25 @@ pub fn configured_account(cfg: &crate::config::AppConfig) -> Result<Option<Strin
         .transpose()?;
     let account = cfg.hl_account_address.as_deref().or(signer.as_deref());
     account.map(canonical_account).transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_owner_releases_lock_even_while_a_duplicate_handle_survives() {
+        let root = tempfile::tempdir().unwrap();
+        let account = "0x1111111111111111111111111111111111111111";
+        let owner = AccountOwnership::acquire(root.path(), account).unwrap();
+        let inherited = owner._file.try_clone().unwrap();
+        assert!(AccountOwnership::acquire(root.path(), account).is_err());
+        drop(owner);
+        let next_owner = AccountOwnership::acquire(root.path(), account).unwrap();
+        // Dropping the old duplicate cannot release the new owner's lock.
+        drop(inherited);
+        assert!(AccountOwnership::acquire(root.path(), account).is_err());
+        drop(next_owner);
+        assert!(AccountOwnership::acquire(root.path(), account).is_ok());
+    }
 }

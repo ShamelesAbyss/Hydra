@@ -1,3 +1,14 @@
+# Cross-platform lock-lifetime regression
+
+The full desktop-feature all-target suite passes **210 offline tests** after
+adding deterministic duplicate-handle ownership coverage. Linux CI exposed an
+intermittent close-only lock lifetime during concurrent child-process startup.
+AccountOwnership now explicitly unlocks at its RAII guard boundary. The new test
+keeps an old duplicate alive, verifies immediate reacquisition after guard drop,
+and verifies that closing the old duplicate cannot release the new owner's lock.
+A WSL/Linux flock reproduction independently confirms the operating-system
+semantics. The actual Rust Linux CI result is checked separately.
+
 # Native dependency modernization checkpoint
 
 At `a941c68489325afa076f5d00bee0b43e2ea97312`, the full desktop-feature,

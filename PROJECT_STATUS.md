@@ -109,3 +109,12 @@ All 209 offline desktop-feature tests pass. This changes source; alpha.4 binarie
 remain older until a new release is built and verified. Remaining development
 priorities are financial settlement, evidence-driven reservation reconciliation,
 broad recovery and the Chrono migration. No stable-live claim is made.
+
+## Cross-platform ownership lifetime
+
+Linux CI exposed an intermittent lock lifetime when a parallel child spawn
+briefly inherits a descriptor. Guard disposal now explicitly unlocks before File
+closes. A deterministic duplicate-handle regression preserves exclusivity while
+owned and proves the next owner cannot be unlocked by a stale duplicate close.
+The full offline desktop-feature suite now passes 210 tests. No lock file is
+unlinked and no acquisition retry hides contention.
