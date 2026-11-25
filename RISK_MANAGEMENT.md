@@ -209,3 +209,28 @@ Older acknowledgments with no retained action remain readable as historical fact
 missing action history is not fabricated or relabelled as pre-write provenance.
 No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
 or live readiness is established. Verification is offline.
+
+## Durable signer-nonce coordinator foundation — alpha.17
+
+`signer_nonce::NonceCoordinator` reserves a nonce per canonical public signer in a
+separate operator-owned SQLite database. It uses a five-second busy timeout,
+IMMEDIATE transactions, FULL synchronization, bounded canonical u64 history and
+an identified/versioned ordinary schema. Time is sampled after acquiring the
+write transaction. Returned reservations remain consumed if later work fails;
+clock rollback advances from retained history within the existing 1,000 ms future
+window. Overflow, corruption, incompatible schema/journal mode and file/commit
+failure refuse allocation without an in-memory fallback or sequence reset.
+
+The default path is `Hydra/signer-nonces/nonces.sqlite` beside account-locks under
+LOCALAPPDATA on Windows or the existing XDG/user state root on other platforms.
+Cooperating processes must share and preserve this root; distinct roots, users,
+hosts, deletion/replacement and storage tampering are outside the coordination
+contract. Unix directory/file modes are 0700/0600; Windows inherits operator-directory
+access controls. It stores public signer identities and nonces, never credentials.
+The API is synchronous; future async integration must account for blocking waits.
+
+This milestone delivers the Rust coordinator foundation, not live integration.
+The native sender still uses its original process-local counter. Signing nonce
+preparation, envelope provenance, automatic recovery and net settlement remain
+incomplete. Existing live defaults, signed transport and independent holds are
+unchanged. Verification uses offline fixtures and separate local child processes.

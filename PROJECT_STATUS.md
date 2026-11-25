@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.16** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.16^{commit}`.
-- Previous recovery: v1.7.0-alpha.15 (`bdbae818f385d852684617acddc63a77733c2f54`).
+- Version and current recovery tag: **v1.7.0-alpha.17** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.17^{commit}`.
+- Previous recovery: v1.7.0-alpha.16 (`0a86095bc147e3c10bf2841de2b72ac2635f1b4b`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.16 source: 330 offline desktop-feature tests pass; alpha.15 contains 323.
+- Alpha.17 source: 341 offline desktop-feature tests pass; alpha.16 contains 330.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.16 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.17 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -342,3 +342,28 @@ README renders 20 images without broken assets. No new branch was created.
 Continue with the planned durable signing-preparation boundary below. Signing
 nonce/full envelope provenance remains unimplemented; do not infer it from the
 unsigned action or acknowledgment consistency checks. Keep independent holds.
+
+## Durable signer-nonce coordinator foundation — alpha.17
+
+`signer_nonce::NonceCoordinator` reserves a nonce per canonical public signer in a
+separate operator-owned SQLite database. It uses a five-second busy timeout,
+IMMEDIATE transactions, FULL synchronization, bounded canonical u64 history and
+an identified/versioned ordinary schema. Time is sampled after acquiring the
+write transaction. Returned reservations remain consumed if later work fails;
+clock rollback advances from retained history within the existing 1,000 ms future
+window. Overflow, corruption, incompatible schema/journal mode and file/commit
+failure refuse allocation without an in-memory fallback or sequence reset.
+
+The default path is `Hydra/signer-nonces/nonces.sqlite` beside account-locks under
+LOCALAPPDATA on Windows or the existing XDG/user state root on other platforms.
+Cooperating processes must share and preserve this root; distinct roots, users,
+hosts, deletion/replacement and storage tampering are outside the coordination
+contract. Unix directory/file modes are 0700/0600; Windows inherits operator-directory
+access controls. It stores public signer identities and nonces, never credentials.
+The API is synchronous; future async integration must account for blocking waits.
+
+This milestone delivers the Rust coordinator foundation, not live integration.
+The native sender still uses its original process-local counter. Signing nonce
+preparation, envelope provenance, automatic recovery and net settlement remain
+incomplete. Existing live defaults, signed transport and independent holds are
+unchanged. Verification uses offline fixtures and separate local child processes.

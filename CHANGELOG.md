@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0-alpha.17
+
+- Add the separate durable signer-nonce coordinator Rust foundation with atomic
+  reservation, bounded drift/overflow refusal and process/restart tests.
+- Keep the live sender unchanged pending explicit signing-preparation integration.
+
 ## 1.7.0-alpha.16
 
 - Check retained rounded native IOC action bounds before exact receipt persistence

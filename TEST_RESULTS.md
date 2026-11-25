@@ -1,3 +1,22 @@
+# Release verification — 1.7.0-alpha.17
+
+All **341 offline desktop-feature all-target release-version tests pass**.
+The new coordinator tests cover restart, rollback and bounded drift/overflow,
+canonical signer aliases and independent signers, concurrent SQLite connections,
+foreign/future/view/invalid-column/corrupt databases, file/clock/write failures and
+ignored or rewritten updates. A process fixture plus parent regression exercises
+four concurrent child processes with separate bound account databases, sharing
+one signer coordinator, then reopens it and reserves a later value.
+
+Formatting and Clippy complete with warnings. Fresh lockfile audit exits 0 with
+zero vulnerability entries and one Chrono maintenance warning, without ignores.
+Windows CLI/cockpit release compilation and extracted smoke are checked before
+publication. The live nonce sender is unchanged in this foundation milestone.
+No real account probes, signed network requests, orders or transfers were used.
+Alpha.16 passed all four tagged CI jobs; its five asset digests and download links
+were verified:
+[Verified alpha.16 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45650103078).
+
 # Release verification — 1.7.0-alpha.16
 
 All **330 offline desktop-feature all-target release-version tests pass**.

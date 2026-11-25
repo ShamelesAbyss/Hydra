@@ -7,3 +7,7 @@
 /data/session_reports/*.json
 .env
 .env.local
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
