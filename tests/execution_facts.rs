@@ -973,3 +973,194 @@ fn exact_current_quantity_rejects_overreduction_hidden_by_float_view() {
     assert_eq!(db.list_open_positions().unwrap()[0].size, 2.0);
     assert_eq!(residual_count(&db), 0);
 }
+
+#[test]
+fn native_order_identity_cannot_belong_to_two_intents() {
+    let db = database();
+    let first = intent("ETH");
+    stage(&db, &first, true);
+    let second = intent("BTC");
+    db.reserve_intent(&second).unwrap();
+    let mut f = facts();
+    let res = result(&second, &f);
+    assert!(execution_facts::record_receipt(&db, "filled", &res, Some(&f)).is_err());
+    assert_eq!(state(&db, &second.id), "submitted");
+    assert_eq!(count(&db), 1);
+    f.order_id = "43".into();
+    let res = result(&second, &f);
+    execution_facts::record_receipt(&db, "filled", &res, Some(&f)).unwrap();
+    assert_eq!(count(&db), 2);
+}
+#[test]
+fn competing_receipts_cannot_claim_the_same_native_order_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("identity.db");
+    let a = Storage::open(&path).unwrap();
+    a.migrate().unwrap();
+    a.bind_trading_account(ACCOUNT, false).unwrap();
+    let b = Storage::open(&path).unwrap();
+    b.migrate().unwrap();
+    let first = intent("ETH");
+    let second = intent("BTC");
+    a.reserve_intent(&first).unwrap();
+    b.reserve_intent(&second).unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = [(a, first), (b, second)]
+        .into_iter()
+        .map(|(db, order)| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let f = facts();
+                let res = result(&order, &f);
+                barrier.wait();
+                execution_facts::record_receipt(&db, "filled", &res, Some(&f)).is_ok()
+            })
+        })
+        .collect();
+    assert_eq!(
+        workers
+            .into_iter()
+            .map(|w| w.join().unwrap())
+            .filter(|ok| *ok)
+            .count(),
+        1
+    );
+    let db = Storage::open(&path).unwrap();
+    db.migrate().unwrap();
+    assert_eq!(count(&db), 1);
+    let held: i64 = db
+        .with_conn(|c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM execution_intents WHERE state='submitted'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(held, 1);
+}
+#[test]
+fn migration_rejects_historical_duplicate_native_identity_without_data_loss() {
+    let db = database();
+    db.with_conn(|c| c.execute_batch("DROP INDEX execution_fill_order_identity"))
+        .unwrap();
+    let first = intent("ETH");
+    let second = intent("BTC");
+    stage(&db, &first, true);
+    stage(&db, &second, true);
+    assert!(db.migrate().is_err());
+    assert_eq!(count(&db), 2);
+    assert_eq!(state(&db, &first.id), "filled");
+    assert_eq!(state(&db, &second.id), "filled");
+    let version: i64 = db
+        .with_conn(|c| c.pragma_query_value(None, "user_version", |r| r.get(0)))
+        .unwrap();
+    assert_eq!(version, 2);
+}
+#[test]
+fn contradictory_result_payload_cannot_seed_an_exact_position() {
+    for variant in 0..5 {
+        let db = database();
+        let order = intent("ETH");
+        let res = stage(&db, &order, true);
+        let mut changed = res.clone();
+        match variant {
+            0 => changed.accepted = false,
+            1 => changed.venue_order_id = Some("99".into()),
+            2 => changed.avg_fill_price = Some(101.0),
+            3 => changed.filled_size = 1.0,
+            _ => changed.intent_id = uuid::Uuid::new_v4().to_string(),
+        };
+        db.with_conn(|c| {
+            c.execute(
+                "UPDATE execution_intents SET result_json=?1 WHERE intent_id=?2",
+                rusqlite::params![serde_json::to_string(&changed).unwrap(), order.id],
+            )
+        })
+        .unwrap();
+        assert!(position_context::insert_position_with_context(
+            &db,
+            &position(&order, &res),
+            &order.id,
+            Some(2.0),
+            None
+        )
+        .is_err());
+        assert!(db.list_open_positions().unwrap().is_empty());
+        assert_eq!(count(&db), 1);
+    }
+}
+#[test]
+fn changed_durable_intent_scope_blocks_owned_precision_reuse() {
+    for variant in 0..4 {
+        let db = database();
+        let mut order = intent("ETH");
+        let res = stage(&db, &order, true);
+        open(&db, &order, &res);
+        let id = order.id.clone();
+        match variant {
+            0 => order.symbol = "BTC".into(),
+            1 => order.venue = "other".into(),
+            2 => order.side = Side::Short,
+            _ => order.id = uuid::Uuid::new_v4().to_string(),
+        };
+        db.with_conn(|c| {
+            c.execute(
+                "UPDATE execution_intents SET intent_json=?1 WHERE intent_id=?2",
+                rusqlite::params![serde_json::to_string(&order).unwrap(), id],
+            )
+        })
+        .unwrap();
+        let mut next = intent("BTC");
+        next.size = 1.0;
+        let proof = evidence(Decimal::from_str_exact(EXACT_PRICE).unwrap(), dec!(2));
+        assert!(guard(&db)
+            .reserve_journaled_entry(
+                &next,
+                dec!(101),
+                Decimal::ONE,
+                &proof,
+                Utc::now().timestamp_millis()
+            )
+            .is_err());
+        assert_eq!(db.list_open_positions().unwrap()[0].size, 2.0);
+    }
+}
+#[test]
+fn missing_or_oversized_journal_evidence_never_restores_legacy_fallback() {
+    for variant in 0..4 {
+        let db = database();
+        let order = intent("ETH");
+        let res = stage(&db, &order, true);
+        open(&db, &order, &res);
+        let payload = match variant {
+            0 => None,
+            1 => Some(" ".repeat(32769)),
+            2 => Some("{}".into()),
+            _ => Some("[".into()),
+        };
+        db.with_conn(|c| {
+            c.execute(
+                "UPDATE execution_intents SET result_json=?1 WHERE intent_id=?2",
+                rusqlite::params![payload, order.id],
+            )
+        })
+        .unwrap();
+        let mut next = intent("BTC");
+        next.size = 1.0;
+        let proof = evidence(Decimal::from_str_exact(EXACT_PRICE).unwrap(), dec!(2));
+        assert!(guard(&db)
+            .reserve_journaled_entry(
+                &next,
+                dec!(101),
+                Decimal::ONE,
+                &proof,
+                Utc::now().timestamp_millis()
+            )
+            .is_err());
+        assert_eq!(
+            exact_remaining(&db, db.list_open_positions().unwrap()[0].id).as_deref(),
+            Some("2.0000")
+        );
+    }
+}

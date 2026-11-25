@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.9** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.9^{commit}`.
-- Previous recovery: v1.7.0-alpha.8 (`4667daa27ae568b8a5cfef8bd52d3eca5bb2a4a4`).
+- Version and current recovery tag: **v1.7.0-alpha.10** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.10^{commit}`.
+- Previous recovery: v1.7.0-alpha.9 (`74f54695ab653b976135f864fe646ca6a07f2983`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.9 source: 271 offline desktop-feature tests pass; alpha.8 contains 255.
+- Alpha.10 source: 277 offline desktop-feature tests pass; alpha.9 contains 271.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -213,3 +213,16 @@ short-side exact quantities and hidden exact over-reduction. Native protective
 proof uses one bounded position snapshot with no equity/mark/open-order dependency.
 Financial settlement and reduced-position reservation release remain independent
 open work. Main is the sole active branch; do not create additional branches.
+
+## Alpha.10 native receipt identity checkpoint
+
+All 277 offline desktop-feature tests pass. Each scoped native aggregate order
+identity belongs to one intent; competing or repeated claims retain a submitted
+hold rather than a second filled fact. Existing facts must agree with bounded
+durable intent and result JSON before they can seed or authorize exact position
+precision. Historical duplicate identity migration refuses without deleting or
+rewriting any records. Individual ledger fills remain separately deduplicated.
+
+Continue directly on main with authoritative order-status/replay recovery and
+complete fee/funding coverage/conventions. These local consistency guards do not
+establish cryptographic database attestation or complete net settlement.

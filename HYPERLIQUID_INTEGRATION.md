@@ -131,3 +131,19 @@ view and journal application commit together. Failure preserves the known fill
 as unresolved and never retries the exchange write. Legacy or already unknown
 precision remains unknown. Unknown net settlement still independently holds new
 exposure; reduced-position reservation release remains future work.
+
+## Native receipt identity and consistency — alpha.10
+
+A unique account/venue/environment/order-ID index prevents two intents from
+claiming one native aggregate order acknowledgment. Individual ledger fills
+remain separate records and may legitimately share an order ID. Receipt/facts
+persistence stays atomic; duplicate or competing claims leave unresolved
+submitted intent evidence instead of a second filled fact.
+
+Exact position facts are revalidated against bounded durable intent and result
+JSON, including scope, accepted quantity, average price and order identity.
+Missing, malformed, oversized or contradictory journal evidence cannot become
+legacy precision fallback. These are local consistency checks, not cryptographic
+attestation of arbitrary database contents or proof of complete settlement.
+Migration refuses historical duplicate identities without deleting or rewriting
+any records; authoritative audited reconciliation is required before continuing.

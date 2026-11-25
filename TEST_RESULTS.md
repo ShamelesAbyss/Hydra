@@ -1,3 +1,18 @@
+# Release verification — 1.7.0-alpha.10
+
+The complete release-version desktop-feature all-target suite passes **277
+offline tests**. Six new regressions cover native aggregate order identity reuse,
+competing connections, lossless refusal of historical duplicate migration,
+contradictory result payloads, changed durable intent scope and missing/oversized
+journal evidence. The fresh lockfile audit exits 0 with zero vulnerability entries
+and one Chrono maintenance warning, without advisory ignores.
+
+No real account probes, signed network requests or exchange orders were used.
+Both Windows CLI and native cockpit release binaries compile. Clippy completes
+with warnings. Extracted portable smoke and tagged CI evidence are checked
+separately before publication. Alpha.9 previously passed all four tagged jobs:
+[verified alpha.9 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45585708718).
+
 # Release verification — 1.7.0-alpha.9
 
 The full release-version desktop-feature all-target suite passes **271 offline

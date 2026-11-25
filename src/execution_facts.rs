@@ -89,6 +89,8 @@ pub(crate) fn migrate_on(conn: &Connection) -> Result<()> {
         environment TEXT NOT NULL CHECK(environment='mainnet'),
         source TEXT NOT NULL CHECK(source='native_hyperliquid_response')
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS execution_fill_order_identity
+        ON execution_fill_facts(account,venue,environment,order_id);
     CREATE TABLE IF NOT EXISTS position_precision_state (
         position_id INTEGER PRIMARY KEY REFERENCES positions(id),
         entry_intent_id TEXT NOT NULL UNIQUE REFERENCES execution_fill_facts(intent_id),
@@ -185,20 +187,26 @@ struct StoredFill {
     facts: PreciseFill,
     environment: String,
     source: String,
-    journal_state: String,
 }
 fn stored_fill(conn: &Connection, intent_id: &str) -> Result<Option<StoredFill>> {
     if !table_exists(conn, "execution_fill_facts")? {
         return Ok(None);
     }
-    let row=conn.query_row("SELECT f.account,f.venue,f.symbol,f.side,f.quantity,f.average_price,f.order_id,f.environment,f.source,e.state FROM execution_fill_facts f JOIN execution_intents e ON e.intent_id=f.intent_id WHERE f.intent_id=?1",[intent_id],|r|Ok(StoredFill {
+    let row=conn.query_row("SELECT account,venue,symbol,side,quantity,average_price,order_id,environment,source FROM execution_fill_facts WHERE intent_id=?1",[intent_id],|r|Ok(StoredFill {
         account:r.get(0)?,venue:r.get(1)?,symbol:r.get(2)?,side:r.get(3)?,
         facts:PreciseFill {quantity:r.get(4)?,average_price:r.get(5)?,order_id:r.get(6)?},
-        environment:r.get(7)?,source:r.get(8)?,journal_state:r.get(9)?,
+        environment:r.get(7)?,source:r.get(8)?,
     })).optional()?;
     if let Some(fill) = &row {
+        // A missing or contradictory journal must never turn recorded native
+        // facts into legacy unknown precision. SQL CASE bounds reads before
+        // materializing potentially oversized local JSON evidence.
+        let (state,intent_json,result_json):(String,Option<String>,Option<String>)=conn.query_row(
+            "SELECT state,CASE WHEN length(CAST(intent_json AS BLOB))<=32768 THEN intent_json END,CASE WHEN length(CAST(result_json AS BLOB))<=32768 THEN result_json END FROM execution_intents WHERE intent_id=?1",
+            [intent_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))
+            .context("native receipt journal missing")?;
         ensure!(
-            matches!(fill.journal_state.as_str(), "filled" | "applied")
+            matches!(state.as_str(), "filled" | "applied")
                 && fill.environment == "mainnet"
                 && fill.source == "native_hyperliquid_response"
                 && fill.venue == "hyperliquid"
@@ -206,7 +214,20 @@ fn stored_fill(conn: &Connection, intent_id: &str) -> Result<Option<StoredFill>>
                 && crate::ownership::canonical_account(&fill.account)? == fill.account,
             "unsupported exact receipt provenance"
         );
-        fill.facts.values()?;
+        let intent: OrderIntent = serde_json::from_str(
+            &intent_json.context("native intent evidence missing or oversized")?,
+        )?;
+        let result: OrderResult = serde_json::from_str(
+            &result_json.context("native result evidence missing or oversized")?,
+        )?;
+        ensure!(
+            intent.id == intent_id
+                && intent.venue == fill.venue
+                && intent.symbol == fill.symbol
+                && intent.side.as_str() == fill.side,
+            "native facts disagree with durable intent scope"
+        );
+        fill.facts.validate(&intent, &result)?;
     }
     Ok(row)
 }

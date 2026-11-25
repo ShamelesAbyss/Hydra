@@ -119,3 +119,15 @@ storage and runtime fixtures. Continue directly on main. Next work: stronger
 receipt identity/replay guards, authoritative order-status recovery and complete
 fee/funding coverage/conventions before net settlement. Do not infer unknown
 costs or release independent holds merely because a current residual is known.
+
+## Next authoritative recovery boundary after alpha.10
+
+The [official order-status schema](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-order-status-by-oid-or-cloid)
+accepts a numeric venue ID or a client order ID for the account. Hydra must match
+returned identity and intent scope before using any observation. A missing-order
+response is uncertainty, not proof of rejection. Lifecycle status alone cannot
+supply average execution price, complete fees/funding or net settlement.
+
+Next: bounded read-only native order-status observations, durable provenance and
+offline schema/identity tests, without resubmitting ambiguous orders. Automatic
+resolution remains held until the required financial and causal proofs exist.

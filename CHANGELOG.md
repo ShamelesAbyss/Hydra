@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.10
+
+- Enforce scoped native order identity uniqueness across intents and connections.
+- Revalidate bounded durable intent/result evidence before using exact facts.
+- Refuse duplicate historical identity migration without modifying records.
+- Preserve all independent execution, precision and financial holds.
+
 ## 1.7.0-alpha.9
 
 - Consolidate complete Leviathan history and flagship presentation on authoritative main.
