@@ -98,3 +98,19 @@ contingent entry types are refused. The default-perp endpoint may include spot
 orders; unsupported symbols are refused rather than silently omitted. The
 [official info schema](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
 is the protocol reference for the retained order-type/trigger fields.
+
+## Exact execution facts — alpha.8
+
+Native filled receipts preserve original decimal quantity, average price and
+order identity in `execution_fill_facts`, scoped to the bound mainnet account.
+The native production parser validates these against actual signed wire bounds.
+Facts and receipt journal status commit together; failed persistence leaves a
+submitted hold. `position_precision_state` captures new entry provenance in the
+same transaction as position metadata. Aegis ownership uses exact values when
+present, while legacy positions retain conservative compatibility checks.
+
+The strategy/core position view still uses floating point. Existing reductions
+atomically set current exact quantity to NULL rather than invent an exact
+residual; original receipt facts remain available. A recorded unknown or invalid
+precision state never falls back to legacy inference. Exact residual proofs and
+complete net fee/funding settlement remain separate development work.

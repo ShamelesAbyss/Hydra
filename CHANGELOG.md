@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0-alpha.8
+
+- Preserve exact native fill facts with wire-bound validation and atomic provenance.
+- Use exact new-position facts for ownership; retain explicit unknown residuals.
+- Reject nonfinite optional receipt prices and preserve unresolved persistence failures.
+
 ## 1.7.0-alpha.7
 
 - Commit live entry risk reservations and submitted intents atomically.

@@ -106,3 +106,5 @@ Alpha.5 package-version lockfile SHA-256: `d3249be92cc26dfb5bacb66d04fe1ba812e30
 Alpha.6 package-version lock SHA-256: `967459d4b27fc7a09c5fa9dcb3e242ed4d75d2ef295a64a62728538bfeb4aa36`; dependency copies remain unchanged.
 
 Alpha.7 package-version lock SHA-256: `17877afdacea02e645a05831c3704f7c29d02dd638e129f7aae7b2b2a80a5ae8`; dependency copies remain unchanged.
+
+Alpha.8 package-version lock SHA-256: `f3bf59fd2cf33ba25cd34d66d1eea760cc19b94faa49f35ddea129d149dc53a7`; dependency copies remain unchanged. Fresh release audit exits 0: zero vulnerability entries, one Chrono maintenance warning; no advisory ignores.

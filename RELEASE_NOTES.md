@@ -1,34 +1,30 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.7
+# HYDRA — Project Leviathan 1.7.0-alpha.8
 
-Atomic live-entry admission. This is an engineering prerelease, not stable-live
-certification. No real account probes, signed requests or orders were used.
+Exact native execution facts. Engineering prerelease; stable-live readiness
+remains incomplete. No real account probes, signed network requests or orders
+were used in development verification.
 
 ## Implemented
 
-- Commit risk reservation and submitted execution intent in the same IMMEDIATE
-  SQLite transaction before any exchange write. Either insert failure rolls back
-  both records and tentative account snapshot changes.
-- Require the execution controller and authority to share one protected storage
-  handle, avoiding ambiguous memory/path database identities.
-- Use scoped exact account evidence for every authority-backed entry; recheck
-  binding, local/remote ownership, same-market positions/orders and global
-  execution/financial holds inside the admission transaction.
-- Validate bounded notional against size/limit price; preserve drawdown latches
-  on denied risk without creating a submitted order.
-- Retain the separate protective reduce-only journal path. Historical orphan
-  reservations and unknown accounting state are never guessed away.
+- Preserve original native filled quantity, average price and order identity.
+- Validate exact fills against actual signed order quantity, price limit and
+  instrument precision, including differences below floating-point resolution.
+- Persist scoped receipt facts and journal status atomically; failed persistence
+  leaves the submitted intent unresolved and does not retry the exchange write.
+- Capture new position precision with entry metadata in one transaction; Aegis
+  ownership checks use preserved decimal facts when available.
+- Explicitly mark residual precision unknown after existing floating-point
+  reductions, preserving original native facts and financial holds.
+- Reject nonfinite optional receipt prices before JSON serialization.
 
-The release-version suite passes 240 offline tests. Both Windows release binaries
-compile; portable smoke checks are repeated during packaging. Dependency copies remain unchanged
-from the zero-vulnerability/one-Chrono-warning graph; the fresh release audit
-confirms zero vulnerability entries and one maintenance warning. Signing retains the eight official cross-language fixtures.
-Windows executables remain unsigned; verify the published archive checksums.
+The source checkpoint passes 255 offline tests. Release-version tests, fresh
+lockfile audit and portable binary smoke checks are repeated before publication.
+The previous audit reports zero vulnerability entries and one Chrono maintenance
+warning. Windows executables are unsigned; verify published archive checksums.
 
 ## Remaining limits
 
-Legacy core positions retain floating-point storage; exact scoped proof can
-conservatively refuse values that cannot match the stored representation.
-Fixed-point core facts, complete fee/funding settlement, broader replay/recovery,
-persistent snapshot sequencing and stable-live certification remain open.
-The standalone risk-only reserve API remains available to explicit offline/risk
-callers; the atomic journal guarantee applies to new engine live-entry admission.
+This is an additive exact-facts layer, not a full fixed-point core migration.
+Legacy positions receive no invented precision. Exact residual proof, complete
+fee/funding settlement, broader replay, persistent snapshot sequencing and
+stable-live certification remain open. Unknown costs are never treated as zero.

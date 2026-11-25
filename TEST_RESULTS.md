@@ -1,3 +1,12 @@
+# Release verification — 1.7.0-alpha.8
+
+The release-version desktop-feature all-target suite passes all **255 offline
+tests**. The fresh lockfile audit exits 0 with zero vulnerability entries and one
+Chrono maintenance warning. All four implementation CI jobs passed for
+`2b1560c16b8027e326bb687f43560eaaae4b699e`:
+[GitHub run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579083275).
+Tagged release checks and artifact smoke results are tracked separately.
+
 # Exact native facts checkpoint after alpha.7
 
 All **255 offline desktop-feature all-target tests pass**. The new native parser

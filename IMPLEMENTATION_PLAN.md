@@ -92,3 +92,22 @@ screenshots, onboarding and a portable distribution before an installer.
 Every coherent verified checkpoint updates status/tests/changelog, commits,
 pushes, tags and publishes artifacts. Experimental incomplete work stays marked
 prerelease. Never overwrite releases or rewrite history.
+
+## Next proof boundary after alpha.8: exact reduction residuals
+
+1. Preserve a bounded account/mainnet/default-perp position snapshot from a single
+   clearinghouse response, including exact signed quantity, entry price and
+   exchange/acquisition times. Protective reduction verification must not depend
+   on unrelated open-order or mark-price endpoints.
+2. For positions with exact entry/current provenance and native close facts,
+   compute expected residual with checked Decimal subtraction. Require matching
+   post-receipt scoped remote evidence; exact zero requires a complete bounded
+   snapshot, not an omitted/failed response.
+3. Commit current exact quantity, compatibility position state, reduction facts,
+   journal application and retained evidence atomically. A mismatch or persistence
+   failure leaves the known receipt unresolved; never retry a signed write.
+4. Keep legacy unknown precision explicit. No residual proof establishes complete
+   fees/funding or net PnL; existing independent financial holds remain active.
+5. Verify partial/full reductions, account/time/side/entry mismatches, duplicate
+   symbols, sub-float quantity differences, restart and each transaction boundary
+   with offline fixtures before adding the runtime bridge.

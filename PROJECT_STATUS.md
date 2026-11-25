@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.7** on `leviathan/execution-foundation`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.7^{commit}`.
-- Previous recovery: v1.7.0-alpha.6 (`fe2a1af8ec7a97af00c6f0080ad4644d2c502d5f`).
+- Version and current recovery tag: **v1.7.0-alpha.8** on `leviathan/execution-foundation`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.8^{commit}`.
+- Previous recovery: v1.7.0-alpha.7 (`dfb2fe6ef0c297c5ec12263707657b01e2bdf55a`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,8 +26,8 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Current development checkpoint: 255 offline desktop-feature tests pass. Published
-  alpha.7 contains 240 tests; exact native receipt facts are the subsequent checkpoint.
+- Alpha.8 source: 255 offline desktop-feature tests pass; alpha.7 contains 240.
+  Release artifact and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
 
@@ -61,12 +61,11 @@ Keep Rust, headless, Ratatui and Hyperliquid mainnet integration. Never activate
 trading during development. Keep signing isolated from graphical/research clients.
 Read HYPERLIQUID_INTEGRATION.md, RISK_MANAGEMENT.md and DEPENDENCY_AUDIT.md.
 
-Continue immediately after publication: finish optional native eframe cockpit with
-read-only telemetry, GUI launch/visual checks and packaging; publish another verified
-prerelease. Then integrate deterministic historical research and independent signing
-fixtures before replacing the legacy signing stack. Preserve pending financial
-uncertainty until genuine reconciliation proves settlement. Maintain release
-artifacts/checksums and do not force-push, overwrite releases or fabricate results.
+Continue immediately after publication: prove exact post-reduction residuals,
+then complete financial coverage/conventions and broader replay. Native cockpit,
+bounded research and native signing foundations are implemented. Preserve
+financial uncertainty until genuine reconciliation proves settlement. Maintain
+release artifacts/checksums; never force-push or fabricate results.
 
 ## Alpha.3 cockpit checkpoint
 
