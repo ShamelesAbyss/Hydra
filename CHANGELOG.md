@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.0-alpha.5
+
+- Persist original entry risk/context and recover only proven durable entry applications.
+- Reject unknown remote exposure before entry and explicitly release account guard locks.
+- Remove the affected SDK/ethers graph; retain independent signing conformance on a
+  narrow mainnet IOC client. Audit now reports zero vulnerability entries, one warning.
+- Upgrade rust_decimal and Ratatui parents; preserve offline research and native cockpit.
+- Redesign the repository presentation with original SVGs and actual application captures.
+
+
 ## 1.7.0-alpha.4 — research workspaces and execution isolation
 
 - Add deterministic next-bar Oracle simulations using existing strategies with explicit costs.

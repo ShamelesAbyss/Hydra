@@ -100,3 +100,5 @@ fee/funding settlement, unknown acknowledgments and legacy financial provenance
 remain separate engineering work. No mainnet calls, credential probes or signed
 orders were used for this cleanup. See [test results](TEST_RESULTS.md) for final
 integrated suite counts and [project status](PROJECT_STATUS.md) for readiness.
+
+Alpha.5 package-version lockfile SHA-256: `d3249be92cc26dfb5bacb66d04fe1ba812e307432adf5dddf2611cfe85b123a8`. The dependency copies are unchanged from the inspected remediation graph.

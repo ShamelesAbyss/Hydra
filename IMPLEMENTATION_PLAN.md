@@ -4,6 +4,23 @@ Development preserves the repository history, MIT license, Rust engine, terminal
 interface and Hyperliquid mainnet integration. Shipping defaults remain disarmed.
 No development milestone may submit live exchange orders.
 
+## Delivery status at alpha.5
+
+| Area | Delivered foundation | Remaining acceptance boundary |
+|---|---|---|
+| Execution | Durable intents, typed receipts, residual proof, ownership and narrow entry recovery | Broader cloid/fill replay and complete settlement |
+| Ledger/risk | Decimal fill/funding facts, account binding, persistent Aegis | Scoped authoritative reservation lifecycle and net outcomes |
+| Native desktop | eframe/glow cockpit, read-only SQLite telemetry and explicit local setup | Richer authenticated IPC and operational UI verification |
+| Cognition | Existing adaptive components and durable original entry context | Authoritative outcome provenance and shared planner |
+| Research | Oracle fixed-cost replay; Genesis bounded seeded CPU Pareto search | Full execution models, out-of-sample work and resumability |
+| Presentation | Original SVG identity/diagrams and actual native captures, visible on main | Continued release/documentation synchronization |
+| Dependencies | Native narrow signer; audit 0 vulnerability entries / 1 warning | Chrono maintenance migration and ongoing review |
+
+The milestone descriptions below retain the broader target scope. A delivered
+foundation is not full acceptance or stable-live certification. The immediate
+next increment is scoped reservation reconciliation: same-payload account evidence,
+definite receipt/position proof, and no release of ambiguous or orphan holds.
+
 ## Milestone 1 — durable execution foundation (prerelease)
 
 Implement a common submission boundary, configuration authorization, persistent
@@ -32,9 +49,9 @@ do not retroactively relabel them as authoritative.
 
 ## Milestone 3 — independent engine and native desktop
 
-Choose Rust-native eframe/WGPU after validating current APIs, Windows GPU and
-software fallback behavior. Add authenticated local IPC and versioned redacted
-telemetry. GUI reconnects without owning signing or engine lifetime. Build the
+The optional native client uses eframe/glow; Windows rendering and local
+read-only telemetry are implemented. Add authenticated local IPC beyond the
+versioned CLI/SQLite snapshot boundary, and validate graphics fallback behavior. GUI reconnects without owning signing or engine lifetime. Build the
 command center from real snapshots and persistent events; unavailable values
 are visibly unavailable. Preserve Ratatui and headless builds. Verify resize,
 DPI, minimize/reconnect and keyboard navigation before adding visual effects.
@@ -56,10 +73,10 @@ candidate policies; risk constraints remain independent.
 
 ## Milestone 6 — Oracle and Genesis
 
-Implement dataset provenance/integrity and conservative execution simulation with
-fees, funding, partial fills, latency and walk-forward scenarios. Demonstrate
-live/planner parity before optimizer integration. Add seeded CPU population
-evaluation, NSGA-II, Pareto metrics, checkpoints and out-of-sample acceptance.
+Expand existing deterministic fixed-cost Oracle replay with dataset integrity,
+funding, partial fills, latency and walk-forward scenarios. Establish shared
+live/planner parity. Extend the existing seeded Genesis mutation/crossover and
+Pareto filtering with resumable checkpoints, out-of-sample acceptance and NSGA-II.
 GPU acceleration is optional and requires CPU parity and reproducible benchmarks.
 
 ## Milestone 7 — visual workspaces and distribution

@@ -1,3 +1,12 @@
+# Verification — 1.7.0-alpha.5
+
+The release-version full desktop-feature all-target suite passes **210 offline
+tests**. The fresh release lockfile audit exits 0 with **0 vulnerability entries**
+and **1 Chrono maintenance warning**, without advisory ignores. Formatting and
+Clippy completed on the same code with existing warnings. Both Windows release executables compile and pass version/help smoke checks.
+Portable-archive isolation checks are repeated during packaging. No signed network
+requests, real accounts or orders were used.
+
 # Cross-platform lock-lifetime regression
 
 The full desktop-feature all-target suite passes **210 offline tests** after

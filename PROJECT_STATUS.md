@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.4** on `leviathan/execution-foundation`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.4^{commit}`.
-- Previous recovery: v1.7.0-alpha.1 (`141f67381eb95a2d1084ea44717cdff24fd043c6`).
+- Version and current recovery tag: **v1.7.0-alpha.5** on `leviathan/execution-foundation`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.5^{commit}`.
+- Previous recovery: v1.7.0-alpha.4 (`dce0b4e44e71109ef08f3e5c29b624c91fe0c1ca`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: authoritative financial evidence and risk foundations, followed immediately by native cockpit/research implementation.
+- Current phase: evidence-driven reservation lifecycle, complete financial settlement and broader recovery; native cockpit and bounded research foundations are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -24,7 +24,7 @@
 - Standard perp equity excludes spot balances; stale/error equity cannot size entries.
 - Independent log filter prevents SDK debug/trace signed-payload events; config
   Debug output redacts key material.
-- Compatible dependency modernization: 39 to 19 vulnerability entries, 20 to 17 warnings.
+- Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
 - 162 offline tests pass, including cross-process locks, ledger replay, concurrency,
   logging, unknown costs, account identity and risk reservation tests.
@@ -118,3 +118,18 @@ closes. A deterministic duplicate-handle regression preserves exclusivity while
 owned and proves the next owner cannot be unlocked by a stale duplicate close.
 The full offline desktop-feature suite now passes 210 tests. No lock file is
 unlinked and no acquisition retry hides contention.
+
+## Next milestone — scoped reservation reconciliation
+
+Read-only design review identifies two proof gaps before automatic release:
+AccountSnapshot currently omits account/venue/environment identity and individual
+position/order identities, and remote positions may come from a different
+clearinghouse read than aggregate risk exposure. Reservation insertion also
+precedes journal insertion, so orphan reservations must remain held.
+
+Introduce a scoped authoritative evidence bundle with positions and exposure
+from one clearinghouse payload. Initially allow release only for definite
+zero-fill rejected entries, or known applied entries whose receipt, unique entry
+metadata and exact owned remote position agree. Ambiguous/resting/missing-journal,
+reduced and closed cases remain held. Keep financial-settlement gates separate.
+No timeout, missing row or guessed zero may release exposure.
