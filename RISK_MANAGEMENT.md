@@ -154,3 +154,23 @@ record caps are explicit; no returned rows does not prove no venue order exists.
 Original acquisition/record times are preserved, never refreshed into live proof.
 Missing observation tables are marked unavailable. This is a CLI/Rust inspector;
 a dedicated GUI panel, live-observation CLI and automatic recovery remain future work.
+
+## Acknowledged-fill quantity coverage — alpha.13
+
+`FinancialLedger::acknowledged_order_evidence` requires exact quantity coverage
+of a known native acknowledgment, matching account/environment scope and current
+binding. Journal, native facts and selected ledger fills share one SQLite read
+transaction. Native reduction verification uses the original exact quantity plus
+a checked legacy projection; legacy-only records keep conservative compatibility
+checks and are never relabelled as native acknowledgments.
+
+Partial sets remain available through `order_evidence`, but excess acknowledged
+quantity or mismatched payload/index provenance fails. Indexed cloid/order-ID
+selection avoids duplicate matches and unbounded sorting; selection is capped at
+10,000 fills, 32 KiB per payload and 16 MiB combined payload bytes.
+
+This is a Rust ledger API, not a new financial-repair command. Returned coverage
+explicitly leaves round-trip settlement unverified. Missing or foreign-token fees
+remain unknown in USDC; rebates remain signed and explicit zero fees remain known.
+Unverified PnL conventions and funding/entry-cost gaps do not become invented net
+profit. No API here changes execution state or releases risk/financial holds.

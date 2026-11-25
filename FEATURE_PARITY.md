@@ -37,3 +37,5 @@ obsolete active Ethereum integration. Broader requested features are deferred,
 not silently excluded.
 
 Read-only lifecycle provenance is implemented through the Rust API in alpha.11. Alpha.12 adds the offline `status-history` CLI/Rust inspector. A live-observation CLI, dedicated GUI, automatic order-state repair and complete net settlement remain planned.
+
+Alpha.13 adds exact native acknowledged-quantity coverage and consistent ledger snapshots through the Rust API. Complete order history, funding/entry attribution and round-trip settlement remain unverified.

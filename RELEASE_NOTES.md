@@ -1,34 +1,35 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.12
+# HYDRA — Project Leviathan 1.7.0-alpha.13
 
-Offline lifecycle inspection. Engineering prerelease on main; this is not stable-live
-certification or automatic execution/financial recovery. No real account probes,
-signed network requests or exchange orders were used during verification.
+Exact acknowledged-fill coverage. Engineering prerelease on main; this does not
+certify full order history, round-trip settlement or stable-live readiness.
+No real account probes, signed network requests or exchange orders were used.
 
 ## Implemented
 
-- Add `status-history --db PATH --intent UUID --limit N` and a read-only Rust
-  inspector for retained native lifecycle observations.
-- Dispatch before trading configuration, logging and engine storage initialization;
-  no wallet configuration, migrations, venue queries or order commands occur.
-- Read account binding, durable intent and selected observations in one SQLite
-  read transaction. Reject incompatible/virtual/view schemas, malformed provenance,
-  oversized selected payloads, unknown binding and unsupported core versions.
-- Bound inspection to the newest 10,000 global observation row IDs and at most
-  64 matching records. Explicit flags identify capped windows/records; local
-  history is never represented as complete exchange history or a live source.
-- Preserve original acquisition and record times. Missing tables are unavailable,
-  missing files are never created, and inspection does not resolve any hold.
-- Modernize CLI branding to Project Leviathan without altering trading capabilities.
+- Read journal, exact native acknowledgment and scoped ledger fills in one
+  SQLite transaction, preventing mixed snapshots across connections.
+- Add `FinancialLedger::acknowledged_order_evidence` to require exact coverage
+  of a known native acknowledged quantity. Scope and account binding must agree;
+  legacy float receipts cannot be relabelled as exact native acknowledgments.
+- Retain useful partial evidence while refusing excess acknowledged quantity.
+  Native reduction verification uses original exact quantity with an explicit
+  legacy compatibility check, rather than reconstructing precision from floats.
+- Use bounded indexed fill selection without duplicate cloid/order-ID matches,
+  validate payload/index provenance, and enforce record and byte budgets.
+- Preserve missing/foreign-currency fee uncertainty, signed rebates and unverified
+  PnL conventions. Complete quantity coverage never marks round-trip settlement
+  verified or changes execution/risk/financial holds.
 
-All 295 release-version offline tests pass. The fresh audit reports zero
+All 304 release-version offline tests pass. The fresh audit reports zero
 vulnerability entries and one Chrono maintenance warning. Clippy completes with
 warnings; both Windows release binaries compile. Extracted portable smoke is repeated
-during packaging. Native screenshots show the unchanged alpha.9 layout;
-this milestone adds a CLI/API inspector, not a new GUI panel. Executables are unsigned.
+during packaging. This is a Rust
+ledger API milestone; there is no new financial-repair CLI or GUI. Native images
+show the unchanged alpha.9 layout. Executables are unsigned; verify checksums.
 
 ## Remaining limits
 
-The bounded local window may omit older observations; absence does not prove no
-venue order. Retained lifecycle labels do not establish execution price, complete
-fees/funding or net settlement. Operator-facing live observation, exact signed-wire
-provenance, authoritative automatic recovery and stable-live readiness remain open.
+An acknowledged fill set does not establish other entry costs, funding coverage,
+strategy attribution, exact signed-wire provenance or complete account history.
+Automatic recovery, full fixed-point core migration and net settlement remain
+open. Local consistency checks are not cryptographic database attestation.

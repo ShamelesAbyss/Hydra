@@ -143,3 +143,12 @@ proves complete funding coverage. Keep all independent financial holds active.
 
 Persisting exact signed-wire request provenance and authoritative unknown-order
 recovery remain separate required work. Continue directly on main.
+
+## Next request-provenance boundary after alpha.13
+
+Persist the actual native unsigned wire action before signing/network write in
+the engine submission path. Retain canonical cloid, asset, exact wire price/size,
+side/reduce-only/type and canonical encoded action bytes or digest, bound to the
+submitted journal/account. Database failure must prevent submission. Do not store
+private keys or signatures, or equate unsigned action provenance with complete
+signed nonce evidence. Preserve current submission semantics and independent holds.

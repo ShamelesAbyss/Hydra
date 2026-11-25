@@ -1,3 +1,22 @@
+# Release verification — 1.7.0-alpha.13
+
+All **304 offline desktop-feature all-target release-version tests pass**.
+Nine additional tests cover exact acknowledged quantity, cloid/OID overlap without
+double counting, partial/excess fills, legacy precision distinction, native scope,
+reduction projection, unknown/foreign/rebate/zero fees, corrupt provenance,
+unchanged holds and restart. A deterministic two-connection WAL test proves one
+snapshot across an external atomic journal/fill commit.
+
+Formatting and Clippy complete with warnings. Fresh audit exits 0 with zero
+vulnerability entries and one Chrono maintenance warning, no advisory ignores.
+Both Windows CLI and native cockpit release binaries compile. Extracted portable
+smoke is repeated during packaging.
+No real account probes, signed network requests or exchange orders were used.
+Synthetic REST-decoded test data preserves the existing prohibition against
+fixture-source evidence entering a mainnet-scoped ledger.
+Alpha.12 passed all four tagged CI jobs:
+[verified alpha.12 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45636922784).
+
 # Release verification — 1.7.0-alpha.12
 
 All **295 offline desktop-feature all-target release-version tests pass**.

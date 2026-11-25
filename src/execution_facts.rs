@@ -406,3 +406,20 @@ pub(crate) fn apply_residual_on(
     );
     Ok(true)
 }
+
+/// Internal mainnet acknowledgment anchor, revalidated against its durable
+/// journal and current database account binding in the caller's transaction.
+pub(crate) fn native_ack_quantity_on(
+    conn: &Connection,
+    intent_id: &str,
+) -> Result<Option<(String, Decimal)>> {
+    let Some(fill) = stored_fill(conn, intent_id)? else {
+        return Ok(None);
+    };
+    let binding:String=conn.query_row("SELECT CASE WHEN length(CAST(value AS BLOB))=42 THEN value END FROM meta_kv WHERE key='trading_account_binding'",[],|r|r.get(0))?;
+    ensure!(
+        binding == fill.account,
+        "native acknowledgment account binding disagrees"
+    );
+    Ok(Some((fill.account, fill.facts.values()?.0)))
+}

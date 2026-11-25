@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.13
+
+- Reconcile exact native acknowledged quantity against scoped ledger fills.
+- Keep journal and fill evidence within one SQLite snapshot across connections.
+- Bound indexed selection and verify payload/index provenance without duplicate matches.
+- Preserve partial/unknown components and all independent settlement holds.
+
 ## 1.7.0-alpha.12
 
 - Expose retained lifecycle evidence through a wallet-free offline inspector.

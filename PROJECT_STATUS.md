@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.12** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.12^{commit}`.
-- Previous recovery: v1.7.0-alpha.11 (`ff6e18a217938fd7f52062e2b788e4c19a5d3b00`).
+- Version and current recovery tag: **v1.7.0-alpha.13** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.13^{commit}`.
+- Previous recovery: v1.7.0-alpha.12 (`765f2548808d84291235c0292fb0e04ba8dc3c1a`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.12 source: 295 offline desktop-feature tests pass; alpha.11 contains 287.
+- Alpha.13 source: 304 offline desktop-feature tests pass; alpha.12 contains 295.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -251,3 +251,17 @@ windows explicitly. Missing or corrupt evidence never becomes financial proof.
 Continue directly on main with operator-facing live observation, exact signed-wire
 request provenance and authoritative recovery/settlement. Native GUI lifecycle
 inspection remains planned; the existing interface is unchanged in this milestone.
+
+## Alpha.13 acknowledgment/ledger coverage checkpoint
+
+All 304 offline desktop-feature tests pass. A known exact native acknowledgment
+can anchor complete quantity coverage in the scoped ledger, read in one consistent
+SQLite transaction. Partial fills remain explicitly partial; excess/mismatched
+facts fail. Native reduction verification preserves exact quantity rather than
+reconstructing it from a legacy float. No round-trip settlement or risk/financial
+hold is cleared. Unknown costs, foreign-token fees and funding gaps remain explicit.
+
+Next: actual unsigned wire-action provenance before native submission, then
+broader authoritative recovery and complete funding/entry attribution. Exact
+signed-wire/nonce provenance, secure credentials and stable-live certification
+remain separate open requirements. Continue directly on main.
