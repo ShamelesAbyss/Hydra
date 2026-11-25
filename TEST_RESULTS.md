@@ -1,3 +1,14 @@
+# Verification — 1.7.0-alpha.6
+
+The scoped reconciliation implementation passes 228 offline desktop-feature
+all-target tests, including archive rollback, exact scoped evidence, causal proof,
+runtime reuse and independent settlement holds. The release-version suite also passes all 228 tests, and the fresh release audit
+exits 0 with zero vulnerability entries and one Chrono maintenance warning.
+Both Windows release executables compile and pass version checks; extracted
+archive smoke verification is repeated during packaging. Formatting
+and Clippy pass with existing warnings. No real accounts, signed requests or
+orders are used; HTTP response-limit fixtures use loopback only.
+
 # Scoped reconciliation checkpoint after alpha.5
 
 The full desktop-feature all-target suite passes **228 offline tests**. Eighteen

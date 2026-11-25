@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.0-alpha.6
+
+- Reconcile only proven terminal entry reservations against fresh scoped account evidence.
+- Retain immutable batch evidence atomically with risk snapshots, holds and events.
+- Preserve ambiguous, orphan, reduced/closed and unknown financial-settlement holds.
+- Reuse validated snapshots for entries; bypass maintenance for protective reductions.
+- Bound account acquisition, decoded responses and redacted diagnostic previews.
+- Reject inconsistent zero-quantity exposure and unsupported contingent entry orders.
+
 ## 1.7.0-alpha.5
 
 - Persist original entry risk/context and recover only proven durable entry applications.

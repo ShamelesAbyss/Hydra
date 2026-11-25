@@ -1,48 +1,35 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.5
+# HYDRA — Project Leviathan 1.7.0-alpha.6
 
-Native execution dependency remediation and restart evidence, with the redesigned
-seven-head project presentation. This is an engineering prerelease, not a
-stable-live certification.
+Scoped risk-reservation reconciliation and durable evidence. This engineering
+prerelease retains all financial and live-readiness uncertainty gates.
 
-## Changes since alpha.4
+## Implemented
 
-- Persist immutable original risk and learning context atomically with each new
-  position and its durable intent. Restart/stop ratcheting preserves original risk;
-  legacy unknowns remain explicit.
-- Recover only the narrow known-fill crash window after durable position storage,
-  requiring matching bound account, receipt and fresh remote position.
-- Validate net-position ownership again before entries; unknown exposure blocks
-  submission.
-- Replace the active legacy Hyperliquid SDK/ethers graph with a narrow mainnet
-  IOC client using maintained secp256k1/libsecp256k1 primitives, Keccak, ordered
-  MessagePack and independently verified EIP-712 framing. No transfer/withdrawal
-  interface is exposed.
-- Signed transport uses a fixed destination, no redirects or retries, a 15-second
-  timeout and a 1 MiB response bound. Ambiguous failures retain unresolved state.
-- Targeted rust_decimal and Ratatui parent upgrades remove affected dependency
-  copies. Fresh audit: zero vulnerability entries and one Chrono maintenance warning,
-  with no advisory suppressions.
-- Explicit ownership unlock fixes a Linux descriptor-lifetime race while retaining
-  exclusivity; deterministic duplicate-handle regression added.
-- Publish original repository-owned SVG branding, subsystem panels, architecture
-  and execution diagrams, plus actual empty-history/research UI captures. Default
-  branch presentation changes do not merge experimental trading code.
+- Reconcile definite zero-fill rejected entries and known untouched applied entries
+  only when bound account, canonical intent/receipt, position and current exposure agree.
+- Obtain exact default-perp standard-account quantities/notionals, equity and server
+  time from one clearinghouse payload, with bounded separate open-order reads.
+- Require evidence newer than the journal outcome and prior reservation/snapshot.
+- Atomically update risk state, archive complete batch evidence, append events and
+  preserve or latch drawdown breakers. Replays do not duplicate releases.
+- Reuse the validated bundle for admission; maintenance reads cannot block protective
+  reduce-only submission. Unknown net settlement remains an independent hold.
+- Bound evidence acquisition to 15 seconds, decoded info responses to 4 MiB and
+  diagnostic previews to redacted Unicode-safe character limits.
+- Reject unsupported contingent entry orders and inconsistent zero-size notionals.
+- Include repository artwork in CI packages; preserve the redesigned GitHub presentation.
 
-## Verification and artifacts
+## Verification and limits
 
-The preceding source checkpoint passes 210 offline desktop-feature tests, including
-all eight published cross-language signing fixtures. Release verification records
-are maintained in TEST_RESULTS.md. Windows x86_64 portable packaging includes
-hydra.exe, hydra-cockpit.exe, configuration and supporting guides. Executables are
-unsigned. Compare the archive hashes with the attached SHA-256 manifest.
+228 offline tests pass on the release-version implementation. Both Windows release executables compile and pass version checks. Archive
+checks are repeated during packaging. Dependency copies remain at zero reported
+vulnerability entries and one Chrono maintenance warning, with no suppressions.
+Signing continues to pass the eight official cross-language conformance fixtures.
+Windows executables remain unsigned. No real account probes, signed requests,
+exchange orders or transfers are used during development verification.
 
-No real exchange orders, credential probes, signed requests or transfers were used
-in development verification. A dependency audit pass does not establish full
-security, financial correctness, profitability or live operational readiness.
-
-## Remaining gates
-
-Unknown acknowledgments and pending net settlement remain blocked. Complete
-fee/funding settlement, broad fill/cloid recovery, runtime reservation reconciliation,
-legacy learning provenance and the Chrono migration remain open. Oracle's fixed-cost
-full-fill model and Genesis's bounded CPU search retain their documented limits.
+REST reads are not an atomic exchange snapshot. Clock regression retains holds.
+Submitted, ambiguous, resting, unapplied, orphan, legacy-metadata, reduced and
+closed reservations are not automatically released. The reserve-before-journal
+crash window remains the next milestone. Complete net fee/funding settlement,
+broader recovery and stable-live certification remain open.

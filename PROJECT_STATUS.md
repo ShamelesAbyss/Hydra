@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.5** on `leviathan/execution-foundation`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.5^{commit}`.
-- Previous recovery: v1.7.0-alpha.4 (`dce0b4e44e71109ef08f3e5c29b624c91fe0c1ca`).
+- Version and current recovery tag: **v1.7.0-alpha.6** on `leviathan/execution-foundation`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.6^{commit}`.
+- Previous recovery: v1.7.0-alpha.5 (`faff1ddbd181d447b1b4e142c99e52ad0f1d056b`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: evidence-driven reservation lifecycle, complete financial settlement and broader recovery; native cockpit and bounded research foundations are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
