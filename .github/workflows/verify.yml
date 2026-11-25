@@ -48,6 +48,8 @@ jobs:
           Copy-Item "target/release/hydra$extension" "dist/$name/"
           Copy-Item README.md,LICENSE,PROJECT_STATUS.md,TEST_RESULTS.md "dist/$name/"
           Copy-Item config "dist/$name/config" -Recurse
+          New-Item -ItemType Directory -Path "dist/$name/docs" -Force | Out-Null
+          Copy-Item docs/assets "dist/$name/docs/assets" -Recurse
           if ($IsWindows) {
             $archive = "$name.zip"
             Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$archive"
