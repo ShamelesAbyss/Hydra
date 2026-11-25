@@ -28,6 +28,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Preserve permanent memorial dedication
+        shell: pwsh
+        run: ./.github/scripts/verify-memorial.ps1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -48,6 +51,7 @@ jobs:
           Copy-Item "target/release/hydra$extension" "dist/$name/"
           Copy-Item README.md,LICENSE,AGENTS.md,CONTRIBUTING.md,CONSOLIDATION.md,PROJECT_STATUS.md,TEST_RESULTS.md,ARCHITECTURE.md,RISK_MANAGEMENT.md,HYPERLIQUID_INTEGRATION.md,COCKPIT_GUIDE.md,BACKTESTING.md,OPTIMIZATION.md,DEPENDENCY_AUDIT.md,RELEASE_NOTES.md "dist/$name/"
           Copy-Item config "dist/$name/config" -Recurse
+          Copy-Item .cursor "dist/$name/.cursor" -Recurse -Force
           New-Item -ItemType Directory -Path "dist/$name/docs" -Force | Out-Null
           Copy-Item docs/assets "dist/$name/docs/assets" -Recurse
           if ($IsWindows) {

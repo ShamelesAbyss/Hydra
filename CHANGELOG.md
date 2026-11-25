@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0-alpha.19
+
+- Add bounded protocol-2 offline signing-preparation inspection and shared native
+  evidence validation without inferred signing, submission or settlement.
+- Preserve the permanent memorial dedication and include its rule in release packages.
+
 ## 1.7.0-alpha.18
 
 - Integrate durable per-signer nonce reservation into native IOC sends on a blocking

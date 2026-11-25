@@ -220,13 +220,13 @@ missing action history is not fabricated or relabelled as pre-write provenance.
 No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
 or live readiness is established. Verification is offline.
 
-## Next acceptance increment — durable signing preparation (planned)
+## Signing-preparation acceptance defined after alpha.16
 
-The current signer allocates a process-local monotonic nonce and refuses excessive
-clock drift. Alpha.14 retains the unsigned action; alpha.16 checks acknowledgment
-bounds. None retains the selected signing nonce or proves a complete signed envelope.
+At alpha.16 the signer used a process-local counter. The acceptance criteria below
+led to the coordinator in alpha.17, engine integration in alpha.18 and bounded
+inspection in alpha.19. Full signed-envelope proof remains outside those deliveries.
 
-Before changing the signed path, establish these acceptance boundaries:
+The signed-path acceptance boundaries were:
 
 1. Coordinate nonce identity by canonical public signer, which can differ from the
    bound trading account for approved agents. Define durable coordination across
@@ -248,8 +248,9 @@ Before changing the signed path, establish these acceptance boundaries:
    read-only inspection only after the underlying provenance contract is implemented.
    Do not activate live verification, signed account probes or real orders.
 
-The coordinator design and crash semantics require implementation and verification;
-this section records acceptance work, not an already delivered signing guarantee.
+The coordinator, ordered preparation and local inspection are now implemented and
+verified as described in the alpha.17–19 sections below. They do not establish full
+signed-envelope attestation, complete financial recovery or power-loss certification.
 
 ## Durable signer-nonce coordinator foundation — alpha.17
 
@@ -305,3 +306,43 @@ Historical absence, unresolved execution/risk/financial holds and unsigned relea
 classification remain. The CLI still inspects unsigned action history; bounded
 preparation inspection is the next increment. Verification uses invalid-key native
 fixtures, pure metadata checks and simulated senders, never signed network requests.
+
+## Bounded signing-preparation inspection — alpha.19
+
+`wire-history` now emits protocol 2, adding explicit preparation-table availability
+and optional retained metadata. Status-history protocol 1 and core SQLite schema 2
+are unchanged. One read-only transaction validates indexed account/signer/nonce,
+canonical values, supported mainnet domain and exact hashes recomputed from the
+retained unsigned MessagePack. Selected preparation JSON is capped at 2 KiB; fields
+and table/primary-key shape are bounded/checked before decoding. No global nonce
+coordinator, wallet, trading configuration, engine migration or venue is opened.
+
+Original preparation times and the immutable `prepared_not_sent` capture-event
+phase are preserved. This phase is not an assertion that the current order remains
+unsent. Output keeps live-source, submission/acceptance-proof and signed-envelope
+flags false. Missing tables and absent records are distinct historical limits;
+orphan, corrupt or contradictory retained preparation fails rather than becoming
+unknown legacy evidence. Local consistency is not database attestation.
+
+Native exact-receipt persistence and later fact reads reuse this validator in the
+caller's transaction. Corrupt retained preparation therefore also refuses native
+acknowledgment/position/ledger/residual evidence paths without clearing any hold.
+Older records with no preparation remain explicitly historical. No automatic
+repair, full signed-envelope proof or complete financial settlement is introduced.
+
+The permanent memorial dedication remains verbatim at the end of README.md.
+Publication checks and portable packages include its project maintenance rule.
+
+## Current next acceptance work after alpha.19
+
+Prioritize conservative recovery admission from consistent local execution evidence:
+classify missing, ambiguous, rejected, resting and filled evidence without guessing
+net settlement or clearing independent holds. Require original scope/identity,
+exact acknowledged quantity, retained action/preparation consistency where available,
+and explicit historical coverage limits. Keep venue observations separate from local
+preparation; neither unsigned bytes nor a prepared nonce proves sending/acceptance.
+
+Full signed-envelope attestation, verified fee/funding/entry attribution, broader
+startup/stream recovery and protected credential storage remain open. Implement
+bounded pure classification and fault fixtures before any automatic state mutation;
+continue development verification without real account probes or signed requests.

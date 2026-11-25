@@ -1,4 +1,5 @@
 //! Bounded read-only inspection of unsigned pre-submission evidence.
+pub use crate::signing_preparation::Preparation;
 use crate::{core::OrderIntent, hyperliquid_wire::UnsignedAction, status_history::table};
 use anyhow::{ensure, Context, Result};
 use rusqlite::{Connection, OpenFlags};
@@ -18,6 +19,8 @@ pub struct History {
     pub journal_state: String,
     pub table_available: bool,
     pub record: Option<ArchivedAction>,
+    pub signing_preparation_table_available: bool,
+    pub signing_preparation: Option<Preparation>,
 }
 #[derive(Debug, Serialize)]
 pub struct ArchivedAction {
@@ -67,8 +70,10 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
         "invalid archived intent"
     );
     let (available, record) = load_on(&tx, &intent, &account)?;
+    let (preparation_available, preparation) =
+        crate::signing_preparation::load_on(&tx, &intent, &account, record.as_ref())?;
     let history = History {
-        schema_version: 1,
+        schema_version: 2,
         read_only: true,
         source_is_live: false,
         submission_or_acceptance_proven: false,
@@ -78,6 +83,8 @@ pub fn inspect(path: &Path, intent_id: &str) -> Result<History> {
         journal_state: state,
         table_available: available,
         record,
+        signing_preparation_table_available: preparation_available,
+        signing_preparation: preparation,
     };
     tx.commit()?;
     Ok(history)
@@ -161,7 +168,9 @@ pub(crate) fn validate_native_fill_on(
     account: &str,
     facts: &crate::execution_facts::PreciseFill,
 ) -> Result<()> {
-    if let Some(record) = load_on(conn, intent, account)?.1 {
+    let record = load_on(conn, intent, account)?.1;
+    crate::signing_preparation::load_on(conn, intent, account, record.as_ref())?;
+    if let Some(record) = record {
         facts.validate_wire_bounds(
             Decimal::from_str_exact(&record.action.size)?,
             Decimal::from_str_exact(&record.action.price)?,
@@ -551,5 +560,153 @@ mod tests {
         })
         .unwrap();
         assert!(acknowledged(&db, &i).is_err());
+    }
+
+    fn prepare(db: &Storage, i: &OrderIntent) {
+        let a = OrderAction::ioc(4, true, 101.0, 1.2345, false, &i.id).unwrap();
+        SubmissionJournal::new(db, i)
+            .record_signing_preparation("0x2222222222222222222222222222222222222222", 100, &a)
+            .unwrap();
+    }
+    fn change_preparation(db: &Storage, key: &str, value: serde_json::Value) {
+        let encoded: String = db
+            .with_conn(|c| {
+                c.query_row(
+                    "SELECT preparation_json FROM execution_signing_preparations",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        let mut p: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        p[key] = value;
+        db.with_conn(|c| {
+            c.execute(
+                "UPDATE execution_signing_preparations SET preparation_json=?1",
+                [p.to_string()],
+            )
+        })
+        .unwrap();
+    }
+    #[test]
+    fn protocol_two_preserves_preparation_bytes_times_and_evidence_limits() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("prepared.db");
+        let (db, i) = setup(&p);
+        prepare(&db, &i);
+        let expected = inspect(&p, &i.id).unwrap().signing_preparation.unwrap();
+        drop(db);
+        let before = std::fs::read(&p).unwrap();
+        let h = inspect(&p, &i.id).unwrap();
+        assert_eq!(h.schema_version, 2);
+        assert!(h.read_only && h.signing_preparation_table_available);
+        assert_eq!(h.signing_preparation.unwrap(), expected);
+        assert!(
+            !h.source_is_live && !h.submission_or_acceptance_proven && !h.signed_envelope_available
+        );
+        assert_eq!(std::fs::read(&p).unwrap(), before);
+    }
+    #[test]
+    fn absent_preparation_table_and_record_are_distinct_without_creation() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("historical.db");
+        let (db, i) = setup(&p);
+        let h = inspect(&p, &i.id).unwrap();
+        assert!(h.signing_preparation_table_available && h.signing_preparation.is_none());
+        db.with_conn(|c| c.execute_batch("DROP TABLE execution_signing_preparations"))
+            .unwrap();
+        let h = inspect(&p, &i.id).unwrap();
+        assert!(!h.signing_preparation_table_available && h.signing_preparation.is_none());
+    }
+    #[test]
+    fn preparation_scope_domain_phase_and_unknown_fields_are_refused() {
+        for (key, value) in [
+            (
+                "account",
+                serde_json::json!("0x3333333333333333333333333333333333333333"),
+            ),
+            (
+                "signer",
+                serde_json::json!("0x3333333333333333333333333333333333333333"),
+            ),
+            ("nonce", serde_json::json!("0100")),
+            ("domain_chain_id", serde_json::json!(1)),
+            ("agent_source", serde_json::json!("b")),
+            (
+                "vault_address",
+                serde_json::json!("0x3333333333333333333333333333333333333333"),
+            ),
+            ("expires_after_ms", serde_json::json!(100)),
+            ("phase", serde_json::json!("accepted")),
+            ("prepared_at_ms", serde_json::json!(0)),
+            ("signature", serde_json::json!("untrusted")),
+        ] {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("scope.db");
+            let (db, i) = setup(&p);
+            prepare(&db, &i);
+            change_preparation(&db, key, value);
+            assert!(inspect(&p, &i.id).is_err(), "{key}");
+        }
+    }
+    #[test]
+    fn preparation_hashes_must_reproduce_retained_action_and_nonce() {
+        for key in ["connection_hash", "agent_digest"] {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("hash.db");
+            let (db, i) = setup(&p);
+            prepare(&db, &i);
+            change_preparation(&db, key, serde_json::json!("00".repeat(32)));
+            assert!(inspect(&p, &i.id).is_err());
+        }
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("nonce.db");
+        let (db, i) = setup(&p);
+        prepare(&db, &i);
+        change_preparation(&db, "nonce", serde_json::json!("101"));
+        db.with_conn(|c| c.execute("UPDATE execution_signing_preparations SET nonce='101'", []))
+            .unwrap();
+        assert!(inspect(&p, &i.id).is_err());
+    }
+    #[test]
+    fn oversized_and_index_contradictory_preparations_are_refused() {
+        for sql in ["UPDATE execution_signing_preparations SET signer='0x3333333333333333333333333333333333333333'",
+            "UPDATE execution_signing_preparations SET nonce='101'", "UPDATE execution_signing_preparations SET preparation_json=printf('%02049d',1)"] {
+            let d=tempfile::tempdir().unwrap();let p=d.path().join("index.db");let(db,i)=setup(&p);prepare(&db,&i);
+            db.with_conn(|c|c.execute_batch(sql)).unwrap();assert!(inspect(&p,&i.id).is_err());
+        }
+    }
+    #[test]
+    fn orphan_preparation_cannot_become_unknown_unsigned_history() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("orphan.db");
+        let (db, i) = setup(&p);
+        prepare(&db, &i);
+        // Synthetic corruption only: ordinary production writes keep foreign keys.
+        db.with_conn(|c|c.execute_batch("PRAGMA foreign_keys=OFF;DELETE FROM execution_wire_requests;PRAGMA foreign_keys=ON")).unwrap();
+        assert!(inspect(&p, &i.id).is_err());
+    }
+    #[test]
+    fn preparation_views_and_unindexed_tables_are_refused() {
+        for view in [false, true] {
+            let d = tempfile::tempdir().unwrap();
+            let p = d.path().join("schema.db");
+            let (db, i) = setup(&p);
+            prepare(&db, &i);
+            db.with_conn(|c|c.execute_batch(if view {"DROP TABLE execution_signing_preparations;CREATE VIEW execution_signing_preparations AS SELECT 1"} else {"ALTER TABLE execution_signing_preparations RENAME TO old_preparations;CREATE TABLE execution_signing_preparations AS SELECT * FROM old_preparations"})).unwrap();
+            assert!(inspect(&p, &i.id).is_err());
+        }
+    }
+    #[test]
+    fn native_acknowledgment_reads_refuse_corrupt_retained_preparation() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("ack-prepared.db");
+        let (db, i) = setup(&p);
+        prepare(&db, &i);
+        persist(&db, &i, "1.2345", "100").unwrap();
+        assert!(acknowledged(&db, &i).unwrap().is_some());
+        change_preparation(&db, "agent_digest", serde_json::json!("00".repeat(32)));
+        assert!(acknowledged(&db, &i).is_err());
+        assert!(db.ensure_execution_resolved().is_err());
     }
 }

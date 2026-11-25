@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Preparation {
+pub struct Preparation {
     pub intent_id: String,
     pub account: String,
     pub signer: String,
@@ -19,6 +19,88 @@ pub(crate) struct Preparation {
     pub expires_after_ms: Option<u64>,
     pub phase: String,
     pub prepared_at_ms: i64,
+}
+/// Historical local consistency only. Never reads signer coordinator state,
+/// refreshes timestamps, changes journals or establishes signing/acceptance.
+pub(crate) fn load_on(
+    conn: &Connection,
+    intent: &OrderIntent,
+    account: &str,
+    wire: Option<&crate::wire_history::ArchivedAction>,
+) -> Result<(bool, Option<Preparation>)> {
+    let available = crate::status_history::table(conn, "execution_signing_preparations")?;
+    if !available {
+        return Ok((false, None));
+    }
+    let keys = {
+        let mut s=conn.prepare("SELECT name FROM pragma_table_info('execution_signing_preparations') WHERE pk>0 ORDER BY pk")?;
+        let rows = s.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    ensure!(
+        keys == ["intent_id"],
+        "unsupported signing preparation primary key"
+    );
+    let mut s=conn.prepare("SELECT CASE WHEN length(CAST(intent_id AS BLOB))=36 THEN intent_id END,CASE WHEN length(CAST(account AS BLOB))=42 THEN account END,CASE WHEN length(CAST(signer AS BLOB))=42 THEN signer END,CASE WHEN length(CAST(nonce AS BLOB)) BETWEEN 1 AND 20 THEN nonce END,CASE WHEN length(CAST(environment AS BLOB))<=32 THEN environment END,CASE WHEN length(CAST(source AS BLOB))<=64 THEN source END,CASE WHEN length(CAST(preparation_json AS BLOB))<=2048 THEN preparation_json END FROM execution_signing_preparations WHERE intent_id=?1 LIMIT 2")?;
+    let mut rows = s.query([&intent.id])?;
+    let Some(row) = rows.next()? else {
+        return Ok((true, None));
+    };
+    let id: String = row.get(0)?;
+    let saved_account: String = row.get(1)?;
+    let signer: String = row.get(2)?;
+    let nonce: String = row.get(3)?;
+    let environment: String = row.get(4)?;
+    let source: String = row.get(5)?;
+    let encoded: String = row.get(6)?;
+    let p: Preparation = serde_json::from_str(&encoded)?;
+    ensure!(
+        id == intent.id
+            && saved_account == account
+            && p.intent_id == intent.id
+            && p.account == account
+            && crate::ownership::canonical_account(account)? == account
+            && p.signer == signer
+            && crate::ownership::canonical_account(&signer)? == signer
+            && p.nonce == nonce
+            && environment == "mainnet"
+            && source == "native_ioc_signing_preparation"
+            && p.domain_chain_id == 1337
+            && p.agent_source == "a"
+            && p.vault_address.is_none()
+            && p.expires_after_ms.is_none()
+            && p.phase == "prepared_not_sent"
+            && p.prepared_at_ms > 0,
+        "archived signing preparation scope disagrees"
+    );
+    let nonce = nonce.parse::<u64>()?;
+    ensure!(
+        nonce > 0 && nonce.to_string() == p.nonce,
+        "invalid archived signing nonce"
+    );
+    let wire = wire.context("signing preparation has no retained unsigned action")?;
+    wire.action.validate()?;
+    ensure!(
+        wire.action.client_order_id == crate::order_status::client_order_id(&intent.id)?,
+        "preparation client identity disagrees"
+    );
+    let connection = crate::hyperliquid_wire::action_hash(
+        &hex::decode(&wire.action.messagepack_hex)?,
+        nonce,
+        None,
+        None,
+    );
+    ensure!(
+        p.connection_hash == hex::encode(connection)
+            && p.agent_digest
+                == hex::encode(crate::hyperliquid_wire::agent_digest(connection, true)),
+        "archived signing hashes disagree with retained action and nonce"
+    );
+    ensure!(
+        rows.next()?.is_none(),
+        "duplicate signing preparation records"
+    );
+    Ok((true, Some(p)))
 }
 pub(crate) fn migrate_on(conn: &Connection) -> Result<()> {
     conn.execute_batch(

@@ -308,3 +308,29 @@ Historical absence, unresolved execution/risk/financial holds and unsigned relea
 classification remain. The CLI still inspects unsigned action history; bounded
 preparation inspection is the next increment. Verification uses invalid-key native
 fixtures, pure metadata checks and simulated senders, never signed network requests.
+
+## Bounded signing-preparation inspection — alpha.19
+
+`wire-history` now emits protocol 2, adding explicit preparation-table availability
+and optional retained metadata. Status-history protocol 1 and core SQLite schema 2
+are unchanged. One read-only transaction validates indexed account/signer/nonce,
+canonical values, supported mainnet domain and exact hashes recomputed from the
+retained unsigned MessagePack. Selected preparation JSON is capped at 2 KiB; fields
+and table/primary-key shape are bounded/checked before decoding. No global nonce
+coordinator, wallet, trading configuration, engine migration or venue is opened.
+
+Original preparation times and the immutable `prepared_not_sent` capture-event
+phase are preserved. This phase is not an assertion that the current order remains
+unsent. Output keeps live-source, submission/acceptance-proof and signed-envelope
+flags false. Missing tables and absent records are distinct historical limits;
+orphan, corrupt or contradictory retained preparation fails rather than becoming
+unknown legacy evidence. Local consistency is not database attestation.
+
+Native exact-receipt persistence and later fact reads reuse this validator in the
+caller's transaction. Corrupt retained preparation therefore also refuses native
+acknowledgment/position/ledger/residual evidence paths without clearing any hold.
+Older records with no preparation remain explicitly historical. No automatic
+repair, full signed-envelope proof or complete financial settlement is introduced.
+
+The permanent memorial dedication remains verbatim at the end of README.md.
+Publication checks and portable packages include its project maintenance rule.

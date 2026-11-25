@@ -1,3 +1,21 @@
+# Release verification — 1.7.0-alpha.19
+
+All **360 offline desktop-feature all-target release-version tests pass**.
+Nine added regressions cover byte-preserving protocol-2 preparation inspection,
+missing table/record distinction without migration, invalid scope/domain/phase and
+unknown fields, hash and nonce contradictions, indexed metadata/oversize refusal,
+orphan records, views/unindexed schemas, native acknowledgment refusal on corrupt
+preparation, and the real CLI's configuration/wallet bypass with retained metadata.
+Original times and all no-live/no-signature/no-submission-proof flags are preserved.
+
+Formatting and Clippy complete with existing warnings. Fresh lockfile audit exits
+0 with zero vulnerability entries and one Chrono maintenance warning, no ignores.
+Windows CLI/cockpit compilation and extracted smoke are checked before publication.
+No real account probes, signed network requests, orders or transfers were used.
+The permanent memorial dedication is verified as the exact final README section.
+Alpha.18 passed all four tagged CI jobs and all five release asset digests match:
+[Verified alpha.18 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45702690919).
+
 # Release verification — 1.7.0-alpha.18
 
 All **351 offline desktop-feature all-target release-version tests pass**.

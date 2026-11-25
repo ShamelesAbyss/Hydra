@@ -1,40 +1,34 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.18
+# HYDRA — Project Leviathan 1.7.0-alpha.19
 
-Durable signer nonce integration and engine signing-preparation provenance.
+Bounded offline signing-preparation inspection and consistent native evidence.
 Engineering prerelease on main; live-trading readiness remains incomplete.
 
 ## Implemented
 
-- Replace the native process-local nonce counter with the shared durable signer
-  coordinator. Reserve on a blocking worker before signing; failures stop submission.
-- On the engine path, atomically retain account, public signer, selected nonce,
-  action hash, mainnet Agent digest/domain, absent vault/expiry and original time
-  before signing. Scope and exact bytes must match the unchanged submitted intent
-  and retained rounded IOC action. Phase is explicitly `prepared_not_sent`.
-- Refuse duplicates, conflicts and failed/ignored/rewritten journal writes. Nonces
-  remain consumed if preparation fails; neither database is reset or rolled back
-  as a substitute for recovery. Independent execution/risk/financial holds remain.
-- Preserve fixed mainnet IOC transport, no redirects/retries and upstream identity
-  checks. No key, signature or signed authorization payload is retained or logged.
+- Extend `wire-history` to protocol 2 with explicit preparation-table availability
+  and optional retained metadata. Core SQLite schema 2 and status-history protocol 1
+  remain unchanged. Inspect one existing read-only transaction without migrations,
+  wallet, configuration, global nonce coordinator or network access.
+- Bound JSON/metadata before decoding; check ordinary table/primary-key shape,
+  account/signer/nonce/domain scope and action/Agent hashes from the exact retained
+  unsigned bytes. Preserve original times and immutable capture-event phase.
+- Reuse preparation validation on exact native receipt persistence and subsequent
+  fact reads. Corrupt/orphan/index-contradictory evidence cannot silently fall back
+  to historical absence. Independent execution/risk/financial holds remain intact.
+- Preserve the owner's permanent memorial dedication verbatim at the end of the
+  README and include its maintenance rule in portable packages/publication checks.
 
-Native sender tests use invalid keys and simulated responses. Additional tests cover
-metadata/domain agreement, changed scope/action/intent, duplicate nonce/intent,
-rollback and ignored/rewritten rows, restart, nonce consumption on journal failure,
-and sender refusal on nonce/preparation faults. Existing signing fixtures remain.
+Added tests cover byte-preserving protocol-2 inspection, absent history distinction,
+scope/domain/phase/hash/nonce/index corruption, oversize input, orphan records,
+views/unindexed tables, native acknowledgment refusal and CLI wallet/config bypass.
 Full tests, audit, Windows builds and extracted smoke are checked before publication.
 No real account probes, signed network requests, orders or transfers were used.
-Native interface remains unchanged from the actual alpha.9 screenshots.
+Native UI remains unchanged from the actual alpha.9 screenshots.
 
-## Operation and remaining limits
+## Remaining limits
 
-Native calls now require writable shared operator nonce state. Direct low-level
-callers use the durable coordinator but still own their action/order journals;
-the engine path supplies the opaque preparation capability. Preserve one operator
-root across cooperating clients. Separate users/hosts/roots, deleted or tampered
-history and legacy clients are outside the coordination guarantee.
-
-Preparation is not proof of signing, sending, venue acceptance or net settlement.
-Full signed-envelope attestation, bounded preparation inspection, automatic recovery,
-complete fee/funding attribution and protected credential storage remain incomplete.
-The two database commits are ordered, not a distributed atomic transaction.
-Executables are unsigned; historical artifacts remain immutable.
+Preparation does not prove signing, sending or venue acceptance. Its phase records
+an earlier capture point, not current order state. Full signed envelopes are not
+stored or certified; historical metadata is not fresh venue evidence or database
+attestation. Automatic recovery and complete entry/fee/funding/net settlement
+remain incomplete. Executables are unsigned; previous artifacts stay immutable.

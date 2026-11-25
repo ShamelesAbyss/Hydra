@@ -121,7 +121,7 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-    /// Inspect retained unsigned native actions. No network, wallet or migrations.
+    /// Inspect retained native actions and signing preparation. No network or wallet.
     WireHistory {
         #[arg(long, default_value = "data/hydra.db")]
         db: std::path::PathBuf,

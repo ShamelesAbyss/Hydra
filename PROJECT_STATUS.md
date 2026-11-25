@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.18** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.18^{commit}`.
-- Previous recovery: v1.7.0-alpha.17 (`e5b502e1d354733fb089149d31c2f3daea830c81`).
+- Version and current recovery tag: **v1.7.0-alpha.19** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.19^{commit}`.
+- Previous recovery: v1.7.0-alpha.18 (`c3282e09734e4ff8bbb83d65b2758f40778879f2`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.18 source: 351 offline desktop-feature tests pass; alpha.17 contains 341.
+- Alpha.19 source: 360 offline desktop-feature tests pass; alpha.18 contains 351.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.18 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.19 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -397,3 +397,29 @@ Historical absence, unresolved execution/risk/financial holds and unsigned relea
 classification remain. The CLI still inspects unsigned action history; bounded
 preparation inspection is the next increment. Verification uses invalid-key native
 fixtures, pure metadata checks and simulated senders, never signed network requests.
+
+## Bounded signing-preparation inspection — alpha.19
+
+`wire-history` now emits protocol 2, adding explicit preparation-table availability
+and optional retained metadata. Status-history protocol 1 and core SQLite schema 2
+are unchanged. One read-only transaction validates indexed account/signer/nonce,
+canonical values, supported mainnet domain and exact hashes recomputed from the
+retained unsigned MessagePack. Selected preparation JSON is capped at 2 KiB; fields
+and table/primary-key shape are bounded/checked before decoding. No global nonce
+coordinator, wallet, trading configuration, engine migration or venue is opened.
+
+Original preparation times and the immutable `prepared_not_sent` capture-event
+phase are preserved. This phase is not an assertion that the current order remains
+unsent. Output keeps live-source, submission/acceptance-proof and signed-envelope
+flags false. Missing tables and absent records are distinct historical limits;
+orphan, corrupt or contradictory retained preparation fails rather than becoming
+unknown legacy evidence. Local consistency is not database attestation.
+
+Native exact-receipt persistence and later fact reads reuse this validator in the
+caller's transaction. Corrupt retained preparation therefore also refuses native
+acknowledgment/position/ledger/residual evidence paths without clearing any hold.
+Older records with no preparation remain explicitly historical. No automatic
+repair, full signed-envelope proof or complete financial settlement is introduced.
+
+The permanent memorial dedication remains verbatim at the end of README.md.
+Publication checks and portable packages include its project maintenance rule.

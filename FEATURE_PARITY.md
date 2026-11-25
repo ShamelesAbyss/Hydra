@@ -49,3 +49,5 @@ Alpha.16 checks exact native acknowledgment bounds against any retained unsigned
 Alpha.17 adds a durable signer-nonce coordinator Rust foundation. It is not wired into the live sender yet; account ownership, signing preparation and recovery integration remain distinct acceptance work.
 
 Alpha.18 integrates the durable coordinator into all native IOC sender calls and adds engine pre-signing metadata journaling. Full signed-envelope proof, preparation inspection, automatic recovery and net settlement remain incomplete.
+
+Alpha.19 adds protocol-2 read-only signing-preparation inspection and shared native-fact validation. Preparation remains local metadata without signature, submission, acceptance or financial-settlement proof.
