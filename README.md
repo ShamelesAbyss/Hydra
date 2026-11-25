@@ -9,14 +9,14 @@ Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuo
 
 [![Release](https://img.shields.io/badge/release-v1.7.0--alpha.8-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](https://img.shields.io/badge/offline_tests-267_on_main-26D9FF?style=flat-square&labelColor=101C29)](TEST_RESULTS.md) [![Language](https://img.shields.io/badge/engine-Rust_2021-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/Cargo.toml) [![License](https://img.shields.io/badge/license-MIT-B19BFF?style=flat-square&labelColor=101C29)](LICENSE)
 
-[![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/runs/45560484753/job/139022720854) [![Alpha.8 dependency audit](https://img.shields.io/badge/alpha.8_audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/DEPENDENCY_AUDIT.md)
+[![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.8) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579947107/job/139087160708) [![Alpha.8 dependency audit](https://img.shields.io/badge/alpha.8_audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.8/DEPENDENCY_AUDIT.md)
 
 [**Download**](#download) · [**Cockpit**](#cockpit) · [**Seven heads**](#seven-heads) · [**Architecture**](#architecture) · [**Quick start**](#quick-start) · [**Readiness**](#readiness) · [**Roadmap**](#roadmap)
 
 </div>
 
 > [!IMPORTANT]
-> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The published alpha.8 source passes 255 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow the last published release verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45575155206). Alpha.8 preserves exact native fill facts and atomically binds them to journal and position provenance. Prior releases remain available as historical checkpoints.
+> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The published alpha.8 source passes 255 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow the verified alpha.8 release](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579947107). Alpha.8 preserves exact native fill facts and atomically binds them to journal and position provenance. Prior releases remain available as historical checkpoints.
 
 ## Project Leviathan
 
@@ -254,7 +254,7 @@ Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `
 | Evidence | Verified state |
 | :--- | :--- |
 | **Local test suite** | Main: **267 offline desktop-feature tests**; published alpha.8: 255. [Current test evidence](TEST_RESULTS.md) |
-| **GitHub builds** | Exact-facts implementation [passed all four jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579083275); [tagged alpha.8 verification](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579947107) is tracked separately |
+| **GitHub builds** | Unified main [passed all four jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45581670769); alpha.8 [also passed all four tagged jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45579947107) |
 | **Formatting / Clippy** | Passed locally; Clippy retains style warnings |
 | **Signing references** | Eight offline cross-language fixtures against published official Python SDK constants |
 | **Dependency audit** | **Source checkpoint passes**: 0 vulnerability entries, 1 Chrono maintenance warning; no advisory ignores. Alpha.7 retains the remediated dependency graph |
