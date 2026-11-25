@@ -97,6 +97,12 @@ pub fn insert_position_with_context(
              VALUES (?1,?2,?3,?4,1)",
             params![position_id, entry_intent_id, initial_r, context_json],
         )?;
+        crate::execution_facts::capture_position_on(
+            &transaction,
+            position_id,
+            entry_intent_id,
+            position,
+        )?;
         transaction.commit()?;
         Ok(position_id)
     })

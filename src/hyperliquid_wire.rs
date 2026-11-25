@@ -185,6 +185,16 @@ impl OrderAction {
             grouping: "na",
         })
     }
+    pub(crate) fn fill_bounds(
+        &self,
+    ) -> Result<(rust_decimal::Decimal, rust_decimal::Decimal, bool)> {
+        let order = self.orders.first().context("submitted order missing")?;
+        Ok((
+            rust_decimal::Decimal::from_str_exact(&order.s)?,
+            rust_decimal::Decimal::from_str_exact(&order.p)?,
+            order.b,
+        ))
+    }
     pub fn packed(&self) -> Result<Vec<u8>> {
         Ok(rmp_serde::to_vec_named(self)?)
     }

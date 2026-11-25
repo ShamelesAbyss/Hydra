@@ -6,7 +6,7 @@
 - Exact release commit: `git rev-parse v1.7.0-alpha.7^{commit}`.
 - Previous recovery: v1.7.0-alpha.6 (`fe2a1af8ec7a97af00c6f0080ad4644d2c502d5f`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: evidence-driven reservation lifecycle, complete financial settlement and broader recovery; native cockpit and bounded research foundations are implemented.
+- Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -26,8 +26,8 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- 162 offline tests pass, including cross-process locks, ledger replay, concurrency,
-  logging, unknown costs, account identity and risk reservation tests.
+- Current development checkpoint: 255 offline desktop-feature tests pass. Published
+  alpha.7 contains 240 tests; exact native receipt facts are the subsequent checkpoint.
 
 ## Important remaining limits
 
@@ -37,7 +37,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    history coverage and round-trip attribution must be proven before settling trades.
    The alpha.1 NULL-net-PnL reduction restriction remains; no bypass/reset was added.
 2. Aegis reservations remain active until explicit authoritative reconciliation;
-   runtime automatic reservation release and policy migration are not complete.
+   automatic release is limited to the scoped proofs described below; policy migration remains incomplete.
    Config changes to an existing persistent policy fail visibly.
 3. Effective exposure is bounded; instrument leverage setting, liquidation distance,
    native protective orders and full margin modeling remain incomplete.
@@ -48,11 +48,12 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. Nineteen dependency vulnerability entries remain, including signing/TLS SDK
-   blockers. Protected Windows credential storage is still pending.
-8. Native GUI, versioned read-only telemetry and deterministic Oracle research are
-   the next active implementation milestones; source under development is not
-   claimed as functionality in this recovery tag.
+7. The alpha.7 lockfile audit reports zero vulnerability entries and one Chrono
+   maintenance warning. This is not a complete security audit. Protected Windows
+   credential storage is still pending.
+8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
+   Genesis search are implemented. Complete fixed-point position arithmetic,
+   authoritative residual recovery and financial settlement remain incomplete.
 
 ## Architecture and next actions
 
@@ -167,3 +168,25 @@ independent financial holds and database-failure injection. Formatting and Clipp
 pass with warnings. Historical orphan holds remain untouched. Fixed-point core
 position facts, persistent snapshot sequence numbers and complete settlement are
 next priorities; no real account or signed request was used in verification.
+
+## Exact native execution facts checkpoint after alpha.7
+
+Native filled acknowledgments retain quantity, average price and order identity
+as original decimal strings. The production parser checks exact values against
+the actual signed order quantity, limit and instrument precision. Journal status
+and scoped fill facts commit together; failed persistence leaves the submitted
+intent unresolved. New position metadata captures these facts atomically and
+Aegis uses them when checking current ownership.
+
+Legacy positions receive no invented precision. A reduction through the existing
+floating-point residual path explicitly invalidates current exact quantity in
+the same transaction. Original receipt facts remain intact; incomplete residual
+or net-settlement evidence continues to hold new exposure. This is an additive
+facts layer, not a complete fixed-point core migration.
+
+All 255 offline desktop-feature tests pass. Fifteen new regressions cover the
+production parser, sub-float overfills/limits, persistence rollback, restart,
+account scope, legacy fallback, contradictory provenance and reduction invalidation.
+Formatting and Clippy complete with warnings. No real account, signed network
+request or exchange order was used. Published binaries remain alpha.7 until the
+next verified release.

@@ -406,6 +406,45 @@ fn parse_order_response(
     Ok(out)
 }
 
+fn parse_order_receipt(
+    resp: crate::hyperliquid_wire::ExchangeResponseStatus,
+    intent: &OrderIntent,
+    action: &crate::hyperliquid_wire::OrderAction,
+    dp: u8,
+) -> Result<super::OrderReceipt> {
+    let precise_fill = match &resp {
+        crate::hyperliquid_wire::ExchangeResponseStatus::Ok(response) => {
+            response.data.as_ref().and_then(|data| {
+                if data.statuses.len() == 1 {
+                    match &data.statuses[0] {
+                        crate::hyperliquid_wire::ExchangeDataStatus::Filled(fill) => {
+                            Some(crate::execution_facts::PreciseFill {
+                                quantity: fill.total_sz.clone(),
+                                average_price: fill.avg_px.clone(),
+                                order_id: fill.oid.to_string(),
+                            })
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+        }
+        _ => None,
+    };
+    let result = parse_order_response(resp, &intent.id)?;
+    if let Some(facts) = &precise_fill {
+        facts.validate(intent, &result)?;
+        let (maximum, limit, buy) = action.fill_bounds()?;
+        facts.validate_wire_bounds(maximum, limit, buy, dp)?;
+    }
+    Ok(super::OrderReceipt {
+        result,
+        precise_fill,
+    })
+}
+
 #[async_trait]
 impl VenueAdapter for HyperliquidAdapter {
     fn kind(&self) -> VenueKind {
@@ -510,6 +549,12 @@ impl VenueAdapter for HyperliquidAdapter {
     }
 
     async fn submit_order(&self, intent: &OrderIntent) -> Result<OrderResult> {
+        Ok(self.submit_order_with_evidence(intent).await?.result)
+    }
+    async fn submit_order_with_evidence(
+        &self,
+        intent: &OrderIntent,
+    ) -> Result<super::OrderReceipt> {
         anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
         anyhow::ensure!(
             self.max_slippage_bps.is_finite()
@@ -558,7 +603,7 @@ impl VenueAdapter for HyperliquidAdapter {
             .ok_or_else(|| anyhow!("signing key missing"))?;
         let resp = crate::hyperliquid_wire::submit_ioc(key, &action).await?;
 
-        parse_order_response(resp, &intent.id)
+        parse_order_receipt(resp, intent, &action, dp)
     }
 
     async fn close_position(
@@ -1002,5 +1047,59 @@ mod tests {
             assert!(error.to_string().contains("byte budget"), "{error}");
             server.join().unwrap();
         }
+    }
+    #[test]
+    fn native_receipt_preserves_decimal_strings_and_checks_wire_limits() {
+        let intent = OrderIntent {
+            id: uuid::Uuid::new_v4().to_string(),
+            venue: "hyperliquid".into(),
+            symbol: "ETH".into(),
+            side: crate::core::Side::Long,
+            size: 2.0,
+            limit_price: Some(101.0),
+            reduce_only: false,
+            stop_price: None,
+            take_profit: None,
+            source_signal: None,
+            created_at: Utc::now(),
+        };
+        let action =
+            crate::hyperliquid_wire::OrderAction::ioc(4, true, 101.0, 2.0, false, &intent.id)
+                .unwrap();
+        let receipt = parse_order_receipt(
+            response(
+                json!([{"filled":{"oid":42,"totalSz":"1.0000","avgPx":"100.000000000000000001"}}]),
+            ),
+            &intent,
+            &action,
+            4,
+        )
+        .unwrap();
+        let precise = receipt.precise_fill.unwrap();
+        assert_eq!(precise.quantity, "1.0000");
+        assert_eq!(precise.average_price, "100.000000000000000001");
+        assert_eq!(receipt.result.avg_fill_price, Some(100.0));
+        for (qty, price, oid) in [
+            ("1.00001", "100", 42),
+            ("2.00000000000000000001", "100", 42),
+            ("1", "101.00000000000000000001", 42),
+            ("1", "100", 0),
+        ] {
+            assert!(parse_order_receipt(
+                response(json!([{"filled":{"oid":oid,"totalSz":qty,"avgPx":price}}])),
+                &intent,
+                &action,
+                4
+            )
+            .is_err());
+        }
+        let rejected = parse_order_receipt(
+            response(json!([{"error":"offline rejection"}])),
+            &intent,
+            &action,
+            4,
+        )
+        .unwrap();
+        assert!(!rejected.result.accepted && rejected.precise_fill.is_none());
     }
 }

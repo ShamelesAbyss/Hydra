@@ -172,6 +172,7 @@ impl Storage {
             let n = tx.execute("UPDATE positions SET size=?1,closed_at=?2 WHERE id=?3 AND closed_at IS NULL AND size=?4",
                 params![remaining,if remaining == 0.0 {Some(&now)} else {None},p.id,p.size])?;
             anyhow::ensure!(n == 1, "position changed during close; reconciliation required");
+            crate::execution_facts::invalidate_position_on(&tx,p.id)?;
             tx.execute("UPDATE execution_intents SET state='applied',updated_at=?1 WHERE intent_id=?2", params![now,res.intent_id])?;
             tx.commit()?;
             Ok(())
@@ -191,6 +192,7 @@ impl Storage {
             "database schema is newer than this Hydra build"
         );
         schema::run_migrations(&tx)?;
+        crate::execution_facts::migrate_on(&tx)?;
         tx.pragma_update(None, "user_version", 2)?;
         tx.commit()?;
         Ok(())

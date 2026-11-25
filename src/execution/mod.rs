@@ -200,7 +200,7 @@ impl ExecutionEngine {
         if let Some(ledger) = &self.ledger {
             ledger.bind_intent(&intent.id)?;
         }
-        let res = match venue.submit_order(intent).await {
+        let receipt = match venue.submit_order_with_evidence(intent).await {
             Ok(res) => res,
             Err(e) => {
                 self.storage
@@ -208,13 +208,21 @@ impl ExecutionEngine {
                 return Err(e.context("order outcome unknown; do not resubmit, reconcile first"));
             }
         };
+        let res = receipt.result;
         let valid = res.intent_id == intent.id
             && res.filled_size.is_finite()
             && res.filled_size >= 0.0
             && res.filled_size <= intent.size
+            && res
+                .avg_fill_price
+                .is_none_or(|price| price.is_finite() && price > 0.0)
             && (res.filled_size == 0.0
                 || (res.accepted && res.avg_fill_price.is_some_and(|p| p.is_finite() && p > 0.0)));
-        if !valid {
+        let precise_valid = receipt
+            .precise_fill
+            .as_ref()
+            .is_none_or(|facts| facts.validate(intent, &res).is_ok());
+        if !valid || !precise_valid {
             self.storage
                 .finish_intent(&intent.id, "acknowledgment_unknown", None)?;
             bail!("invalid exchange acknowledgment; reconciliation required");
@@ -226,7 +234,12 @@ impl ExecutionEngine {
         } else {
             "resting"
         };
-        self.storage.finish_intent(&intent.id, state, Some(&res))?;
+        crate::execution_facts::record_receipt(
+            &self.storage,
+            state,
+            &res,
+            receipt.precise_fill.as_ref(),
+        )?;
         Ok(res)
     }
 

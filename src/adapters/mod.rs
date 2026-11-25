@@ -14,6 +14,12 @@ use crate::core::{MarketSnapshot, OrderIntent, OrderResult, VenueKind};
 pub mod account_evidence;
 pub mod hyperliquid;
 
+#[derive(Clone, Debug)]
+pub struct OrderReceipt {
+    pub result: OrderResult,
+    pub precise_fill: Option<crate::execution_facts::PreciseFill>,
+}
+
 #[async_trait]
 pub trait VenueAdapter: Send + Sync {
     fn kind(&self) -> VenueKind;
@@ -29,6 +35,14 @@ pub trait VenueAdapter: Send + Sync {
 
     /// Submit an order. When live_trading is disabled upstream, this is never called.
     async fn submit_order(&self, intent: &OrderIntent) -> Result<OrderResult>;
+
+    /// Legacy adapters may omit precision; native filled receipts preserve it.
+    async fn submit_order_with_evidence(&self, intent: &OrderIntent) -> Result<OrderReceipt> {
+        Ok(OrderReceipt {
+            result: self.submit_order(intent).await?,
+            precise_fill: None,
+        })
+    }
 
     /// Close / reduce a position on the venue. Implementations may noop if N/A.
     async fn close_position(

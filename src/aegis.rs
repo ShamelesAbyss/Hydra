@@ -743,14 +743,15 @@ fn validate_owned_evidence(
     tx: &Transaction<'_>,
     evidence: &crate::adapters::account_evidence::AccountExposureEvidence,
 ) -> Result<()> {
-    let mut statement=tx.prepare("SELECT symbol,side,size,entry_price FROM positions WHERE venue=?1 AND closed_at IS NULL LIMIT 1025")?;
+    let mut statement=tx.prepare("SELECT id,symbol,side,size,entry_price FROM positions WHERE venue=?1 AND closed_at IS NULL LIMIT 1025")?;
     let local = statement
         .query_map([&evidence.venue], |r| {
             Ok((
-                r.get::<_, String>(0)?,
+                r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
-                r.get::<_, f64>(2)?,
+                r.get::<_, String>(2)?,
                 r.get::<_, f64>(3)?,
+                r.get::<_, f64>(4)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -759,7 +760,7 @@ fn validate_owned_evidence(
         "local and observed position ownership differs"
     );
     let mut symbols = std::collections::BTreeSet::new();
-    for (symbol, side, size, price) in local {
+    for (id, symbol, side, size, price) in local {
         ensure!(
             symbols.insert(symbol.clone())
                 && size.is_finite()
@@ -774,14 +775,30 @@ fn validate_owned_evidence(
             .iter()
             .find(|p| p.symbol == symbol)
             .context("persisted position is missing from account evidence")?;
-        let signed = parse(&size.to_string())?
+        let precise = crate::execution_facts::position_values_on(
+            tx,
+            &crate::execution_facts::PositionView {
+                id,
+                venue: &evidence.venue,
+                symbol: &symbol,
+                side: &side,
+                size,
+                entry_price: price,
+            },
+            &evidence.account,
+        )?;
+        let (quantity, entry_price) = match precise {
+            Some(values) => values,
+            None => (parse(&size.to_string())?, parse(&price.to_string())?),
+        };
+        let signed = quantity
             * if side == "LONG" {
                 Decimal::ONE
             } else {
                 -Decimal::ONE
             };
         ensure!(
-            remote.signed_size == signed && remote.entry_price == parse(&price.to_string())?,
+            remote.signed_size == signed && remote.entry_price == entry_price,
             "account position does not match local ownership"
         );
     }

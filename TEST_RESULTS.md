@@ -1,3 +1,14 @@
+# Exact native facts checkpoint after alpha.7
+
+All **255 offline desktop-feature all-target tests pass**. The new native parser
+and fourteen integration regressions verify exact quantity/price/order facts,
+wire bounds below floating-point resolution, atomic journal/facts persistence,
+restart ownership, account/provenance checks, position rollback, explicit unknown
+residuals and no retry after a failed facts write. Nonfinite optional prices are
+rejected before JSON serialization. Formatting and Clippy complete with warnings.
+No live exchange account, signed network request or order was used. This source
+checkpoint does not change the already published alpha.7 binaries.
+
 # Verification — 1.7.0-alpha.7
 
 The atomic-admission source checkpoint passes 240 offline desktop-feature tests.
