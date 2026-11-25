@@ -1,75 +1,121 @@
 # HYDRA — Project Leviathan architecture
 
-## Current executable boundary
+## Executable boundaries
 
-The `hydra` binary dispatches commands through `cli`. The headless engine owns
-strategies, risk evaluation, execution, portfolio management, and SQLite persistence.
-Ratatui reads a bounded shared dashboard and never signs orders. Closing the TUI
-does not own the engine lifecycle. There is no native graphical binary yet.
+`hydra` dispatches CLI commands and runs the headless engine. The engine owns
+strategy evaluation, adaptive context, risk, execution, portfolio management and
+SQLite persistence. Ratatui renders a bounded shared dashboard.
+
+The optional `desktop` feature builds `hydra-cockpit`. This native eframe client
+reads consistent local SQLite snapshots, provides seven subsystem workspaces and
+runs local Oracle/Genesis jobs on a bounded background worker. It has no signing
+or order-control interface. Closing the viewer sends no engine lifecycle command.
+Explicit first-launch history initialization creates only a new local database;
+existing files are preserved.
 
 ```mermaid
-flowchart LR
-  HL[Hyperliquid info] --> Snap[MarketSnapshot]
-  Snap --> Strategy[Existing strategies]
-  Memory[Adaptive context] --> Risk[Risk engine]
+flowchart TB
+  Info[Hyperliquid information] --> Snapshot[Market snapshots]
+  Snapshot --> Strategy[Existing strategies]
+  Context[Adaptive context] --> Risk[Risk evaluation and Aegis]
   Strategy --> Risk
   Risk --> Intent[OrderIntent UUID]
-  Intent --> Gate[Execution gate]
-  Gate --> Journal[(SQLite durable intent)]
-  Journal --> SDK[Typed Hyperliquid SDK]
-  SDK --> Ack[Fill or unresolved acknowledgment]
-  Ack --> Portfolio[Position confirmation]
-  HL --> Portfolio
-  Portfolio --> Residual[(Residual and reduction ledger)]
-  Engine[Engine dashboard] --> TUI[Ratatui]
+  Intent --> Journal[(Durable intent)]
+  Journal --> Signing[Isolated signing and transport]
+  Signing --> Receipt[Typed receipt or unresolved acknowledgment]
+  Receipt --> Portfolio[Position and residual confirmation]
+  Info --> Portfolio
+  Portfolio --> Evidence[(SQLite positions and ledger evidence)]
+  Evidence -. consistent read-only snapshots .-> Cockpit[Native cockpit]
+  Engine[Headless engine dashboard] --> TUI[Ratatui]
+  Candles[Local historical candles] --> Oracle[Oracle replay]
+  Oracle --> Genesis[Genesis bounded CPU search]
+  Genesis --> Candidates[Research candidates for operator review]
 ```
 
-## Execution foundation
+## Execution and account ownership
 
-`ENABLE_LIVE_TRADING` is authoritative. `--live` asserts that it is enabled and
-cannot enable it independently. The actual Hyperliquid adapter also checks the
-configuration gate. Dry-run does not submit orders or write execution intents.
+`ENABLE_LIVE_TRADING` is authoritative. The CLI `--live` flag asserts that this
+configuration is enabled; it cannot override false. The venue adapter also checks
+the gate. Dry-run sends no order and is not a simulated exchange.
 
-Every live intent is stored before submission. Its canonical UUID maps to the
-exchange's 128-bit client order ID. A reused ID is rejected by SQLite. An intent
-left submitted by process termination, an ambiguous acknowledgment, or a fill
-not yet durably applied blocks new exposure. Pending executions for an instrument
-also block another reduction for that instrument. Definite rejections are terminal.
-No automatic resend of unresolved orders exists.
+Each live intent is stored before network submission. Its canonical UUID becomes
+the exchange client order ID. Submitted, acknowledgment-unknown, resting and
+unapplied fills hold new exposure. Pending work for a symbol also prevents another
+reduction for that symbol. No blind resend is implemented.
 
-The current journal states are `submitted`, `acknowledgment_unknown`, `resting`,
-`filled`, `rejected`, and `applied`. Planned/validated/cancellation states and
-automatic historical reconciliation remain future work.
+Live history is bound to a canonical account identity. Legacy unbound history
+requires explicit audited adoption. A same-user/host OS lock excludes competing
+engine/emergency writers across database paths. This is not cross-host locking.
+Startup and fresh pre-entry checks require all local and remote net positions to
+agree; unknown positions do not become strategy-owned positions automatically.
 
-Successful reductions require a valid typed fill and matching account-reported
-remaining position. Residual and evidence are stored in one transaction. Gross
-price PnL is diagnostic; net PnL is NULL until authoritative fees/funding are
-available. Such records block new exposure and do not enter `closed_trades`,
-adaptive learning, or compounding. Existing historical data is preserved.
+Confirmed reductions require valid fills and matching exchange residuals.
+Residual state and gross diagnostic evidence commit atomically. Net PnL stays
+NULL until complete authoritative fee/funding accounting is available. These
+unknown outcomes are excluded from learning/compounding and hold new exposure.
+Protective close failures are collected per instrument so later instruments are
+still processed.
 
-## Seven subsystem migration
+## Durable entry context and narrow recovery
 
-| Boundary | Existing implementation | Next extraction |
+New positions and immutable original risk/learning context commit atomically,
+with a unique durable entry-intent identity. Original risk survives stop ratcheting
+and restart. Legacy original risk remains unknown; its current stop is never
+substituted as original risk. Existing protective exits remain available if
+context is missing or malformed.
+
+Recovery can finish the narrow crash window after position persistence but before
+journal application when the database account, known fill receipt and fresh
+remote position all agree. It does not infer unknown acknowledgments, create
+synthetic positions, certify financial settlement or release reservations.
+
+## Persistent risk and ledger
+
+Aegis retains immutable policy, equity high-water marks, latched drawdown breakers
+and transactional exposure reservations. It includes pending order exposure and
+requires fresh account snapshots. Reservations do not expire on a timer; the
+reconciliation API requires explicit proof and a newer snapshot. Automatic runtime
+reservation lifecycle integration remains open.
+
+Only standard Hyperliquid account abstraction (`disabled`) has a supported equity
+model. Unknown/default, unified and portfolio-margin modes fail closed. Spot
+balances are not added to perp collateral.
+
+The financial ledger uses account/environment-scoped decimal fill and funding
+facts, exact-once replay, conflict rejection and bounded provenance. Read-only
+history retrieval is paginated with resource/time bounds. Raw closed-PnL
+conventions remain unverified, so ingestion is not complete trade settlement.
+
+## Seven logical subsystems
+
+| Head | Implemented foundation | Remaining work |
 |---|---|---|
-| Hunter | Configured instruments and market snapshots | Eligibility/ranking and bounded discovery |
-| Fang | Divergence, momentum/breakout, mean reversion | Shared deterministic planner and strategy ownership |
-| Cognition | Expectancy, similarity, multi-timeframe regimes, strictness | Persist entry context and fee-adjusted outcomes |
-| Aegis | Risk evaluation and exposure limits | Independent authority, durable breakers, pending exposure |
-| Nexus | SDK adapter, execution journal, conservative reconciliation | Streams, fill/funding ledger, recovery |
-| Oracle | Indicator tests only | Native historical execution simulator |
-| Genesis | Not implemented | Seeded optimizer consuming Oracle |
+| Hunter | Configured instruments, market snapshots and eligibility checks | Discovery, ranking, rotation and hysteresis |
+| Fang | Divergence, momentum/breakout and mean-reversion signals | Shared deterministic planner and explicit strategy ownership |
+| Cognition | Expectancy, similarity, regimes, strictness, persisted entry context | Authoritative net outcomes and legacy provenance |
+| Aegis | Persistent risk authority, breakers and reservations | Automatic evidence-driven reservation reconciliation |
+| Nexus | Durable intents, typed receipts, decimal ledger and narrow recovery | Broad cloid/fill recovery and complete net settlement |
+| Oracle | Deterministic single-instrument candle replay | Full live/simulation parity and richer execution models |
+| Genesis | Seeded mutation/crossover and Pareto filtering through Oracle | Out-of-sample validation, resumability and richer scenarios |
 
-These names describe planned functional boundaries. Seven independent services
-have not been implemented. Do not create artificial activity counters for them.
+Seven head names describe logical boundaries, not independently deployed services.
+Activity indicators represent observed database changes or completed research,
+never invented subsystem throughput.
 
-## Storage and ownership
+## Research contract
 
-SQLite remains the source for local intent/evidence and historical context, while
-exchange positions and fills remain authoritative for execution. The migration
-adds tables without rewriting existing ones. SQLite uses FULL synchronous writes.
-The connection is mutex-protected; high-volume streaming will need a bounded
-writer queue. Signing remains inside the exchange adapter, never in a frontend.
+Oracle sees completed candles and enters at the next open, applies explicit
+fees/slippage and conservative stop/gap handling, and records reproducibility
+inputs. It assumes full fills and fixed costs. Funding, queues, partial fills,
+liquidation, adaptive behavior, trailing/time-stop parity and portfolio margin are
+not modeled.
 
-The next process boundary should expose versioned redacted snapshots and commands
-over authenticated local IPC. GUI/headless environment separation and account-wide
-process ownership must precede enabling a graphical live switch.
+Genesis searches bounded momentum parameter ranges using actual Oracle runs.
+Its seeded algorithm uses deduplication, mutation, crossover and Pareto filtering;
+it is not NSGA-II and does not deploy candidates. Inputs are bounded to 32 MiB and
+global evaluation/work limits apply. Research configuration omits wallet settings
+and engine storage initialization.
+
+See BACKTESTING.md, OPTIMIZATION.md, COCKPIT_GUIDE.md,
+HYPERLIQUID_INTEGRATION.md and RISK_MANAGEMENT.md for detailed contracts.

@@ -1,3 +1,21 @@
+# Native dependency modernization checkpoint
+
+At `a941c68489325afa076f5d00bee0b43e2ea97312`, the full desktop-feature,
+all-target suite passes **209 offline tests**. Formatting and Clippy pass with
+existing style warnings. Eight official cross-language signing fixtures remain
+passing on the maintained secp256k1 signer, including a comparison of the full
+production order MessagePack bytes with an independent fixture encoder.
+
+The fresh dependency audit exits 0 with **0 vulnerability entries** and **1
+unmaintained Chrono warning**. No advisory is suppressed. The legacy SDK/ethers
+paths are removed from the active graph; Ratatui and rust_decimal parent upgrades
+remove the remaining affected transitive copies. See DEPENDENCY_AUDIT.md for
+advisory IDs, lock digest, graph changes and verification scope.
+
+These are checkout checks. Existing alpha.4 executable downloads precede this
+fix. No mainnet account probes, signed requests or orders were used. Financial
+settlement, broad recovery and live-readiness certification remain outstanding.
+
 # Entry recovery checkpoint after 1.7.0-alpha.4
 
 The full desktop-feature suite passes 205 offline tests. Nine additional tests

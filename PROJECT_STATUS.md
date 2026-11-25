@@ -94,3 +94,18 @@ remote position agree. Ambiguous acknowledgments remain unresolved. Pre-entry
 validation also rejects unowned or inconsistent exchange positions before sending
 an order. Recovery does not certify fees, funding or net PnL, and does not release
 risk reservations automatically.
+
+## Native dependency modernization after alpha.4
+
+Checkpoint `a941c68489325afa076f5d00bee0b43e2ea97312` removes the active legacy
+SDK/ethers graph. A narrow mainnet IOC-only client retains typed receipts,
+canonical cloid, ordered MessagePack and independently tested EIP-712 signing.
+Maintained libsecp256k1 bindings provide cryptographic signing. Signed transport
+has a fixed endpoint, no redirect/retry, a 15-second timeout and bounded replies.
+
+Targeted rust_decimal/Ratatui upgrades remove affected optional and TUI copies.
+Fresh audit: 0 vulnerability entries, 1 Chrono maintenance warning, exit 0.
+All 209 offline desktop-feature tests pass. This changes source; alpha.4 binaries
+remain older until a new release is built and verified. Remaining development
+priorities are financial settlement, evidence-driven reservation reconciliation,
+broad recovery and the Chrono migration. No stable-live claim is made.

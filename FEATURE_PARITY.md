@@ -14,20 +14,20 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 | Dynamic entry grids | Not integrated | Metadata and exposure-aware order planning |
 | Dynamic take-profit grids | Not integrated | Partial-fill ownership/net-position semantics |
 | Wallet exposure limits | Existing risk sizing | Configuration validation and accounting gaps remain |
-| Total wallet exposure | Existing approximate open notional | Include resting/pending orders and authoritative equity |
-| Exposure enforcement | Journal unresolved gate and single-position ownership | Independent Aegis hard authority pending |
+| Total wallet exposure | Standard-mode account snapshot plus pending-order exposure and reservations | Broader account models and runtime reconciliation remain |
+| Exposure enforcement | Persistent Aegis authority, reservations, unresolved gate and position ownership | Complete reservation lifecycle remains |
 | Auto-Unstuck | Not integrated | Budget and realized-loss accounting first |
-| Equity hard stop-loss | Not integrated as authoritative persistent action | Durable circuit breaker and verified equity required |
+| Equity hard stop-loss | Persistent drawdown entry breaker and explicit audited rearm | Complete protective flattening is not certified |
 | Market Forager | Configured symbols only | Approved instrument ranking/rotation pending |
 | Dynamic asset selection | Not integrated | Hunter eligibility and hysteresis pending |
 | Historical data management | Polling candle snapshots only | Cache, integrity manifests, funding history pending |
-| Backtesting | Not implemented | Oracle execution model and dataset provenance |
+| Backtesting | Oracle deterministic single-instrument replay | Explicit costs/limits; richer execution models remain |
 | Multi-scenario simulation | Not implemented | Shared planner plus cost/latency scenarios |
-| Evolutionary optimization | Not implemented | Oracle then seeded Genesis population evaluation |
-| Multi-objective optimization | Not implemented | Constraint-aware NSGA-II |
-| Pareto front analysis | Not implemented | Explicit objectives and out-of-sample verification |
-| Execution recovery | Durable intent evidence and conservative mismatch refusal | Automated cloid/fill replay pending |
-| Monitoring | Existing Ratatui; bounded buffers | Native GUI and independent IPC pending |
+| Evolutionary optimization | Genesis seeded bounded CPU search through Oracle | Resumability and out-of-sample validation remain |
+| Multi-objective optimization | Return/drawdown/fee Pareto filtering implemented | Constraint-aware NSGA-II remains planned |
+| Pareto front analysis | Actual Genesis report and native visualization | Out-of-sample verification remains |
+| Execution recovery | Durable intents, original entry context, narrow known-fill application recovery | Broad cloid/fill replay and net settlement remain |
+| Monitoring | Ratatui and native eframe read-only cockpit; versioned telemetry CLI | Authenticated richer IPC remains planned |
 | GPU screening | Not implemented | Optional only after measured CPU parity |
 | Regression testing | Existing suite plus execution fault injection | Broaden to accounting/streams/replay later |
 
