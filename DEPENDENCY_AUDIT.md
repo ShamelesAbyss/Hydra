@@ -114,3 +114,5 @@ Alpha.9 main release lock SHA-256: `68b225510aaaa16c4ad0be8fe2b845004571b4680c17
 Alpha.10 main release lock SHA-256: `35411a8c744eb8baa1930927184039a735b13b2234c83f8e0e3b41d2d911cf72`. Fresh audit exits 0: zero vulnerability entries and one Chrono maintenance warning; no advisory ignores.
 
 Alpha.11 release lock SHA-256: `6dcbcc4fd0a3b4c8bc1b5a2fd698edc72cbe51ff5b45e40ab6d0411691886c7f`. Fresh audit exits 0 with zero vulnerability entries and one Chrono maintenance warning; no advisory ignores.
+
+Alpha.12 release lock SHA-256: `40f58679c4f3d62b78a343f08309e953d47b17d6019fd76d0c8e08b654ce72f6`. Fresh audit exits 0: zero vulnerability entries and one Chrono maintenance warning; no advisory ignores.

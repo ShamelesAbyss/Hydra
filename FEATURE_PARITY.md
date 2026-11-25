@@ -36,4 +36,4 @@ unbounded Martingale, mandatory cloud services, withdrawal/transfer operations, 
 obsolete active Ethereum integration. Broader requested features are deferred,
 not silently excluded.
 
-Read-only lifecycle provenance is implemented through the Rust API in alpha.11; automatic order-state repair, complete net settlement and a dedicated lifecycle CLI/GUI remain planned.
+Read-only lifecycle provenance is implemented through the Rust API in alpha.11. Alpha.12 adds the offline `status-history` CLI/Rust inspector. A live-observation CLI, dedicated GUI, automatic order-state repair and complete net settlement remain planned.

@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.11** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.11^{commit}`.
-- Previous recovery: v1.7.0-alpha.10 (`358414f54196f742205048108a369996bcffbc1f`).
+- Version and current recovery tag: **v1.7.0-alpha.12** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.12^{commit}`.
+- Previous recovery: v1.7.0-alpha.11 (`ff6e18a217938fd7f52062e2b788e4c19a5d3b00`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.11 source: 287 offline desktop-feature tests pass; alpha.10 contains 277.
+- Alpha.12 source: 295 offline desktop-feature tests pass; alpha.11 contains 287.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -239,3 +239,15 @@ Next: operator-facing bounded lifecycle inspection and authoritative recovery
 proofs, persistent exact signed-wire request provenance and complete fee/funding
 coverage. The new observation API is not an automatic recovery loop or a new CLI.
 Continue directly on main; do not create additional branches.
+
+## Alpha.12 offline inspector checkpoint
+
+All 295 offline desktop-feature tests pass. The CLI/Rust `status-history` inspector
+reads an existing bound history in one read-only transaction before trading
+configuration or engine initialization. It performs no migration or network call,
+retains original times, validates selected provenance and labels incomplete
+windows explicitly. Missing or corrupt evidence never becomes financial proof.
+
+Continue directly on main with operator-facing live observation, exact signed-wire
+request provenance and authoritative recovery/settlement. Native GUI lifecycle
+inspection remains planned; the existing interface is unchanged in this milestone.

@@ -1,3 +1,20 @@
+# Release verification — 1.7.0-alpha.12
+
+All **295 offline desktop-feature all-target release-version tests pass**.
+Eight new inspector regressions cover byte-preserving read-only snapshots,
+missing files/tables without creation or migration, unknown binding/identity,
+unsupported versions and views, corrupt selected provenance, explicit bounded
+windows and records, and the CLI configuration/wallet bypass. The partial-binding
+fixture preserves existing audit metadata; no repair bypass was introduced.
+
+Fresh lockfile audit: zero vulnerability entries and one Chrono maintenance
+warning, exit 0, without advisory ignores. Formatting and Clippy complete with
+warnings. Both Windows CLI and native cockpit release binaries compile. Extracted portable
+smoke is repeated during packaging.
+No real accounts, signed network requests or exchange orders were used.
+Alpha.11 passed all four tagged CI jobs:
+[verified alpha.11 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45632847453).
+
 # Release verification — 1.7.0-alpha.11
 
 The complete release-version desktop-feature all-target suite passes **287

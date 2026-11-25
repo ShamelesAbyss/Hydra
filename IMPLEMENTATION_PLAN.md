@@ -131,3 +131,15 @@ supply average execution price, complete fees/funding or net settlement.
 Next: bounded read-only native order-status observations, durable provenance and
 offline schema/identity tests, without resubmitting ambiguous orders. Automatic
 resolution remains held until the required financial and causal proofs exist.
+
+## Next financial proof boundary after alpha.12
+
+Reconcile scoped ledger fills against known exact native acknowledgments in one
+consistent SQLite snapshot. Require exact acknowledged quantity coverage before
+calling an order's recorded fill set complete; keep partial sets useful but
+explicitly incomplete. Preserve missing/unsupported fee components and unverified
+PnL conventions. No order-local evidence alone settles a round-trip trade or
+proves complete funding coverage. Keep all independent financial holds active.
+
+Persisting exact signed-wire request provenance and authoritative unknown-order
+recovery remain separate required work. Continue directly on main.

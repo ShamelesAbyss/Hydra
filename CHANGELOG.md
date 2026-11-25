@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.12
+
+- Expose retained lifecycle evidence through a wallet-free offline inspector.
+- Bound row windows, selected metadata and JSON; report incomplete history explicitly.
+- Preserve read-only snapshots and reject unsupported/corrupt provenance without repair.
+- Update CLI branding while keeping all trading and financial safeguards.
+
 ## 1.7.0-alpha.11
 
 - Add bounded read-only native order-status observations through the Rust API.

@@ -137,3 +137,20 @@ and remaining quantity never invent execution price, fees/funding, filled quanti
 settled net PnL or a rejected intent. This API does not change execution state,
 release reservations or bypass financial holds. There is no new CLI command,
 automatic polling or repair loop in this milestone.
+
+## Offline lifecycle inspection — alpha.12
+
+`hydra status-history --db PATH --intent UUID --limit N` reads retained local
+observations without venue access. Dispatch precedes trading configuration,
+logging and engine storage initialization. The read-only SQLite transaction never
+creates a missing database, runs migrations, changes account binding or resolves
+an order. It validates ordinary table shape, bound identity, scoped journal and
+selected observation provenance; incompatible or corrupt evidence is refused.
+
+The protocol-1 JSON explicitly sets `read_only=true`, `source_is_live=false` and
+`exchange_history_complete=false`. Inspection covers at most the newest 10,000
+global observation row IDs and returns at most 64 matching records. Window and
+record caps are explicit; no returned rows does not prove no venue order exists.
+Original acquisition/record times are preserved, never refreshed into live proof.
+Missing observation tables are marked unavailable. This is a CLI/Rust inspector;
+a dedicated GUI panel, live-observation CLI and automatic recovery remain future work.
