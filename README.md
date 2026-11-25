@@ -1,3 +1,22 @@
+# ARCHIVED LEGACY CODE — RETIRED — DO NOT USE OR DEVELOP
+
+This branch preserves the historical Hydra **1.6.2** implementation. It has been
+permanently superseded by Project Leviathan and is no longer maintained.
+It contains known historical defects and **must not be used for live trading**.
+
+All users, contributors and coding agents must use the authoritative
+[Project Leviathan main branch](https://github.com/ShamelesAbyss/Hydra/tree/main).
+Download current engineering prereleases from
+[Hydra releases](https://github.com/ShamelesAbyss/Hydra/releases).
+Promotion to main does not constitute stable-live certification.
+
+This archive exists exclusively for historical preservation. Do not develop on
+this branch. Original commits and release tags remain intact.
+
+---
+
+## Historical README (retired implementation)
+
 # 🐉 HYDRA
 
 **Live-fire terminal trading engine for Hyperliquid perps + Ethereum (Uniswap V3).**
