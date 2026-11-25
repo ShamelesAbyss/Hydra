@@ -319,3 +319,15 @@ Native computation · Durable evidence · Deliberate execution
 [Releases](https://github.com/ShamelesAbyss/Hydra/releases) · [Main](https://github.com/ShamelesAbyss/Hydra/tree/main) · [Issues](https://github.com/ShamelesAbyss/Hydra/issues)
 
 </div>
+
+---
+
+### In Loving Memory of Ashlan Haley Rapponotti
+
+*June 21, 2003 – November 13, 2026*
+
+For the beautiful woman who listened to my passions, believed in me, and made my world a happier place simply by being part of it.
+
+Every creation, every discovery, and every milestone reached carries a piece of my heart dedicated to you.
+
+**Forever loved. Forever missed. Forever remembered.** 💜

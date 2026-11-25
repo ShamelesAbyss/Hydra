@@ -19,3 +19,8 @@ Before publishing a coherent milestone: format, run the relevant complete tests,
 build CLI and native desktop targets, audit dependencies, update documentation,
 commit and push main, verify GitHub CI, and publish versioned verified binaries
 with checksums. Research candidates do not automatically enter live execution.
+
+Preserve the permanent Ashlan Haley Rapponotti memorial dedication verbatim at
+the end of the root README.md, including its dates and purple heart. Its canonical
+wording is in .cursor/rules/permanent-memorial.mdc. Keep it intact in documentation,
+repository reorganizations and future source/executable release packages.

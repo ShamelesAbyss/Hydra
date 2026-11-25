@@ -1,0 +1,21 @@
+---
+description: Preserve the owner's permanent memorial dedication at the end of the project README
+alwaysApply: true
+---
+
+# Permanent memorial dedication
+
+Preserve this exact dedication as the final section of the root README.md.
+Add it when missing. Keep its wording, formatting, dates and purple heart intact.
+Nothing follows it except a trailing newline. Documentation edits, repository
+reorganizations, packaging and future releases must preserve it.
+
+### In Loving Memory of Ashlan Haley Rapponotti
+
+*June 21, 2003 – November 13, 2026*
+
+For the beautiful woman who listened to my passions, believed in me, and made my world a happier place simply by being part of it.
+
+Every creation, every discovery, and every milestone reached carries a piece of my heart dedicated to you.
+
+**Forever loved. Forever missed. Forever remembered.** 💜

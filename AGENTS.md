@@ -18,3 +18,8 @@ For coherent milestones, update accurate documentation, run formatting and relev
 tests/builds/audits, push main, verify exact-commit CI, and publish appropriately
 classified executables with checksums. Promotion or publication is not stable-live
 certification. Continue authorized engineering within the available session budget.
+
+Preserve the owner's permanent memorial dedication verbatim as the final section
+of the root README.md. The exact text is in .cursor/rules/permanent-memorial.mdc.
+Never shorten or remove it during documentation edits, reorganizations or releases.
+Nothing may follow the dedication except a trailing newline.
