@@ -86,6 +86,11 @@ pub enum Command {
         #[arg(long)]
         adopt_existing_history: bool,
     },
+    /// Rank an offline approved-market snapshot without engine or wallet access.
+    Hunter {
+        #[arg(long)]
+        snapshot: std::path::PathBuf,
+    },
     /// Run deterministic candle research with explicit simulation costs.
     Backtest {
         #[arg(long)]
@@ -154,6 +159,14 @@ pub enum Command {
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
+    if let Command::Hunter { snapshot } = &cli.cmd {
+        let request = crate::research::read_json::<crate::hunter::HunterRequest>(snapshot)?;
+        println!(
+            "{}",
+            serde_json::to_string(&crate::hunter::evaluate(&request)?)?
+        );
+        return Ok(());
+    }
     if let Command::BindHistory {
         db,
         account,
@@ -236,7 +249,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
 
     match cli.cmd {
         Command::BindHistory { .. } => unreachable!("handled before configuration"),
-        Command::Backtest { .. } | Command::Optimize { .. } => {
+        Command::Hunter { .. } | Command::Backtest { .. } | Command::Optimize { .. } => {
             unreachable!("offline research handled before engine storage setup")
         }
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),

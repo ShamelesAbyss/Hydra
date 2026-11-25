@@ -1,3 +1,11 @@
+## 1.7.0-alpha.21 — balanced progression and HUNTER Radar
+
+- Reassess all seven original milestones in an explicit acceptance/dependency matrix.
+- Add bounded offline market eligibility, liquidity/cost ranking and watchlist hysteresis.
+- Add wallet-independent CLI and native background Radar workspace, real observation
+  plotting, filtering and Alt+1…7 subsystem navigation.
+- Preserve execution/financial holds, disabled live defaults and memorial distribution.
+
 # Changelog
 
 ## 1.7.0-alpha.20

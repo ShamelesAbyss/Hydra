@@ -18,8 +18,8 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 | Exposure enforcement | Persistent Aegis authority, reservations, unresolved gate and position ownership | Orphan, reduced/closed and ambiguous lifecycle cases remain held |
 | Auto-Unstuck | Not integrated | Budget and realized-loss accounting first |
 | Equity hard stop-loss | Persistent drawdown entry breaker and explicit audited rearm | Complete protective flattening is not certified |
-| Market Forager | Configured symbols only | Approved instrument ranking/rotation pending |
-| Dynamic asset selection | Not integrated | Hunter eligibility and hysteresis pending |
+| Market Forager | Offline approved-market eligibility and liquidity/cost ranking | Autonomous public-data acquisition remains |
+| Dynamic asset selection | Bounded research watchlist with deterministic hysteresis | Live rotation, correlation and capital budgets remain |
 | Historical data management | Polling candle snapshots only | Cache, integrity manifests, funding history pending |
 | Backtesting | Oracle deterministic single-instrument replay | Explicit costs/limits; richer execution models remain |
 | Multi-scenario simulation | Not implemented | Shared planner plus cost/latency scenarios |

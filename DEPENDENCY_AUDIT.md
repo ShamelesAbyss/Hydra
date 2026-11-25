@@ -1,3 +1,10 @@
+# Alpha.21 dependency verification
+
+Fresh `cargo audit --json` exits 0: zero vulnerability entries and one existing
+Chrono maintenance warning (RUSTSEC-2026-0543). No advisory ignores were added.
+This is dependency evidence, not a full security certification. HUNTER adds no
+new dependencies or network capability.
+
 # Dependency audit and remediation
 
 ## Current checkout assessment

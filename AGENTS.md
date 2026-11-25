@@ -23,3 +23,12 @@ Preserve the owner's permanent memorial dedication verbatim as the final section
 of the root README.md. The exact text is in .cursor/rules/permanent-memorial.mdc.
 Never shorten or remove it during documentation edits, reorganizations or releases.
 Nothing may follow the dedication except a trailing newline.
+
+
+At the start of every engineering cycle reassess all seven major milestones in
+MILESTONE_MATRIX.md. Update its implemented/verified/outstanding/blocker/deferred/
+next-action entries at every meaningful release. Alpha release counts are not
+major milestone completion. When successive checkpoints focus on one head, prefer
+independent acceptance work elsewhere over nonblocking refinements. Preserve every
+financial safeguard; defer live certification rather than blocking offline research
+or read-only cockpit work. Never put material after the README memorial.

@@ -38,6 +38,7 @@ pub mod tui;
 pub mod utils;
 
 pub mod execution_facts;
+pub mod hunter;
 pub mod intent_evidence;
 
 pub mod order_status;
@@ -48,3 +49,6 @@ pub mod signer_nonce;
 mod signing_preparation;
 pub mod submission_wire;
 pub mod wire_history;
+
+#[cfg(feature = "desktop")]
+pub mod hunter_ui;

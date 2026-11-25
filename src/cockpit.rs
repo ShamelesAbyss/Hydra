@@ -18,7 +18,7 @@ const EMERALD: Color32 = Color32::from_rgb(58, 232, 165);
 const CYAN: Color32 = Color32::from_rgb(54, 205, 245);
 const AMBER: Color32 = Color32::from_rgb(246, 188, 83);
 const HEADS: [(&str, &str, Color32); 7] = [
-    ("HUNTER", "Observed instruments", CYAN),
+    ("HUNTER", "Market eligibility & ranking", CYAN),
     ("FANG", "Strategy signal history", AMBER),
     (
         "COGNITION",
@@ -55,6 +55,7 @@ type SnapshotResponse = (PathBuf, Result<TelemetrySnapshot, String>);
 
 pub struct Cockpit {
     research: crate::research_ui::ResearchWorkspace,
+    hunter: crate::hunter_ui::HunterWorkspace,
     database_input: String,
     active_path: PathBuf,
     requests: SyncSender<PathBuf>,
@@ -101,6 +102,7 @@ impl Cockpit {
             .expect("create read-only telemetry worker");
         let mut app = Self {
             research: crate::research_ui::ResearchWorkspace::default(),
+            hunter: crate::hunter_ui::HunterWorkspace::default(),
             database_input: path.display().to_string(),
             active_path: path,
             requests,
@@ -247,6 +249,16 @@ impl Cockpit {
         ui.label(RichText::new("Viewer lifecycle is independent of the engine. Closing this window sends no stop or trading command.").small().color(MUTED));
     }
     fn body(&mut self, ui: &mut egui::Ui) {
+        if self.workspace == Workspace::Head(0) {
+            ui.heading(RichText::new("HUNTER / MARKET RADAR").color(CYAN));
+            self.hunter.show(ui);
+            if let Some(data) = self.snapshot.clone() {
+                ui.collapsing("Observed engine instruments", |ui| {
+                    observed_markets(ui, &data)
+                });
+            }
+            return;
+        }
         if let Workspace::Head(index @ (5 | 6)) = self.workspace {
             ui.heading(RichText::new(HEADS[index].0).color(HEADS[index].2));
             self.research.show(ui, index == 6);
@@ -553,6 +565,28 @@ impl Cockpit {
 
 impl eframe::App for Cockpit {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.hunter.poll(ui.ctx()) {
+            self.changed_at[0] = Some(Instant::now());
+        }
+        for (index, key) in [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+        ]
+        .iter()
+        .enumerate()
+        {
+            if ui
+                .ctx()
+                .input(|input| input.modifiers.alt && input.key_pressed(*key))
+            {
+                self.workspace = Workspace::Head(index);
+            }
+        }
         if let Some(index) = self.research.poll(ui.ctx()) {
             self.changed_at[index] = Some(Instant::now());
         }

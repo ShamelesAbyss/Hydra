@@ -4,7 +4,16 @@ Development preserves the repository history, MIT license, Rust engine, terminal
 interface and Hyperliquid mainnet integration. Shipping defaults remain disarmed.
 No development milestone may submit live exchange orders.
 
-## Delivery status at alpha.5
+## Current balanced delivery authority
+
+[MILESTONE_MATRIX.md](MILESTONE_MATRIX.md) is the current acceptance matrix and
+prioritized backlog. It separates live-certification gates from independent work.
+Alpha.11–20 concentrated on execution evidence; resume HUNTER/cockpit, then
+ORACLE/GENESIS validation and FANG/COGNITION/AEGIS independent capabilities.
+The chronological records below are history, not an instruction to keep refining
+NEXUS before other heads can advance. No major milestone is fully certified.
+
+## Historical delivery status at alpha.5
 
 | Area | Delivered foundation | Remaining acceptance boundary |
 |---|---|---|

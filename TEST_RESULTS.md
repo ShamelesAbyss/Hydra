@@ -1,3 +1,18 @@
+# Release verification — 1.7.0-alpha.21
+
+All **377 offline desktop-feature all-target release-version tests pass**.
+Eight HUNTER regressions cover approval/freshness/completeness, scoring independent
+of volatility, deterministic ordering, hysteresis and invalid numeric/resource
+inputs. The real CLI isolation test enables the live environment flag and supplies
+an invalid private key while using a missing config; the offline command succeeds,
+preserves its input bytes and creates no database or other files.
+
+Formatting and Clippy complete with existing warnings. Fresh lockfile audit exits
+0 with zero vulnerability entries and one Chrono maintenance warning, no ignores.
+Native desktop check passes. Windows builds and extracted portable smoke are
+verified before publication. No real account queries, signed network requests,
+orders or transfers were used. Memorial verification remains mandatory.
+
 # Release verification â€” 1.7.0-alpha.20
 
 All **368 offline desktop-feature all-target release-version tests pass**.

@@ -28,3 +28,12 @@ On first launch, Initialize empty local history creates a new database at the en
 ## Research workspaces
 
 Select Oracle or Genesis, enter local strategy TOML and candle JSON paths, and optionally supply an options JSON file. Copy-default-options buttons expose the current schema. One background job is admitted at a time. Results display their simulation model and can be copied as JSON. These workspaces operate without a connected engine database.
+
+## HUNTER market radar (alpha.21)
+
+The HUNTER workspace loads local market-snapshot JSON independently of engine
+history. Copy an empty template, populate it with your own observations and run
+the bounded background evaluation. Search results, inspect rejection reasons,
+filter selected members and explore actual depth/spread observations. This is
+an offline research watchlist with no trading or capital-allocation authority.
+Alt+1 through Alt+7 selects a subsystem. See [HUNTER.md](HUNTER.md).

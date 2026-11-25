@@ -1,36 +1,30 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.20
+# HYDRA — Project Leviathan 1.7.0-alpha.21
 
-One-snapshot local intent evidence and bounded native history reads.
+Balanced milestone progression and native HUNTER market radar.
 Engineering prerelease on main; live-trading readiness remains incomplete.
 
 ## Implemented
 
-- Add `intent-evidence --db PATH --intent UUID --limit N`, an inspection-only
-  protocol-1 CLI/Rust report combining lifecycle, unsigned action, signing preparation
-  and optional exact native acknowledgment quantity in one read-only transaction.
-- Reuse scoped readers without changing status-history protocol 1 or wire-history
-  protocol 2. Require matching identity/account/journal state; preserve original
-  times, history caps and explicit table availability. Missing precision is null.
-- Bound native fact fields in SQL before materialization, refuse unsupported
-  views/primary keys and reject shadowed lifecycle row identifiers that could
-  undermine the bounded scan. Corrupt evidence cannot silently become legacy facts.
-- Keep live-source/completeness, automatic repair, risk release and financial
-  settlement flags false. No engine migration, wallet, coordinator or venue opens.
-  Independent execution/risk/financial holds and the permanent memorial remain.
+- Reassess the original directive and seven major milestones in an explicit
+  acceptance/implementation/verification/blocker/deferred/next-objective matrix.
+- Add bounded offline approved-market ranking with freshness/completeness gates,
+  liquidity/cost/directionality/OI scoring and deterministic watchlist hysteresis.
+- Add `hunter --snapshot PATH` without configuration, wallet or database access.
+- Add a genuine native HUNTER workspace with a background evaluator, filtering,
+  eligibility details, score bars and an observation-driven depth/spread map.
+- Add Alt+1 through Alt+7 subsystem navigation; preserve observed-engine history.
+- Preserve all financial/execution holds, disabled live defaults and exact final
+  memorial dedication with automated verification and distribution rules.
 
-Eight added regressions cover byte preservation, exact quantity without repair
-permission, a deterministic shared WAL snapshot across another connection's journal
-update, absent optional history, invalid budgets/files/identity, oversized native
-metadata, unsupported table/rowid shapes, and CLI configuration/wallet bypass.
-Full tests, audit, Windows builds and extracted smoke are checked before publication.
-No real account probes, signed network requests, orders or transfers were used.
-Native UI remains unchanged from the actual alpha.9 screenshots.
+Eight core regressions and a real CLI isolation test accompany the feature.
+Full tests, audit, native builds and extracted smoke are checked before publication.
+The new HUNTER screenshot is an actual native render with no dataset loaded.
 
-## Remaining limits
+## Remaining limits and next work
 
-This report is local evidence, not a recovery classifier or authorization. One local
-snapshot does not prove atomic venue state, complete history, signing/submission,
-acceptance or net settlement. Automatic recovery, full envelope attestation, complete
-entry/fee/funding attribution and protected credential storage remain incomplete.
-Executables are unsigned; historical artifacts remain immutable. The memorial and
-its maintenance rule are included in source/portable packages.
+HUNTER is offline research, not autonomous acquisition, portfolio allocation or
+live rotation. Scores are selection heuristics, never return forecasts. Original
+major milestones remain partial. ORACLE held-out validation/cost scenarios and
+GENESIS resumability/OOS are next independent slices. Complete net settlement,
+authoritative recovery, protective orders and secure credentials remain required
+for live certification. No real-money trading was activated or tested.

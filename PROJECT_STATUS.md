@@ -6,7 +6,7 @@
 - Exact release commit: `git rev-parse v1.7.0-alpha.20^{commit}`.
 - Previous recovery: v1.7.0-alpha.19 (`81a5b9ff3eeee960c9d1e96e7801f405509f8655`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
+- Current phase: balanced seven-head progression; next HUNTER Radar/native cockpit, then ORACLE/GENESIS validation. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -61,10 +61,10 @@ Keep Rust, headless, Ratatui and Hyperliquid mainnet integration. Never activate
 trading during development. Keep signing isolated from graphical/research clients.
 Read HYPERLIQUID_INTEGRATION.md, RISK_MANAGEMENT.md and DEPENDENCY_AUDIT.md.
 
-Continue immediately after publication: prove exact post-reduction residuals,
-then complete financial coverage/conventions and broader replay. Native cockpit,
-bounded research and native signing foundations are implemented. Preserve
-financial uncertainty until genuine reconciliation proves settlement. Maintain
+Continue from MILESTONE_MATRIX.md: deliver independent HUNTER/cockpit and research
+acceptance slices while preserving execution/financial uncertainty. Complete true
+settlement, broader recovery and secure credentials on the certification track.
+Do not let additional forensic report variants monopolize progress. Maintain
 release artifacts/checksums; never force-push or fabricate results.
 
 ## Alpha.3 cockpit checkpoint
@@ -474,3 +474,12 @@ Unknown/capped/missing/stale/contradictory evidence must remain unresolved; do n
 infer net settlement, automatic replay or permission to clear independent holds.
 Full signed-envelope proof, complete fee/funding/entry attribution, broader recovery
 and protected credential storage remain open. Keep development verification offline.
+
+## Balanced delivery: alpha.21
+
+HUNTER now evaluates bounded offline market snapshots through CLI and native
+Radar: approval/freshness/completeness gates, liquidity/cost/directionality ranking,
+watchlist hysteresis, searchable eligibility reasons and depth/spread visualization.
+It cannot allocate capital or rotate live positions. No original major milestone
+is fully certified. See [MILESTONE_MATRIX.md](MILESTONE_MATRIX.md) for acceptance,
+dependencies, deferred work and the next ORACLE/GENESIS objectives.

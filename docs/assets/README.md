@@ -24,3 +24,8 @@ application renders, not design mockups.
 
 The dark banner represents Hydra's seven logical subsystem boundaries; it is
 conceptual branding, not telemetry or a measured computational result.
+
+`hunter-workspace.png` is an actual alpha.21 eframe/glow native framebuffer capture.
+Alt+1 selects the real HUNTER workspace through application input. No database,
+market snapshot, credentials or exchange connection is supplied; the empty state
+explicitly shows that no observations or scores are inferred.
