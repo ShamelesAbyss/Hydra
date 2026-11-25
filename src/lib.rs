@@ -15,6 +15,7 @@ pub mod core;
 pub mod execution;
 pub mod genesis;
 pub mod history;
+pub mod hyperliquid_wire;
 pub mod learning;
 pub mod ledger;
 pub mod ledger_hyperliquid;

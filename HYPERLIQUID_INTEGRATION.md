@@ -1,8 +1,10 @@
 # NEXUS account evidence and identity
 
-Alpha.2 retains the mainnet SDK transport/signing path. No live requests were used
-to test it. The ledger and parser tests are offline. Signing primitive changes
-require independent official fixtures before deployment.
+The post-alpha.4 source checkpoint replaces the legacy SDK/ethers path with a
+narrow native mainnet IOC order client. No live requests were used to test it.
+Eight offline conformance tests exercise the native signer against published
+official Python SDK hashes/signatures. Existing alpha.4 release binaries retain
+the older SDK until a separately verified replacement release is published.
 
 ## Identity and account modes
 
@@ -57,10 +59,19 @@ Live engine startup and emergency flatten compete for the same user-level lock;
 stop the existing controller before using another. Lock files are never unlinked
 while owned. Locks do not constrain other machines or exchange clients.
 
-The legacy SDK logs signed payloads at debug level. An independent metadata filter
-blocks its debug/trace events even if LOG_LEVEL asks for a more specific target.
-Private key fields are redacted from AppConfig Debug output. Secure OS credential
-storage and removal of the legacy signing/TLS stack remain open work.
+The native signed transport sends only one IOC order at a time to the fixed
+mainnet exchange endpoint. It owns a dedicated HTTP client with redirects and
+automatic retries disabled, a 15-second timeout, and a 1 MiB response bound.
+Transport, HTTP and decoding failures remain errors for the durable unresolved
+execution gate. No transfer, withdrawal, vault, spot or account-management mutation
+API is exposed. Signing uses maintained secp256k1/libsecp256k1 primitives and
+Keccak-256; the ordered action and EIP-712 encoding are checked against independent
+fixtures. See [dependency assessment](DEPENDENCY_AUDIT.md).
+
+Signed payloads and signatures are never logged by the replacement. The defensive
+legacy SDK debug/trace metadata filter remains regression-tested. Private key
+fields are redacted from AppConfig Debug output. Secure OS credential storage
+remains open work. A passing dependency audit is not live-trading certification.
 
 ## Database account ownership
 

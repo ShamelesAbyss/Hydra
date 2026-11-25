@@ -60,14 +60,11 @@ impl AccountOwnership {
 
 /// Signer derivation is local only. Never format key parsing errors or key material.
 pub fn configured_account(cfg: &crate::config::AppConfig) -> Result<Option<String>> {
-    use ethers::signers::{LocalWallet, Signer};
-    use std::str::FromStr;
     let signer = cfg
         .hl_private_key
         .as_ref()
         .map(|key| {
-            LocalWallet::from_str(key.trim_start_matches("0x"))
-                .map(|wallet| format!("{:#x}", wallet.address()))
+            crate::hyperliquid_wire::derive_address(key)
                 .map_err(|_| anyhow::anyhow!("invalid signing key; key material omitted"))
         })
         .transpose()?;

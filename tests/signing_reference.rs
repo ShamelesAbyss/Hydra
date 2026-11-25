@@ -5,15 +5,8 @@
 //! The fixture identity is public upstream test material. Never fund or deploy it.
 //! No environment variables, account probes, ExchangeClient or network calls are used.
 
-use ethers::{
-    signers::LocalWallet,
-    types::{
-        transaction::eip712::{Eip712, TypedData},
-        Signature, H160, H256, U256,
-    },
-    utils::keccak256,
-};
-use serde_json::json;
+use hydra::hyperliquid_wire::{self, keccak256, WireSignature as Signature};
+type H160 = [u8; 20];
 
 // A deliberately small test encoder. It implements only the MessagePack forms used
 // by these published fixtures. This is NOT a production/general-purpose codec.
@@ -86,7 +79,7 @@ fn action_hash(action: &Wire, nonce: u64, vault: Option<H160>, expires: Option<u
         None => bytes.push(0),
         Some(address) => {
             bytes.push(1);
-            bytes.extend(address.as_bytes());
+            bytes.extend(address);
         }
     }
     if let Some(expires) = expires {
@@ -96,48 +89,34 @@ fn action_hash(action: &Wire, nonce: u64, vault: Option<H160>, expires: Option<u
     keccak256(bytes)
 }
 
-fn agent_payload(connection: [u8; 32], mainnet: bool) -> TypedData {
-    serde_json::from_value(json!({
-        "domain": {
-            "chainId":1337,"name":"Exchange","version":"1",
-            "verifyingContract":"0x0000000000000000000000000000000000000000"
-        },
-        "types": {
-            "EIP712Domain":[
-                {"name":"name","type":"string"},
-                {"name":"version","type":"string"},
-                {"name":"chainId","type":"uint256"},
-                {"name":"verifyingContract","type":"address"}
-            ],
-            "Agent":[
-                {"name":"source","type":"string"},
-                {"name":"connectionId","type":"bytes32"}
-            ]
-        },
-        "primaryType":"Agent",
-        "message":{"source":if mainnet {"a"} else {"b"},"connectionId":format!("0x{}",hex::encode(connection))}
-    })).unwrap()
+fn agent_payload(connection: [u8; 32], mainnet: bool) -> [u8; 32] {
+    hyperliquid_wire::agent_digest(connection, mainnet)
 }
 
-fn public_fixture_wallet() -> LocalWallet {
-    // Reconstruct the PUBLIC sequential-digit key from the cited upstream test.
-    // This is not user credential material and is never read from a wallet/env.
+fn public_fixture_key() -> String {
+    // Reconstruct PUBLIC upstream fixture; never load any wallet/environment.
     let digits = b"0123456789";
-    let public_test_hex: String = (0..64).map(|i| digits[i % digits.len()] as char).collect();
-    public_test_hex.parse().unwrap()
+    (0..64).map(|i| digits[i % digits.len()] as char).collect()
 }
 
 fn signature(action: &Wire, mainnet: bool, vault: Option<H160>) -> Signature {
-    let digest = agent_payload(action_hash(action, 0, vault, None), mainnet)
-        .encode_eip712()
-        .unwrap();
-    public_fixture_wallet().sign_hash(H256(digest)).unwrap()
+    hyperliquid_wire::sign_digest(
+        &public_fixture_key(),
+        agent_payload(action_hash(action, 0, vault, None), mainnet),
+    )
+    .unwrap()
 }
 
 fn assert_signature(actual: Signature, r: &str, s: &str, v: u64) {
-    assert_eq!(actual.r, U256::from_str_radix(r, 16).unwrap());
-    assert_eq!(actual.s, U256::from_str_radix(s, 16).unwrap());
-    assert_eq!(actual.v, v);
+    assert_eq!(
+        actual.r.trim_start_matches("0x").trim_start_matches('0'),
+        r.trim_start_matches('0')
+    );
+    assert_eq!(
+        actual.s.trim_start_matches("0x").trim_start_matches('0'),
+        s.trim_start_matches('0')
+    );
+    assert_eq!(actual.v as u64, v);
 }
 
 fn dummy() -> Wire {
@@ -254,8 +233,9 @@ fn published_cloid_order_signatures_match_both_networks() {
 #[test]
 fn published_vault_signatures_match_both_networks() {
     let vault = Some(
-        "0x1719884eb866cb12b2287399b15f7db5e7d775ea"
-            .parse()
+        hex::decode("1719884eb866cb12b2287399b15f7db5e7d775ea")
+            .unwrap()
+            .try_into()
             .unwrap(),
     );
     assert_signature(
@@ -290,22 +270,31 @@ fn published_trigger_order_signatures_match_both_networks() {
 }
 
 #[test]
-fn domain_hash_agrees_with_explicit_eip712_abi_encoding() {
-    // This is a two-path internal cross-check, NOT a standalone upstream constant.
-    // Published signatures above independently constrain the complete typed digest.
-    use ethers::abi::{encode, Token};
-    let domain = agent_payload([0; 32], true);
-    let domain_type = keccak256(
-        b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+fn production_action_hash_matches_independent_fixture_encoder() {
+    let action = hyperliquid_wire::OrderAction::ioc(
+        4,
+        true,
+        1670.1,
+        0.0147,
+        false,
+        "00000000-0000-0000-0000-000000000001",
+    )
+    .unwrap();
+    let expected = order(
+        4,
+        "1670.1",
+        "0.0147",
+        "Ioc",
+        Some("0x00000000000000000000000000000001"),
+        false,
     );
-    let expected = keccak256(encode(&[
-        Token::FixedBytes(domain_type.to_vec()),
-        Token::FixedBytes(keccak256(b"Exchange").to_vec()),
-        Token::FixedBytes(keccak256(b"1").to_vec()),
-        Token::Uint(1337.into()),
-        Token::Address(H160::zero()),
-    ]));
-    assert_eq!(domain.domain_separator().unwrap(), expected);
+    let mut expected_bytes = Vec::new();
+    expected.pack(&mut expected_bytes);
+    assert_eq!(action.packed().unwrap(), expected_bytes);
+    assert_eq!(
+        hyperliquid_wire::action_hash(&action.packed().unwrap(), 1_677_777_606_040, None, None),
+        action_hash(&expected, 1_677_777_606_040, None, None)
+    );
 }
 
 #[test]
@@ -313,7 +302,7 @@ fn nonce_vault_expiry_network_and_field_order_are_signature_boundaries() {
     let action = dummy();
     let base = action_hash(&action, 0, None, None);
     assert_ne!(base, action_hash(&action, 1, None, None));
-    assert_ne!(base, action_hash(&action, 0, Some(H160::zero()), None));
+    assert_ne!(base, action_hash(&action, 0, Some([0; 20]), None));
     assert_ne!(base, action_hash(&action, 0, None, Some(0)));
     assert_ne!(
         base,
@@ -327,8 +316,5 @@ fn nonce_vault_expiry_network_and_field_order_are_signature_boundaries() {
             None
         )
     );
-    assert_ne!(
-        agent_payload(base, true).encode_eip712().unwrap(),
-        agent_payload(base, false).encode_eip712().unwrap()
-    );
+    assert_ne!(agent_payload(base, true), agent_payload(base, false));
 }

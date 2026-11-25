@@ -1,114 +1,102 @@
 # Dependency audit and remediation
 
-## Scope and result
+## Current checkout assessment
 
-The baseline `v1.7.0-alpha.1` checkout (`141f67381eb95a2d1084ea44717cdff24fd043c6`)
-had 39 vulnerable package/advisory entries and 20 warnings. Its Cargo.lock SHA-256
-was `33b4306137257feac2961acc51d59db82158404d277e3443bc1b6167a140c7b7`.
+The post-alpha.4 dependency cleanup removes the legacy Hyperliquid Rust SDK and
+ethers dependency graph, replaces its active order-signing path with a narrow
+native client, upgrades rust_decimal to 1.43.0, and upgrades Ratatui to 0.30.2.
 
-The authorized dependency modernization reduces this to **19 vulnerability entries
-and 17 warnings** (7 unmaintained, 10 unsound). `cargo audit --json` still exits 1.
-There are no advisory ignores, Cargo patch overrides, manually removed lockfile
-packages, or claims of a clean audit. This is a checkout change, not a deployed fix.
+`cargo audit --json` now exits **0**, reporting **0 vulnerability entries** and
+**1 unmaintained warning**. No advisories are ignored. No patch override or
+manually pruned lockfile entry is used. Cargo resolves the graph from the changed
+manifests. This is a checkout result, not a deployed or stable-live certification.
 
-The updated lockfile SHA-256 at this assessment is
-`dbf6181b9b56f518e96f793e57d2777387ee88bcf1989a70336f75d758f3bfd6`.
-Future feature/dependency changes require regenerating the inventory and digest.
+- Assessed lockfile SHA-256: `b53ae3532704d2e53ebbd1d8ed9169d2aea976e0d9ddc573868fe2905a6765d4`.
+- Advisory database commit: `10db6998b5d74ec438bcf0763125bd425a068a8f`.
+- Advisory database updated: `2026-11-24T22:47:44+01:00`.
+- Scan target restrictions: none; Cargo.lock includes optional/platform copies.
+- The warning remains visible in CI; vulnerability auditing remains a required job.
 
-## Changes applied
+The baseline alpha.1 inventory contained 39 vulnerability entries and 20 warnings.
+Compatible alpha.2 upgrades reduced that to 19 entries and 17 warnings. The
+post-alpha.4 changes close those 19 reported entries by removing their obsolete
+parents or upgrading the parent that selected them.
 
-| Dependency | Before | After | Purpose |
-|---|---|---|---|
-| rusqlite | 0.32.1 | 0.43.0 | Upgrade its bundled SQLite dependency |
-| libsqlite3-sys | 0.30.1 | 0.40.0 | Patched bundled SQLite, including crafted DB/WAL memory exposure |
-| anyhow | 1.0.102 | 1.0.105 | Remove reported downcast unsoundness warning |
-| tokio | 1.52.1 | 1.54.1 | Remove reported AsyncFd warning |
-| rustix | 1.1.4 | 1.1.6 | Remove reported xattr initialization warning |
-| OpenSSL / openssl-sys | 0.10.78 / 0.9.114 | 0.10.82 / 0.9.118 | Patched Linux native-TLS dependency |
-| rustls | 0.23.39 | 0.23.46 | Patch Hydra's modern HTTP-client TLS stack |
-| rustls-webpki | 0.103.13 | 0.103.17 | Patched verification dependency |
-| webpki-roots | 1.0.7 | 1.0.12 | Updated trust roots |
-| quinn-proto / quinn-udp | 0.11.14 / 0.5.14 | 0.11.19 / 0.5.16 | Patch retained optional QUIC dependency copies |
-| crossbeam-epoch | 0.9.18 | 0.9.21 | Patch retained dependency copy |
-| url / form_urlencoded | 2.5.8 / 1.2.2 | 2.5.9 / 1.2.3 | Patch URL-origin recursion advisory |
+## Resolved dependency copies
 
-The SQLite change retains the existing bundled, chrono and serde_json capabilities;
-unneeded default wasm/cache features are disabled. Source uses no prepared-cache
-API. The new rusqlite MSRV is Rust 1.89, within the verified Rust 1.94 toolchain.
-No schema conversion or database rewrite is part of this dependency upgrade.
+| Previous copy | Advisory IDs | Result in the current graph |
+|---|---|---|
+| crypto-bigint 0.5.5 | RUSTSEC-2026-0387 | Removed with ethers/k256 signing graph; ECDSA is supplied by secp256k1 0.33.1 / libsecp256k1 |
+| h2 0.3.27 | RUSTSEC-2026-0258 | Removed with reqwest 0.11 / hyper 0.14 parents |
+| ring 0.16.20 | RUSTSEC-2025-0009 | Removed with ethers-providers / jsonwebtoken 8 |
+| rustls 0.21.12 | RUSTSEC-2026-0346, RUSTSEC-2026-0349 | Removed; active HTTP client uses reqwest 0.12.28 and rustls 0.23.46 |
+| rustls-webpki 0.101.7 | RUSTSEC-2026-0098, RUSTSEC-2026-0099, RUSTSEC-2026-0104, RUSTSEC-2026-0382 | Removed with the old TLS stack; current copy is 0.103.17 |
+| webpki-roots 0.25.4 | RUSTSEC-2026-0381 | Removed; current copy is 1.0.12 |
+| rkyv 0.7.46 | RUSTSEC-2026-0235 | rust_decimal 1.43.0 removed this normal optional dependency; Cargo removes its unused graph |
+| zip 0.6.6 | RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429, RUSTSEC-2026-0545, RUSTSEC-2026-0548 | Removed with the unused ethers-solc optional graph |
+| zstd-safe 5 / zstd-sys 2.0.16 | RUSTSEC-2026-0403, RUSTSEC-2026-0410 | Removed with old zip/zstd parents |
+| lru 0.12.5 | RUSTSEC-2026-0002, RUSTSEC-2026-0253 (unsound warnings) | Ratatui 0.30.2 resolves patched lru 0.18.5 |
+| paste 1.0.15 | RUSTSEC-2024-0436 (unmaintained warning) | Removed by Ratatui parent upgrade |
 
-The [SQLite advisory](https://rustsec.org/advisories/RUSTSEC-2026-0459.html)
-identifies crafted sibling DB/WAL files as its local input boundary. Hydra opens
-local SQLite databases and enables WAL; upgrading the bundled implementation closes
-that affected dependency copy. Normal migrations, transactions, persistence and
-learning behavior must remain covered by the Rust regression suite.
+Earlier bundled SQLite, modern TLS and URL-origin upgrades remain in place.
+Removing a dependency copy closes that copy's scanner finding; it is not a claim
+that every former vulnerable function was reachable or exploited in Hydra.
 
-## Reachability and remaining blockers
+## Native order-signing boundary
 
-`cargo tree --locked --target all -i <name>@<version>` was used to distinguish the
-enabled graph from packages merely retained in Cargo.lock. Graph inclusion alone
-does not prove that an affected function is called. These are assessment notes,
-not dismissals or risk acceptance.
+The production adapter supports a single default-validator perpetual IOC order
+with a canonical cloid and an explicit reduce-only flag. It has no transfer,
+withdrawal, vault, spot or account-management mutation API. Mainnet, standard
+account valuation, approved-agent checks and the live authorization gates remain.
+Metadata supplies the actual asset index and size precision. IDs outside the
+default perpetual namespace and unsupported decimal precision fail closed.
 
-| Remaining copy | Alert IDs | Existing parent / scope | Disposition |
-|---|---|---|---|
-| crypto-bigint 0.5.5 | RUSTSEC-2026-0387 | elliptic-curve 0.13 / ecdsa / k256 / ethers-signers; actual exchange signing path | Open, high priority; patched 0.7.6 cannot replace the 0.5 API by a lock refresh |
-| h2 0.3.27 | RUSTSEC-2026-0258 | reqwest 0.11 / hyper 0.14 in SDK/ethers HTTP graph | Open; upgrade parent HTTP stack, not an incompatible h2 substitution |
-| ring 0.16.20 | RUSTSEC-2025-0009 | jsonwebtoken 8.3 / ethers-providers | Open; Hydra's active adapter does not call provider JWT APIs, but dependency remains enabled |
-| rustls 0.21.12 | RUSTSEC-2026-0346, RUSTSEC-2026-0349 | reqwest 0.11 and tokio-tungstenite 0.20 / SDK/ethers | Open; inspect actual TLS backend selection per target and replace legacy stack |
-| rustls-webpki 0.101.7 | RUSTSEC-2026-0098, RUSTSEC-2026-0099, RUSTSEC-2026-0104, RUSTSEC-2026-0382 | Legacy rustls 0.21 graph | Open; not repaired by upgrading the separate 0.103 copy |
-| webpki-roots 0.25.4 | RUSTSEC-2026-0381 | Legacy TLS graph | Open; requires parent stack modernization |
-| rkyv 0.7.46 | RUSTSEC-2026-0235 | Lockfile only: no enabled all-target inverse dependency edges | Retained and open; no archive-deserialization use found in Hydra |
-| zip 0.6.6 | RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429, RUSTSEC-2026-0545, RUSTSEC-2026-0548 | Lockfile only: no enabled all-target inverse dependency edges | Retained and open; do not remove lock entries merely to hide scanner findings |
-| zstd-safe 5.0.2 / zstd-sys 2.0.16 | RUSTSEC-2026-0403, RUSTSEC-2026-0410 | Lockfile only: no enabled all-target inverse dependency edges | Retained and open; feature changes must trigger another reachability review |
+`hyperliquid_wire` uses named MessagePack serialization in protocol field order,
+Keccak-256, the EIP-712 Exchange/Agent domain, and the maintained secp256k1 library's
+RFC6979 recoverable ECDSA implementation. Hydra does not implement EC arithmetic
+or a signature nonce algorithm. The signer derives addresses locally without
+account probes. Key parse errors omit input and low-level parse details.
 
-The [crypto-bigint advisory](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)
-concerns timing-dependent arithmetic. Its presence in the signer graph is material;
-exploitability depends on the operations, compiler, CPU and observable side channels.
-No claim that ordinary network access alone exploits it is made. No signing
-algorithm, nonce algorithm or signed serialization was changed by these upgrades.
+Signed transport owns its HTTP policy: fixed mainnet exchange endpoint, no
+redirects, no automatic request retries, a 15-second total timeout and a 1 MiB
+response limit. It never logs signatures or request bodies. Transport/HTTP/JSON
+failures remain unresolved errors for the durable execution gate. The monotonic
+process nonce allocator refuses an excessive lead over the local clock.
 
-Remaining warnings: chrono, fxhash, humantime, instant, paste, ring, rustls-pemfile
-(unmaintained); two lru warnings; eight zstd-safe unsoundness warnings. Ratatui 0.29
-uses lru 0.12 for its layout cache. The zstd warnings share the inactive graph status
-above. Chrono is pervasive in public data types and SQLite conversions; replacing
-it needs explicit compatibility work. Maintenance warnings are not proof of an
-exploit, and they are not dismissed here.
+The prior SDK logged signed payloads at DEBUG. The native replacement has no such
+logging call. Existing defensive log-filter regressions are retained.
 
-## SDK modernization investigation
+## Independent conformance evidence
 
-The official published Rust SDK remains 0.6.0. Reference HEAD observed:
-`aac75585daf12d0a3761126cc7da7a5e035b5853` in
-[hyperliquid-dex/hyperliquid-rust-sdk](https://github.com/hyperliquid-dex/hyperliquid-rust-sdk).
-Its dependency graph requests ethers with abigen/default features, reqwest 0.11,
-and tokio-tungstenite 0.20/native TLS. Disabling defaults only on Hydra's direct
-ethers declaration does not remove features enabled by the SDK.
-
-An additional concrete concern is SDK `ExchangeClient::post`: it logs the serialized
-exchange payload, including signature and nonce, at debug level. Hydra must prevent
-that SDK log target from reaching diagnostic sinks, even when operators request
-verbose logs. Replacing the SDK should remove this behavior entirely.
-
-A narrow native replacement should initially support only the allowed trading
-mutations, typed responses and read-only information; omit transfers/withdrawals.
-Before use, validate ordered MessagePack action encoding, nonce/vault/expiry bytes,
-Keccak action hash, EIP-712 Agent domain (Exchange, version 1, chain 1337), network
-source, recoverable signature and cloid formatting against independent fixtures.
-Do not replace cryptographic primitives or serialization by guesswork.
-
-Independent reference: official Python SDK commit
-`2fdb18f9517675ea03695a0962bd19eece9c83f0`, specifically
-[signing.py](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/2fdb18f9517675ea03695a0962bd19eece9c83f0/hyperliquid/utils/signing.py)
+The offline signing suite compares hashes and signatures with published official
+Python SDK constants at commit
+[`2fdb18f9517675ea03695a0962bd19eece9c83f0`](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/tree/2fdb18f9517675ea03695a0962bd19eece9c83f0).
+Sources: [signing.py](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/2fdb18f9517675ea03695a0962bd19eece9c83f0/hyperliquid/utils/signing.py)
 and [signing_test.py](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/2fdb18f9517675ea03695a0962bd19eece9c83f0/tests/signing_test.py).
-These are research/fixture references, not a Python runtime dependency.
 
-## Verification status
+Eight tests cover the published ordered-action hash and both-network pure
+signatures for dummy, limit, cloid, vault and trigger fixture actions, plus
+nonce/vault/expiry/network/order boundaries. The production IOC serializer's full
+MessagePack bytes and hash are compared with an independent fixture encoder.
+Tests use public upstream fixture material only, with no environment keys,
+account probes, orders or other network calls. Testnet/vault/trigger cases are
+pure conformance fixtures, not exposed production capabilities.
 
-Audit: FAIL with 19 vulnerability entries / 17 warnings, reduced from 39 / 20.
-Windows `cargo test --locked --all-targets` passed for the concurrently integrated checkout snapshot;
-the final integrated test count and source revision belong in TEST_RESULTS.md after integration completes.
-No mainnet calls, account probes, real credentials or exchange orders were used.
-This work does not certify stable-live readiness, erase existing risk gates, or
-close unresolved financial-accounting state.
+The upstream Rust SDK HEAD observed during assessment was
+`aac75585daf12d0a3761126cc7da7a5e035b5853`. It uses Alloy, but its signer graph
+still selects the affected older crypto-bigint family; pinning that revision
+alone would not close the signing dependency alert.
 
-Current release lock SHA-256: `896b389c3bc84d883253b1c525a82e47af85b0cdde9df7f3761e8c50e497187a` (alpha.2 version metadata included).
+## Remaining maintenance and readiness work
+
+**RUSTSEC-2026-0543: chrono 0.4.44 is unmaintained.** No patched version is listed.
+Chrono remains in persisted timestamps, public data types, SQLite conversions and
+reporting. A deliberate timestamp API/storage compatibility migration is needed;
+the warning has not been ignored or dismissed.
+
+A passing dependency audit does not establish a complete security review,
+profitability or safe unattended trading. Broad account recovery, complete
+fee/funding settlement, unknown acknowledgments and legacy financial provenance
+remain separate engineering work. No mainnet calls, credential probes or signed
+orders were used for this cleanup. See [test results](TEST_RESULTS.md) for final
+integrated suite counts and [project status](PROJECT_STATUS.md) for readiness.

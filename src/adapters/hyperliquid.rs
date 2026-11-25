@@ -51,14 +51,13 @@ pub struct HyperliquidAdapter {
     max_slippage_bps: f64,
     base_url: String,
     account_address: Option<String>,
-    exchange: Arc<Mutex<Option<hyperliquid_rust_sdk::ExchangeClient>>>,
     wallet_key: Option<String>,
     identity_verified_at: Arc<Mutex<Option<std::time::Instant>>>,
     /// v1.4.0: per-asset size decimals fetched once at startup from the
     /// `/info {"type":"meta"}` endpoint. Hyperliquid rejects any size with
     /// more decimals than the asset allows (e.g. HYPE = 2, ETH = 4, BTC = 5).
     /// Without this, HYPE orders silently bounce all day.
-    sz_decimals: Arc<Mutex<std::collections::HashMap<String, u8>>>,
+    sz_decimals: Arc<Mutex<std::collections::HashMap<String, (u32, u8)>>>,
 }
 
 impl HyperliquidAdapter {
@@ -162,7 +161,6 @@ impl HyperliquidAdapter {
             max_slippage_bps: cfg.risk.max_slippage_bps,
             base_url: defaults::HYPERLIQUID_API.to_string(),
             account_address,
-            exchange: Arc::new(Mutex::new(None)),
             wallet_key: cfg.hl_private_key.clone(),
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -191,11 +189,11 @@ impl HyperliquidAdapter {
             Ok(meta) => {
                 let mut guard = self.sz_decimals.lock().await;
                 guard.clear();
-                for a in &meta.universe {
-                    guard.insert(a.name.clone(), a.sz_decimals);
+                for (index, a) in meta.universe.iter().enumerate() {
+                    guard.insert(a.name.clone(), (index as u32, a.sz_decimals));
                 }
                 let count = guard.len();
-                let hype = guard.get("HYPE").copied();
+                let hype = guard.get("HYPE").map(|value| value.1);
                 tracing::info!(
                     asset_count = count,
                     hype_sz_decimals = ?hype,
@@ -213,7 +211,7 @@ impl HyperliquidAdapter {
         let guard = self.sz_decimals.lock().await;
         let dp = guard
             .get(symbol)
-            .copied()
+            .map(|value| value.1)
             .ok_or_else(|| anyhow!("metadata unavailable for {symbol}"))?;
         anyhow::ensure!(dp <= 6, "unsupported perp size precision");
         Ok(dp)
@@ -281,36 +279,18 @@ impl HyperliquidAdapter {
         Ok(())
     }
 
-    async fn ensure_exchange(&self) -> Result<()> {
-        let mut guard = self.exchange.lock().await;
-        if guard.is_some() {
-            return Ok(());
-        }
-        let key = self
-            .wallet_key
-            .as_ref()
-            .ok_or_else(|| anyhow!("HYPERLIQUID_PRIVATE_KEY not set"))?;
-        let wallet = ethers::signers::LocalWallet::from_str(key.trim_start_matches("0x"))
-            .context("parsing Hyperliquid private key")?;
-        let client = hyperliquid_rust_sdk::ExchangeClient::new(
-            None,
-            wallet,
-            Some(hyperliquid_rust_sdk::BaseUrl::Mainnet),
-            None,
-            None,
-        )
-        .await
-        .map_err(|e| anyhow!("init Hyperliquid ExchangeClient: {e}"))?;
-        *guard = Some(client);
-        Ok(())
+    async fn asset_id_for(&self, symbol: &str) -> Result<u32> {
+        self.sz_decimals
+            .lock()
+            .await
+            .get(symbol)
+            .map(|value| value.0)
+            .ok_or_else(|| anyhow!("metadata unavailable for {symbol}"))
     }
 }
 
 fn derive_eth_address(priv_hex: &str) -> Result<String> {
-    use ethers::signers::{LocalWallet, Signer};
-    let w =
-        LocalWallet::from_str(priv_hex.trim_start_matches("0x")).context("parse private key")?;
-    Ok(format!("{:?}", w.address()))
+    crate::hyperliquid_wire::derive_address(priv_hex)
 }
 
 /// Round a perp price to Hyperliquid's tick rule: max 5 significant figures,
@@ -342,10 +322,12 @@ fn round_to_decimals(value: f64, dp: u8) -> f64 {
 
 /// Single-order typed acknowledgment. Unrecognized/malformed responses stay unresolved.
 fn parse_order_response(
-    resp: hyperliquid_rust_sdk::ExchangeResponseStatus,
+    resp: crate::hyperliquid_wire::ExchangeResponseStatus,
     id: &str,
 ) -> Result<OrderResult> {
-    use hyperliquid_rust_sdk::{ExchangeDataStatus as Status, ExchangeResponseStatus as Response};
+    use crate::hyperliquid_wire::{
+        ExchangeDataStatus as Status, ExchangeResponseStatus as Response,
+    };
     let mut out = OrderResult {
         intent_id: id.into(),
         accepted: false,
@@ -533,26 +515,19 @@ impl VenueAdapter for HyperliquidAdapter {
             "order rounds to zero"
         );
         self.verify_identity().await?;
-        self.ensure_exchange().await?;
-        let guard = self.exchange.lock().await;
-        let client = guard.as_ref().unwrap();
-        let order = hyperliquid_rust_sdk::ClientOrderRequest {
-            asset: intent.symbol.clone(),
-            is_buy: intent.side.is_buy(),
-            reduce_only: intent.reduce_only,
+        let action = crate::hyperliquid_wire::OrderAction::ioc(
+            self.asset_id_for(&intent.symbol).await?,
+            intent.side.is_buy(),
             limit_px,
             sz,
-            cloid: Some(intent.id.parse().context("invalid client order UUID")?),
-            order_type: hyperliquid_rust_sdk::ClientOrder::Limit(
-                hyperliquid_rust_sdk::ClientLimit {
-                    tif: "Ioc".to_string(),
-                },
-            ),
-        };
-        let resp = client
-            .order(order, None)
-            .await
-            .map_err(|e| anyhow!("hyperliquid order error: {e}"))?;
+            intent.reduce_only,
+            &intent.id,
+        )?;
+        let key = self
+            .wallet_key
+            .as_deref()
+            .ok_or_else(|| anyhow!("signing key missing"))?;
+        let resp = crate::hyperliquid_wire::submit_ioc(key, &action).await?;
 
         parse_order_response(resp, &intent.id)
     }
@@ -803,7 +778,7 @@ mod tests {
     //! These tests lock in the lenient behaviour.
     use super::*;
 
-    fn response(statuses: serde_json::Value) -> hyperliquid_rust_sdk::ExchangeResponseStatus {
+    fn response(statuses: serde_json::Value) -> crate::hyperliquid_wire::ExchangeResponseStatus {
         serde_json::from_value(
             json!({"status":"ok","response":{"type":"order","data":{"statuses":statuses}}}),
         )
@@ -868,7 +843,6 @@ mod tests {
             max_slippage_bps: 30.0,
             base_url: "http://127.0.0.1:1".into(),
             account_address: None,
-            exchange: Arc::new(Mutex::new(None)),
             wallet_key: None,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),

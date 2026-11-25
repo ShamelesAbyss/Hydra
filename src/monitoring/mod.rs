@@ -3,7 +3,6 @@
 use anyhow::Result;
 use comfy_table::{presets::UTF8_BORDERS_ONLY, ContentArrangement, Table};
 use owo_colors::OwoColorize;
-use std::str::FromStr;
 use std::time::Instant;
 
 use crate::adapters::make_venue;
@@ -48,9 +47,8 @@ impl HealthReport {
 
         // Address derived from HL key (sanity)
         if let Some(k) = &cfg.hl_private_key {
-            if let Ok(w) = ethers::signers::LocalWallet::from_str(k.trim_start_matches("0x")) {
-                use ethers::signers::Signer;
-                checks.push(("trading_address".into(), true, format!("{:?}", w.address())));
+            if let Ok(address) = crate::hyperliquid_wire::derive_address(k) {
+                checks.push(("trading_address".into(), true, address));
             }
         }
 
