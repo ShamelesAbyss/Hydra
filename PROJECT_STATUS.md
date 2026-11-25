@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.8** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.8^{commit}`.
-- Previous recovery: v1.7.0-alpha.7 (`dfb2fe6ef0c297c5ec12263707657b01e2bdf55a`).
+- Version and current recovery tag: **v1.7.0-alpha.9** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.9^{commit}`.
+- Previous recovery: v1.7.0-alpha.8 (`4667daa27ae568b8a5cfef8bd52d3eca5bb2a4a4`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,8 +26,8 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.8 source: 255 offline desktop-feature tests pass; alpha.7 contains 240.
-  Release artifact and tagged CI evidence are tracked separately.
+- Alpha.9 source: 271 offline desktop-feature tests pass; alpha.8 contains 255.
+  Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
 
@@ -204,3 +204,12 @@ Archived evidence, current precision, position reduction and journal application
 commit together. Net settlement remains unknown and independently blocks entry.
 The full offline desktop-feature suite passes 267 tests. Next: runtime-specific
 bridge regressions, further exact arithmetic and complete financial settlement.
+
+## Alpha.9 runtime residual checkpoint
+
+All 271 offline desktop-feature tests pass, including direct runtime partial/full
+confirmation, unavailable and contradictory post-receipt proof, no resend,
+short-side exact quantities and hidden exact over-reduction. Native protective
+proof uses one bounded position snapshot with no equity/mark/open-order dependency.
+Financial settlement and reduced-position reservation release remain independent
+open work. Main is the sole active branch; do not create additional branches.

@@ -111,3 +111,11 @@ prerelease. Never overwrite releases or rewrite history.
 5. Verify partial/full reductions, account/time/side/entry mismatches, duplicate
    symbols, sub-float quantity differences, restart and each transaction boundary
    with offline fixtures before adding the runtime bridge.
+
+## Alpha.9 continuation on main
+
+The exact residual proof boundary above is implemented and covered by parser,
+storage and runtime fixtures. Continue directly on main. Next work: stronger
+receipt identity/replay guards, authoritative order-status recovery and complete
+fee/funding coverage/conventions before net settlement. Do not infer unknown
+costs or release independent holds merely because a current residual is known.

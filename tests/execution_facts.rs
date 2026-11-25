@@ -748,3 +748,228 @@ fn changed_entry_identity_prevents_application_even_without_exact_proof() {
         .is_err());
     assert_eq!(state(&db, &res.intent_id), "filled");
 }
+
+struct ResidualVenue {
+    db: Storage,
+    quantity: &'static str,
+    fault: u8,
+    reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    sends: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+#[async_trait::async_trait]
+impl hydra::adapters::VenueAdapter for ResidualVenue {
+    fn kind(&self) -> hydra::core::VenueKind {
+        hydra::core::VenueKind::Hyperliquid
+    }
+    async fn ping(&self) -> anyhow::Result<()> {
+        panic!("no health probe during protective proof")
+    }
+    async fn snapshot(&self, _: &str, _: usize) -> anyhow::Result<hydra::core::MarketSnapshot> {
+        panic!("no market probe during protective proof")
+    }
+    async fn open_positions(&self) -> anyhow::Result<Vec<hydra::adapters::VenuePosition>> {
+        panic!("exact native proof must not perform a second legacy position read")
+    }
+    async fn account_equity_usd(&self) -> anyhow::Result<f64> {
+        panic!("protective proof must not depend on equity")
+    }
+    async fn account_exposure_evidence(&self) -> anyhow::Result<AccountExposureEvidence> {
+        panic!("protective proof must not depend on open orders or marks")
+    }
+    async fn close_position(&self, _: &str, _: f64, _: bool) -> anyhow::Result<OrderResult> {
+        panic!("close must use durable submission")
+    }
+    async fn submit_order(&self, _: &OrderIntent) -> anyhow::Result<OrderResult> {
+        panic!("extended receipt required")
+    }
+    async fn submit_order_with_evidence(
+        &self,
+        order: &OrderIntent,
+    ) -> anyhow::Result<hydra::adapters::OrderReceipt> {
+        assert!(order.reduce_only);
+        assert_eq!(state(&self.db, &order.id), "submitted");
+        self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let f = PreciseFill {
+            quantity: self.quantity.into(),
+            average_price: EXACT_PRICE.into(),
+            order_id: "43".into(),
+        };
+        Ok(hydra::adapters::OrderReceipt {
+            result: result(order, &f),
+            precise_fill: Some(f),
+        })
+    }
+    async fn position_snapshot(
+        &self,
+    ) -> anyhow::Result<Option<hydra::adapters::position_evidence::PositionSnapshot>> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.fault == 1 {
+            anyhow::bail!("offline snapshot failure");
+        }
+        let remaining = dec!(2) - Decimal::from_str_exact(self.quantity)?;
+        let mut proof = residual_snapshot(remaining);
+        if self.fault == 2 {
+            proof.positions = vec![hydra::adapters::position_evidence::ExactPosition {
+                symbol: "ETH".into(),
+                signed_quantity: dec!(0.000000000000000001),
+                entry_price: Decimal::from_str_exact(EXACT_PRICE)?,
+            }];
+        }
+        if self.fault == 3 {
+            proof.account = "0x2222222222222222222222222222222222222222".into();
+        }
+        Ok(Some(proof))
+    }
+}
+#[tokio::test]
+async fn runtime_residual_bridge_confirms_partial_and_full_without_legacy_reads() {
+    for quantity in ["1.0000", "2.0000"] {
+        let db = database();
+        let order = intent("ETH");
+        let entry = stage(&db, &order, true);
+        let p = open(&db, &order, &entry);
+        let reads = std::sync::Arc::new(0.into());
+        let sends = std::sync::Arc::new(0.into());
+        let venue = ResidualVenue {
+            db: db.clone(),
+            quantity,
+            fault: 0,
+            reads: std::sync::Arc::clone(&reads),
+            sends: std::sync::Arc::clone(&sends),
+        };
+        let mut engine = hydra::execution::ExecutionEngine::new(db.clone(), true);
+        let mut portfolio = hydra::portfolio::PortfolioManager::new(db.clone());
+        let cfg = hydra::config::AppConfig::load(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/config/strategies.toml"),
+            None,
+        )
+        .unwrap();
+        let venues: Vec<Box<dyn hydra::adapters::VenueAdapter>> = vec![Box::new(venue)];
+        if quantity == "1.0000" {
+            portfolio
+                .reduce_all(&cfg, &mut engine, &venues)
+                .await
+                .unwrap();
+            assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("1.0000"));
+        } else {
+            portfolio
+                .flatten_all(&cfg, &mut engine, &venues)
+                .await
+                .unwrap();
+            assert!(db.list_open_positions().unwrap().is_empty());
+            assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("0.0000"));
+        }
+        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(sends.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(residual_count(&db), 1);
+        assert!(db.ensure_execution_resolved().is_err());
+    }
+}
+#[tokio::test]
+async fn runtime_failed_or_contradictory_proof_preserves_receipt_and_never_resends() {
+    for fault in [1, 2, 3] {
+        let db = database();
+        let order = intent("ETH");
+        let entry = stage(&db, &order, true);
+        let p = open(&db, &order, &entry);
+        let reads = std::sync::Arc::new(0.into());
+        let sends = std::sync::Arc::new(0.into());
+        let venues: Vec<Box<dyn hydra::adapters::VenueAdapter>> = vec![Box::new(ResidualVenue {
+            db: db.clone(),
+            quantity: "2.0000",
+            fault,
+            reads: std::sync::Arc::clone(&reads),
+            sends: std::sync::Arc::clone(&sends),
+        })];
+        let mut engine = hydra::execution::ExecutionEngine::new(db.clone(), true);
+        let mut portfolio = hydra::portfolio::PortfolioManager::new(db.clone());
+        let cfg = hydra::config::AppConfig::load(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/config/strategies.toml"),
+            None,
+        )
+        .unwrap();
+        assert!(portfolio
+            .flatten_all(&cfg, &mut engine, &venues)
+            .await
+            .is_err());
+        assert_eq!(db.list_open_positions().unwrap()[0].size, 2.0);
+        assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("2.0000"));
+        assert_eq!(residual_count(&db), 0);
+        assert!(portfolio
+            .flatten_all(&cfg, &mut engine, &venues)
+            .await
+            .is_err());
+        assert_eq!(sends.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let filled: i64 = db
+            .with_conn(|c| {
+                c.query_row(
+                    "SELECT COUNT(*) FROM execution_intents WHERE state='filled'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(filled, 1);
+    }
+}
+#[test]
+fn short_exact_residual_uses_signed_remote_quantity() {
+    let db = database();
+    let mut order = intent("ETH");
+    order.side = Side::Short;
+    let entry = stage(&db, &order, true);
+    let p = open(&db, &order, &entry);
+    let mut closing = intent("ETH");
+    closing.reduce_only = true;
+    closing.size = 1.0;
+    db.reserve_intent(&closing).unwrap();
+    let f = PreciseFill {
+        quantity: "1.0000".into(),
+        average_price: "99".into(),
+        order_id: "43".into(),
+    };
+    let res = result(&closing, &f);
+    execution_facts::record_receipt(&db, "filled", &res, Some(&f)).unwrap();
+    db.apply_confirmed_reduction_with_snapshot(
+        &p,
+        &res,
+        1.0,
+        "offline",
+        Some(&residual_snapshot(dec!(-1))),
+    )
+    .unwrap();
+    assert_eq!(exact_remaining(&db, p.id).as_deref(), Some("1.0000"));
+    assert_eq!(residual_count(&db), 1);
+}
+#[test]
+fn exact_current_quantity_rejects_overreduction_hidden_by_float_view() {
+    let db = database();
+    let order = intent("ETH");
+    db.reserve_intent(&order).unwrap();
+    let mut f = facts();
+    f.quantity = "1.999999999999999999".into();
+    let entry = result(&order, &f);
+    execution_facts::record_receipt(&db, "filled", &entry, Some(&f)).unwrap();
+    let p = open(&db, &order, &entry);
+    let mut closing = intent("ETH");
+    closing.reduce_only = true;
+    closing.side = Side::Short;
+    db.reserve_intent(&closing).unwrap();
+    let mut f = facts();
+    f.order_id = "43".into();
+    let res = result(&closing, &f);
+    execution_facts::record_receipt(&db, "filled", &res, Some(&f)).unwrap();
+    assert!(db
+        .apply_confirmed_reduction_with_snapshot(
+            &p,
+            &res,
+            0.0,
+            "offline",
+            Some(&residual_snapshot(dec!(0)))
+        )
+        .is_err());
+    assert_eq!(state(&db, &res.intent_id), "filled");
+    assert_eq!(db.list_open_positions().unwrap()[0].size, 2.0);
+    assert_eq!(residual_count(&db), 0);
+}

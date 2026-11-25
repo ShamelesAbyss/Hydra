@@ -25,3 +25,5 @@ This promotion does not establish stable-live certification.
 ## Engineering continuation
 
 Continue on main at the exact post-alpha.8 residual-proof bridge. Add runtime-specific protective-close regressions, then publish the next verified prerelease. Complete financial settlement, broader recovery, fixed-point position arithmetic and live-readiness work remain open. Do not activate real-money trading during development.
+
+The redundant remote development branch and both local development/presentation branches were removed after ancestry and CI verification. Remote branch inventory is now **main** plus the retired archival branch only. Subsequent engineering proceeds directly on main.

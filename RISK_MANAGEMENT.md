@@ -86,3 +86,20 @@ Legacy core positions still use floating-point storage. Scoped ownership proof
 requires exact agreement with their decimal string representation. Values that
 cannot be matched stay unresolved; fixed-point core-position migration remains
 required. Unknown fee/funding settlement remains an independent entry gate.
+
+## Exact native residual proof — alpha.9
+
+Native protective confirmation uses one bounded default-perpetual clearinghouse
+read with account/environment identity, exact signed quantity/entry price and
+exchange/acquisition times. It does not require unrelated equity, mark-price or
+open-order endpoints. Duplicate, malformed, oversized, stale or wrong-scope
+snapshots cannot prove closure.
+
+When exact current and native close facts exist, checked Decimal subtraction
+must agree with the post-receipt remote residual and original entry price.
+A complete snapshot with no matching position proves exact zero. The retained
+`execution_residual_evidence`, current precision, confirmed reduction, position
+view and journal application commit together. Failure preserves the known fill
+as unresolved and never retries the exchange write. Legacy or already unknown
+precision remains unknown. Unknown net settlement still independently holds new
+exposure; reduced-position reservation release remains future work.

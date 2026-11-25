@@ -1,6 +1,6 @@
 # Passivbot / Hydra capability ledger
 
-Status is relative to this execution-foundation prerelease. An existing Hydra
+Status is relative to the Project Leviathan main prerelease. An existing Hydra
 feature is not proof of full parity with upstream. No upstream Rust code is ported yet.
 
 | Requested upstream capability | Hydra equivalent/status | Validation or next work |

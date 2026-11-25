@@ -2,8 +2,8 @@
 
 Project Leviathan is Hydra. **main is the only active authoritative branch**.
 Use main for development, pull-request targets, documentation and releases.
-Short-lived isolated branches are allowed; do not create a competing long-lived
-implementation. The retired `archive/dead-code-hydra-1.6.2` branch must never be
+Work directly on main. Do not create additional branches unless the user
+explicitly requests one. The retired `archive/dead-code-hydra-1.6.2` branch must never be
 used or developed for live trading. Preserve all history and existing release tags.
 
 Read CONTRIBUTING.md, PROJECT_STATUS.md, TEST_RESULTS.md and IMPLEMENTATION_PLAN.md

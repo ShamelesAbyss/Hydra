@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0-alpha.9
+
+- Consolidate complete Leviathan history and flagship presentation on authoritative main.
+- Retire original 1.6.2 and remove redundant development branches.
+- Preserve exact post-receipt residual proof in the reduction transaction.
+- Keep protective confirmation independent of equity, marks and open-order endpoints.
+- Verify runtime partial/full reductions, no resend on failed proof and signed exact quantities.
+
 ## 1.7.0-alpha.8
 
 - Preserve exact native fill facts with wire-bound validation and atomic provenance.

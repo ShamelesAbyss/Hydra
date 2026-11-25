@@ -1,3 +1,21 @@
+# Release verification — 1.7.0-alpha.9
+
+The full release-version desktop-feature all-target suite passes **271 offline
+tests**. The fresh lockfile audit exits 0 with zero vulnerability entries and one
+Chrono maintenance warning. Sixteen new regressions beyond alpha.8 cover exact
+position snapshot boundaries, residual proof, complete-zero closure, transaction
+rollback, restart, runtime partial/full confirmation, failed proof/no resend,
+short-side quantities and over-reduction below floating-point resolution.
+No real account, signed network request or exchange order was used.
+
+All four main consolidation CI jobs passed for source
+`fbb52619a1328533062aa7fe0a8b3bf5b4312223`:
+[verified main run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45581670769).
+Release compilation encountered local disk exhaustion; generated build caches
+were reclaimed and the release retry succeeds for both Windows CLI and native
+cockpit binaries. Clippy completes with warnings. Main is the only active
+development branch. Extracted portable smoke and tagged CI evidence are separate.
+
 # Main consolidation and residual-proof verification
 
 The complete desktop-feature all-target suite passes **267 offline tests**.
