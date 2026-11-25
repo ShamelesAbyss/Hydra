@@ -171,7 +171,7 @@ responsibility for journaling; custom adapters keep their compatibility path.
 Older intents receive no fabricated wire history. Risk snapshots are not refreshed
 by this record, and independent execution, reservation and financial holds remain.
 
-Next: bounded read-only inspection of retained native action provenance, then nonce/signing-boundary evidence and conservative recovery integration.
+Alpha.15 completes the bounded read-only action inspector. Next: link acknowledged fill bounds to retained unsigned action evidence, then nonce/signing-boundary evidence and conservative recovery integration.
 
 ## Offline unsigned-action inspection — alpha.15
 
@@ -188,3 +188,17 @@ neither proves no submission occurred. Output explicitly marks the source offlin
 signed-envelope unavailable and submission/acceptance unproven. This validates local
 consistency, not database attestation or current venue state. No hold is released,
 no accounting result is inferred, and older history is never fabricated.
+
+## Next acceptance increment — retained action / acknowledgment consistency
+
+Use the same SQLite transaction to read any retained action alongside native
+acknowledgment facts. Require exact quantity, side-aware limit, precision and
+account/client identity agreement. Reuse the bounded decoder rather than opening a
+second database snapshot. Existing action records that are corrupt must fail;
+pre-alpha.14 receipts with no action record remain explicitly historical, without
+invented pre-write provenance. Validate receipt persistence, restart reads and
+ledger/reduction paths against overfill, limit, precision, scope and corruption
+fixtures. No automatic repair, hold release or complete settlement is implied.
+
+Signing nonce/envelope evidence remains a later increment. Continue offline; no
+real account requests, signed mutations or transfers are part of verification.

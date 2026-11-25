@@ -299,3 +299,17 @@ neither proves no submission occurred. Output explicitly marks the source offlin
 signed-envelope unavailable and submission/acceptance unproven. This validates local
 consistency, not database attestation or current venue state. No hold is released,
 no accounting result is inferred, and older history is never fabricated.
+
+## Published alpha.15 verification and continuation
+
+Commit `bdbae818f385d852684617acddc63a77733c2f54` is on authoritative main
+and tagged v1.7.0-alpha.15. All four exact-source CI jobs pass in run 45648387540.
+Windows CLI/cockpit and Linux CLI, source and both checksum manifests are published;
+all five GitHub asset digests match. The local suite passes 323 offline tests.
+GitHub intermittently returned 5xx after writes; remote state/digests were checked
+before retries and no published assets or tags were replaced. The live default
+README renders all 20 images. No branch was created.
+
+Continue with retained-action/native-acknowledgment consistency in one transaction,
+then nonce/envelope provenance and conservative recovery. Preserve every unresolved
+execution, risk and financial hold and all historical release checkpoints.

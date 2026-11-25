@@ -11,8 +11,9 @@ Formatting and Clippy complete with warnings. Fresh audit exits 0 with zero
 vulnerability entries and one Chrono maintenance warning, no ignores. Windows CLI
 and cockpit release compilation and extracted portable smoke are checked before
 publication. No real account probes, signed requests, orders or transfers were used.
-Alpha.14 passed all four tagged CI jobs and all five release asset digests match:
-[verified alpha.14 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45646805982).
+Alpha.15 passed all four CI jobs for tagged source `bdbae818f385d852684617acddc63a77733c2f54`.
+All five published release asset digests match the local archives/manifests.
+[Verified alpha.15 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45648387540).
 
 # Release verification — 1.7.0-alpha.14
 
