@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.10** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.10^{commit}`.
-- Previous recovery: v1.7.0-alpha.9 (`74f54695ab653b976135f864fe646ca6a07f2983`).
+- Version and current recovery tag: **v1.7.0-alpha.11** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.11^{commit}`.
+- Previous recovery: v1.7.0-alpha.10 (`358414f54196f742205048108a369996bcffbc1f`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.10 source: 277 offline desktop-feature tests pass; alpha.9 contains 271.
+- Alpha.11 source: 287 offline desktop-feature tests pass; alpha.10 contains 277.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -226,3 +226,16 @@ rewriting any records. Individual ledger fills remain separately deduplicated.
 Continue directly on main with authoritative order-status/replay recovery and
 complete fee/funding coverage/conventions. These local consistency guards do not
 establish cryptographic database attestation or complete net settlement.
+
+## Alpha.11 lifecycle provenance checkpoint
+
+All 287 offline desktop-feature tests pass. The Rust API acquires bounded native
+order-status observations and retains selected identity/lifecycle evidence in an
+append-only application path. Existing exact replays preserve timestamps; newly
+stale evidence and conflicting identity reuse are refused. No observation changes
+an intent, creates a guessed fill or releases risk/financial holds.
+
+Next: operator-facing bounded lifecycle inspection and authoritative recovery
+proofs, persistent exact signed-wire request provenance and complete fee/funding
+coverage. The new observation API is not an automatic recovery loop or a new CLI.
+Continue directly on main; do not create additional branches.

@@ -348,6 +348,10 @@ mod tests {
             value["orders"][0]["c"],
             "0x00000000000000000000000000000001"
         );
+        assert_eq!(
+            value["orders"][0]["c"],
+            crate::order_status::client_order_id("00000000-0000-0000-0000-000000000001").unwrap()
+        );
         assert_eq!(value["orders"][0]["p"], "1670.1");
         assert_eq!(value["orders"][0]["t"]["limit"]["tif"], "Ioc");
         let packed = action.packed().unwrap();

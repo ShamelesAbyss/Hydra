@@ -35,3 +35,5 @@ Justified exclusions: Python runtime, automatic deployment of optimizer candidat
 unbounded Martingale, mandatory cloud services, withdrawal/transfer operations, and
 obsolete active Ethereum integration. Broader requested features are deferred,
 not silently excluded.
+
+Read-only lifecycle provenance is implemented through the Rust API in alpha.11; automatic order-state repair, complete net settlement and a dedicated lifecycle CLI/GUI remain planned.

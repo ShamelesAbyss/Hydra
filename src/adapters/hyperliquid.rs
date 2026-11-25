@@ -296,11 +296,20 @@ fn info_diagnostic_preview(value: &str) -> String {
 
 /// Bound decoded response bytes before JSON allocation, including compressed
 /// responses. Read-only retries keep the existing bounded backoff policy.
-async fn read_info_response(mut response: reqwest::Response) -> Result<String> {
-    const MAX_INFO_BYTES: usize = 4 * 1024 * 1024;
+async fn read_info_response(response: reqwest::Response) -> Result<String> {
+    read_info_response_limited(response, 4 * 1024 * 1024).await
+}
+async fn read_info_response_limited(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String> {
+    anyhow::ensure!(
+        max_bytes > 0 && max_bytes <= 4 * 1024 * 1024,
+        "invalid info response byte budget"
+    );
     if let Some(length) = response.content_length() {
         anyhow::ensure!(
-            length <= MAX_INFO_BYTES as u64,
+            length <= max_bytes as u64,
             "info response exceeds byte budget"
         );
     }
@@ -310,7 +319,7 @@ async fn read_info_response(mut response: reqwest::Response) -> Result<String> {
             bytes
                 .len()
                 .checked_add(chunk.len())
-                .is_some_and(|len| len <= MAX_INFO_BYTES),
+                .is_some_and(|len| len <= max_bytes),
             "info response exceeds byte budget"
         );
         bytes.extend_from_slice(&chunk);
@@ -707,6 +716,41 @@ impl VenueAdapter for HyperliquidAdapter {
         .map_err(|_| anyhow!("account evidence acquisition exceeded 15 seconds"))?
     }
 
+    async fn order_status_observation(
+        &self,
+        intent: &OrderIntent,
+    ) -> Result<crate::order_status::Observation> {
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            let account = self
+                .account_address
+                .as_ref()
+                .ok_or_else(|| anyhow!("account missing"))?;
+            let request = crate::order_status::request_body(account, intent)?;
+            let started = Utc::now().timestamp_millis();
+            let response = self
+                .http
+                .post(format!("{}/info", self.base_url))
+                .json(&request)
+                .send()
+                .await?;
+            let status = response.status();
+            let body = read_info_response_limited(response, 64 * 1024).await?;
+            anyhow::ensure!(
+                status.is_success(),
+                "hyperliquid order status read failed: {status}"
+            );
+            crate::order_status::parse_hyperliquid(
+                account,
+                intent,
+                &body,
+                started,
+                Utc::now().timestamp_millis(),
+            )
+        })
+        .await
+        .map_err(|_| anyhow!("order status acquisition exceeded 15 seconds"))?
+    }
+
     async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
         Ok(self.account_exposure_evidence().await?.snapshot)
     }
@@ -1039,36 +1083,46 @@ mod tests {
     #[tokio::test]
     async fn info_reader_bounds_declared_and_chunked_bodies_before_json_decoding() {
         use std::io::{Read, Write};
-        for chunked in [false, true] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
-            let server = std::thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0u8; 4096];
-                let _ = stream.read(&mut request);
-                if chunked {
-                    let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n400001\r\n");
-                    let _ = stream.write_all(&vec![b'x'; 4 * 1024 * 1024 + 1]);
-                    let _ = stream.write_all(b"\r\n0\r\n\r\n");
+        for budget in [64 * 1024, 4 * 1024 * 1024] {
+            for chunked in [false, true] {
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = std::thread::spawn(move || {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    let mut request = [0u8; 4096];
+                    let _ = stream.read(&mut request);
+                    if chunked {
+                        let _=write!(stream,"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n",budget+1);
+                        let _ = stream.write_all(&vec![b'x'; budget + 1]);
+                        let _ = stream.write_all(b"\r\n0\r\n\r\n");
+                    } else {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            budget + 1
+                        );
+                    }
+                });
+                let client = reqwest::Client::builder()
+                    .no_proxy()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .unwrap();
+                let response = client
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let error = if budget == 4 * 1024 * 1024 {
+                    read_info_response(response).await.unwrap_err()
                 } else {
-                    let _ = stream.write_all(
-                        b"HTTP/1.1 200 OK\r\nContent-Length: 4194305\r\nConnection: close\r\n\r\n",
-                    );
-                }
-            });
-            let client = reqwest::Client::builder()
-                .no_proxy()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap();
-            let response = client
-                .get(format!("http://{address}"))
-                .send()
-                .await
-                .unwrap();
-            let error = read_info_response(response).await.unwrap_err();
-            assert!(error.to_string().contains("byte budget"), "{error}");
-            server.join().unwrap();
+                    read_info_response_limited(response, budget)
+                        .await
+                        .unwrap_err()
+                };
+                assert!(error.to_string().contains("byte budget"), "{error}");
+                server.join().unwrap();
+            }
         }
     }
     #[test]

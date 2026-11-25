@@ -67,6 +67,14 @@ pub trait VenueAdapter: Send + Sync {
         anyhow::bail!("venue does not supply scoped account exposure evidence")
     }
 
+    /// Read-only lifecycle evidence; never resubmit or resolve an intent here.
+    async fn order_status_observation(
+        &self,
+        _intent: &OrderIntent,
+    ) -> Result<crate::order_status::Observation> {
+        anyhow::bail!("venue does not supply scoped order status observations")
+    }
+
     /// Fresh positions plus pending entry exposure. No fallback to local estimates.
     async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
         anyhow::bail!("venue does not supply an authoritative risk snapshot")

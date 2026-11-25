@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.11
+
+- Add bounded read-only native order-status observations through the Rust API.
+- Retain immutable scoped lifecycle provenance with restart-safe replay semantics.
+- Keep execution, financial and risk holds independent of lifecycle labels.
+- Enforce a 64 KiB decoded status cap and cross-check canonical client identity.
+
 ## 1.7.0-alpha.10
 
 - Enforce scoped native order identity uniqueness across intents and connections.

@@ -1,3 +1,22 @@
+# Release verification — 1.7.0-alpha.11
+
+The complete release-version desktop-feature all-target suite passes **287
+offline tests**. Ten new observation tests cover native client identity, selected
+exact fields, opaque/missing lifecycle states, account/intent scope, conditional
+order refusal, byte/time/decimal budgets, unchanged execution/financial holds,
+restart-safe replay without timestamp refresh and persistence/conflict failures.
+Existing Info transport tests also verify 64 KiB and 4 MiB declared/chunked caps;
+production wire serialization agrees with the observation client-ID encoding.
+
+Formatting and Clippy complete with warnings; the new enum-size warning was
+addressed before this complete verified run. Fresh audit: zero vulnerability
+entries and one Chrono maintenance warning, exit 0, no advisory ignores.
+Both Windows CLI and native cockpit release binaries compile; extracted
+portable smoke is repeated during packaging.
+No real accounts, signed network requests or exchange orders were used. HTTP
+fixtures are loopback only. Alpha.10 passed all four tagged CI jobs:
+[verified alpha.10 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45587952292).
+
 # Release verification — 1.7.0-alpha.10
 
 The complete release-version desktop-feature all-target suite passes **277

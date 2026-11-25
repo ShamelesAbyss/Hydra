@@ -173,3 +173,21 @@ legacy precision fallback. These are local consistency checks, not cryptographic
 attestation of arbitrary database contents or proof of complete settlement.
 Migration refuses historical duplicate identities without deleting or rewriting
 any records; authoritative audited reconciliation is required before continuing.
+
+## Read-only native lifecycle observations — alpha.11
+
+The Rust API can query order status by canonical client order identity through
+`VenueAdapter::order_status_observation`. One read has a 15-second deadline and
+64 KiB decoded response cap, enforced before JSON allocation. Parsed selected
+fields retain exact quantities/limit price and explicit acquisition/lifecycle
+timestamps. Conditional orders, inconsistent scope, malformed values and
+contradictory missing-order responses cannot form native observations.
+
+`order_status::record_observation` appends selected provenance transactionally
+in `execution_status_observations`. A local observation identity cannot be reused
+with different content. Exact stored replays are idempotent without refreshing
+their original timestamps; new stale observations are refused. Lifecycle labels
+and remaining quantity never invent execution price, fees/funding, filled quantity,
+settled net PnL or a rejected intent. This API does not change execution state,
+release reservations or bypass financial holds. There is no new CLI command,
+automatic polling or repair loop in this milestone.

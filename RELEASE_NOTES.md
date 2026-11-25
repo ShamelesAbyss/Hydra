@@ -1,33 +1,37 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.10
+# HYDRA — Project Leviathan 1.7.0-alpha.11
 
-Native receipt identity and journal consistency. Engineering prerelease on main;
-this does not establish stable-live certification. No real account probes,
-signed network requests or exchange orders were used in development verification.
+Read-only native lifecycle provenance. Engineering prerelease on main; this does
+not establish automatic order recovery, complete settlement or stable-live readiness.
+No live account probes, signed network requests or exchange orders were used in
+development verification; transport fixtures use loopback only.
 
 ## Implemented
 
-- Give each account/venue/environment/native order identity one durable intent.
-  A duplicate response, including a competing connection, cannot create a second
-  filled receipt; failed insertion retains the submitted hold atomically.
-- Revalidate exact facts against bounded durable intent and result JSON before
-  seeding a position or authorizing existing precision. Missing, contradictory,
-  malformed or oversized journal evidence cannot become a legacy fallback.
-- Refuse migration when historical native order identities are duplicated,
-  preserving every record for audited reconciliation. No automatic deduplication,
-  rewriting or deletion is performed.
-- Retain exact post-receipt residual proof, independent financial holds and the
-  single authoritative main branch. Native screenshots show the unchanged alpha.9
-  interface; no trading or simulation performance data is invented.
+- Add a Rust API for a single bounded native order-status read by canonical client
+  order identity, with a 15-second acquisition deadline and 64 KiB decoded cap.
+- Preserve selected exact native order fields, identity, lifecycle and acquisition
+  timestamps. Require account/environment/intent scope and reject unsupported
+  conditional orders, malformed values and contradictory missing-order responses.
+- Append immutable selected observations transactionally. Exact replays remain
+  idempotent across restart without refreshing their original acquisition times;
+  conflicting reuse cannot overwrite history. New stale observations are refused.
+- Never turn missing or terminal-looking status into a guessed fill, execution
+  price, zero cost, resolved intent or released risk/financial hold.
+- Cross-check client identity encoding against production wire serialization;
+  verify both endpoint-specific and existing Info response bounds with loopback.
 
-The release-version suite passes all 277 offline tests. The fresh audit reports
-zero vulnerability entries and one Chrono maintenance warning. Both Windows CLI and native
-cockpit release binaries compile; Clippy completes with warnings. Extracted
-portable smoke checks are repeated during packaging. Executables remain unsigned; verify published checksums.
+This is a read-only Rust API and durable evidence foundation, not a new CLI command
+or an automatic repair loop. Existing signing, order submission, ledger fills and
+financial safeguards are preserved. Native screenshots show the unchanged alpha.9
+interface. All 287 release-version offline tests pass. The fresh audit reports zero
+vulnerability entries and one Chrono maintenance warning; Clippy completes with
+warnings. Both Windows release binaries compile. Extracted portable smoke is repeated
+during packaging.
+Executables are unsigned.
 
 ## Remaining limits
 
-These checks establish local evidence consistency, not cryptographic attestation
-of arbitrary database contents or complete financial settlement. Core strategy
-and position compatibility views still use floating point. Complete fees/funding
-coverage, broader authoritative recovery and stable-live readiness remain open.
-Unknown costs and historical precision are never inferred as zero or exact.
+Lifecycle labels and order quantities do not establish average execution price,
+complete fees/funding or net settlement. Exact signed-wire request provenance,
+authoritative automatic replay/recovery and full fixed-point core migration
+remain open. Local consistency is not cryptographic database attestation.
