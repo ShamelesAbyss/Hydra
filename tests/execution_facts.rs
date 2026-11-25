@@ -656,14 +656,27 @@ fn contradictory_residual_proof_cannot_use_float_tolerance() {
         let p = open(&db, &order, &entry);
         let (res, remaining) = close(&db, &p);
         let mut proof = residual_snapshot(dec!(1));
+        let recorded: String = db
+            .with_conn(|c| {
+                c.query_row(
+                    "SELECT updated_at FROM execution_intents WHERE intent_id=?1",
+                    [&res.intent_id],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        let before_receipt = chrono::DateTime::parse_from_rfc3339(&recorded)
+            .unwrap()
+            .timestamp_millis()
+            - 1;
         match variant {
             0 => proof.positions[0].signed_quantity = dec!(1.000000000000000001),
             1 => proof.positions[0].entry_price = dec!(100.000000000000000002),
             2 => proof.account = "0x2222222222222222222222222222222222222222".into(),
             3 => proof.positions[0].signed_quantity = dec!(-1),
             4 => proof.positions.clear(),
-            5 => proof.acquired_started_ms -= 1,
-            _ => proof.exchange_time_ms -= 1,
+            5 => proof.acquired_started_ms = before_receipt,
+            _ => proof.exchange_time_ms = before_receipt,
         };
         assert!(
             db.apply_confirmed_reduction_with_snapshot(

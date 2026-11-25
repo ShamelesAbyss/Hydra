@@ -1,0 +1,14 @@
+---
+description: Project Leviathan authoritative branch and historical preservation policy
+alwaysApply: true
+---
+
+# One authoritative implementation
+
+Project Leviathan is Hydra. Develop, document, target pull requests and prepare
+releases from **main**. Temporary isolated branches may be used; never create a
+competing long-lived implementation branch. The retired
+`archive/dead-code-hydra-1.6.2` branch is historical preservation only.
+
+Preserve history, immutable release tags and unfinished local work. Follow the
+repository AGENTS.md and CONTRIBUTING.md. Main promotion is not live certification.
