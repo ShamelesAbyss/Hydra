@@ -98,6 +98,19 @@ impl ExecutionEngine {
                 use rust_decimal::Decimal;
                 use std::str::FromStr;
                 let account = venue.risk_snapshot().await?;
+                let remote = venue.open_positions().await?;
+                crate::account_positions::validate(
+                    &self.storage.list_open_positions()?,
+                    &remote,
+                    venue.kind().as_str(),
+                )?;
+                ensure!(
+                    !account
+                        .exposure_by_market
+                        .get(&intent.symbol)
+                        .is_some_and(|value| *value > Decimal::ZERO),
+                    "instrument already has exchange exposure; reconcile ownership before entering"
+                );
                 let market = venue.snapshot(&intent.symbol, 2).await?;
                 ensure!(
                     market.mid.is_finite() && market.mid > 0.0 && market.is_fresh(5),

@@ -480,3 +480,27 @@ async fn configured_independent_authority_reserves_exposure_before_network_write
     assert!(execution.submit(&second, &venue).await.is_err());
     assert_eq!(venue.calls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn an_unknown_remote_position_blocks_entries_before_submission() {
+    use rust_decimal_macros::dec;
+    let db = db();
+    let venue = fake(&db, Reply::Fill(2.0), Some(2.0));
+    let authority = hydra::aegis::Aegis::new(
+        db.clone(),
+        "0x1111111111111111111111111111111111111111",
+        hydra::aegis::RiskLimits {
+            max_total_exposure_ratio: dec!(1),
+            max_market_notional: dec!(1000),
+            max_leverage: dec!(1),
+            max_drawdown_ratio: dec!(0.2),
+            max_snapshot_age_ms: 30_000,
+        },
+    )
+    .unwrap();
+    let mut execution = ExecutionEngine::new(db, true)
+        .with_authority(authority, 30.0)
+        .unwrap();
+    assert!(execution.submit(&intent(false), &venue).await.is_err());
+    assert_eq!(venue.calls.load(Ordering::SeqCst), 0);
+}

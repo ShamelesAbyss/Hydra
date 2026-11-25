@@ -80,3 +80,17 @@ Oracle and Genesis are wired through offline CLI commands and native workspaces.
 Normal protective exits now continue after another instrument close fails. Live engine history is persistently account-bound, with explicit audited adoption required for unbound legacy history. Raw exchange decimals reject excess precision. Invalid UTF-8 response previews preserve character boundaries. These changes have focused regression coverage.
 
 The focused financial code review identified and drove these fixes. The formal security plugin could not resolve the local Windows Git worktree, so a canonical plugin scan remains outstanding. Position entry-context persistence is the next active integration work.
+
+## Entry recovery checkpoint after alpha.4
+
+New positions now store immutable original risk distance and learning context in
+one transaction with their durable entry-intent identity. Restarted positions
+retain original risk even after their stop has ratcheted. Legacy positions keep
+unknown original risk explicitly; their persisted protective stops remain active.
+
+Startup can finish the narrow crash window between position persistence and
+journal application only when a known fill receipt, account binding and fresh
+remote position agree. Ambiguous acknowledgments remain unresolved. Pre-entry
+validation also rejects unowned or inconsistent exchange positions before sending
+an order. Recovery does not certify fees, funding or net PnL, and does not release
+risk reservations automatically.

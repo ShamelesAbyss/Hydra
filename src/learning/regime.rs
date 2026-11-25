@@ -11,7 +11,7 @@ use crate::core::Candle;
 use crate::core::Regime as MarketRegime;
 use crate::strategies::regime::classify_regime;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct RegimeView {
     pub r_1m: MarketRegime,
     pub r_5m: MarketRegime,

@@ -37,36 +37,19 @@ impl StateManager {
         }
         for v in venues {
             let remote = v.open_positions().await?;
-            let here: Vec<_> = local
-                .iter()
-                .filter(|l| l.venue == v.kind().as_str())
-                .collect();
-            for r in &remote {
-                anyhow::ensure!(
-                    r.size.is_finite() && r.entry_price.is_finite(),
-                    "invalid account position"
-                );
-                let matches: Vec<_> = here.iter().filter(|l| l.symbol == r.symbol).collect();
-                anyhow::ensure!(
-                    matches.len() == 1,
-                    "unknown or duplicate position {}; reconciliation unresolved",
-                    r.symbol
-                );
-                let l = matches[0];
-                let signed = l.size * if l.side == "LONG" { 1.0 } else { -1.0 };
-                anyhow::ensure!(
-                    (signed - r.size).abs() <= 1e-10
-                        && (l.entry_price - r.entry_price).abs() <= 1e-8,
-                    "position mismatch {}; reconciliation unresolved",
-                    r.symbol
-                );
-            }
-            for l in here {
-                anyhow::ensure!(
-                    remote.iter().any(|r| r.symbol == l.symbol),
-                    "local position {} missing remotely; fill history required, PnL unknown",
-                    l.symbol
-                );
+            crate::account_positions::validate(&local, &remote, v.kind().as_str())?;
+            if cfg.live_trading {
+                let account = crate::ownership::configured_account(cfg)?
+                    .ok_or_else(|| anyhow::anyhow!("recovery account identity missing"))?;
+                let recovered = crate::position_context::recover_applied_entries(
+                    &self.storage,
+                    &account,
+                    v.kind().as_str(),
+                    &remote,
+                )?;
+                if !recovered.is_empty() {
+                    tracing::info!(count=recovered.len(), "recovered durable entry applications; financial settlement remains separate");
+                }
             }
             let eq = v.account_equity_usd().await?;
             anyhow::ensure!(eq.is_finite() && eq >= 0.0, "invalid account equity");
@@ -76,6 +59,17 @@ impl StateManager {
     }
 
     pub async fn force_reconcile(&self, cfg: &AppConfig) -> Result<()> {
+        let _ownership = if cfg.live_trading {
+            let account = crate::ownership::configured_account(cfg)?
+                .ok_or_else(|| anyhow::anyhow!("recovery account identity missing"))?;
+            self.storage.bind_trading_account(&account, false)?;
+            Some(crate::ownership::AccountOwnership::acquire(
+                &crate::ownership::AccountOwnership::default_root()?,
+                &account,
+            )?)
+        } else {
+            None
+        };
         let mut venues: Vec<Box<dyn VenueAdapter>> = Vec::new();
         for k in [VenueKind::Hyperliquid] {
             venues.push(make_venue(k, cfg).await?);

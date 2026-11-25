@@ -1,3 +1,12 @@
+# Entry recovery checkpoint after 1.7.0-alpha.4
+
+The full desktop-feature suite passes 205 offline tests. Nine additional tests
+cover atomic entry metadata, original risk across restart and stop ratcheting,
+legacy unknown metadata, rollback on write failure, intent identity checks,
+known-receipt recovery exactly once, mismatched account/position rejection,
+ambiguous acknowledgment retention, and pre-entry unowned-position rejection.
+No exchange access or signed actions were used in these checks.
+
 # Verification — 1.7.0-alpha.4
 
 The full desktop-feature suite passes 196 offline tests. New coverage includes

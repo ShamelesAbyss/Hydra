@@ -19,10 +19,9 @@ use crate::learning::regime::RegimeView;
 use crate::storage::{CompoundState, Storage};
 
 /// v1.5.0 — context captured at entry time, replayed at close into the
-/// `trade_context` table. Lives only in memory: positions opened in a
-/// previous run will simply skip the learning record on close (the trade
-/// itself is unaffected). Cheap and restart-safe.
-#[derive(Debug, Clone)]
+/// `trade_context` table. Persisted atomically with each new position so
+/// restarts retain the original learning and risk context.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EntryContext {
     pub strategy: String,
     pub side: String,
@@ -140,35 +139,56 @@ impl PortfolioManager {
             strategy: strategy.map(|s| s.to_string()),
             trailing_high: Some(price),
         };
-        let id = self.storage.insert_open_position(&p)?;
+        let initial_r = intent.stop_price.and_then(|stop| {
+            let r = if intent.side.is_buy() {
+                price - stop
+            } else {
+                stop - price
+            };
+            (r.is_finite() && r > 0.0).then_some(r)
+        });
+        let context_json = entry_ctx.as_ref().map(serde_json::to_string).transpose()?;
+        let id = crate::position_context::insert_position_with_context(
+            &self.storage,
+            &p,
+            &intent.id,
+            initial_r,
+            context_json.as_deref(),
+        )?;
         // Record initial R so chandelier math is accurate for the lifetime
         // of this position, even after trailing moves the stored stop.
-        if let Some(stop) = intent.stop_price {
-            let r = (price - stop).abs();
-            if r > 0.0 && r.is_finite() {
-                self.initial_r.insert(id, r);
-            }
-        }
+        self.initial_r.insert(id, initial_r.unwrap_or(0.0));
         if let Some(ctx) = entry_ctx {
             self.entry_ctx.insert(id, ctx);
         }
         Ok(())
     }
 
-    /// Best-effort fetch of the initial R for a position. Exact for positions
-    /// opened under v1.3.2+. For pre-v1.3.2 positions (no cache entry), falls
-    /// back to the current stop distance — worst case the chandelier triggers
-    /// a tad early, which is a conservative failure mode.
-    fn initial_r_for(&mut self, p: &OpenPosition) -> f64 {
+    /// Recover original entry facts, preserving unknown legacy risk explicitly.
+    fn initial_r_for(&mut self, p: &OpenPosition) -> Result<f64> {
         if let Some(r) = self.initial_r.get(&p.id) {
-            return *r;
+            return Ok(*r);
         }
-        let stop = p.stop_price.unwrap_or(p.entry_price);
-        let r = (p.entry_price - stop).abs();
-        if r > 0.0 && r.is_finite() {
-            self.initial_r.insert(p.id, r);
+        let entry = crate::position_context::load_entry_state(&self.storage, p.id)?;
+        if let Some(json) = entry.context_json {
+            match serde_json::from_str(&json) {
+                Ok(context) => {
+                    self.entry_ctx.insert(p.id, context);
+                }
+                Err(error) => {
+                    tracing::warn!(position_id=p.id,%error,"learning context unavailable; original risk metadata retained")
+                }
+            }
         }
-        r
+        let r = entry.initial_r.unwrap_or(0.0);
+        self.initial_r.insert(p.id, r);
+        if r == 0.0 {
+            tracing::warn!(
+                position_id = p.id,
+                "original risk distance unavailable; retained stop still applies"
+            );
+        }
+        Ok(r)
     }
 
     pub async fn manage_open_positions(
@@ -194,6 +214,14 @@ impl PortfolioManager {
             let mut new_trail = p.trailing_high.unwrap_or(p.entry_price);
             let mut new_stop = p.stop_price;
             let mut stop_changed = false;
+
+            let r_init = match self.initial_r_for(&p) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::warn!(position_id=p.id, %error, "entry context unavailable; maintaining existing protective exits");
+                    0.0
+                }
+            };
 
             // ── (1) Existing ATR-based trailing: ratchet only on new peaks ──
             if pm.trailing_enabled {
@@ -222,7 +250,6 @@ impl PortfolioManager {
             // 0.5R/0.5R). Evaluated every tick — not just on new peaks —
             // because the whole point is to defend profit once earned.
             if pm.breakeven_trigger_r > 0.0 {
-                let r_init = self.initial_r_for(&p);
                 if r_init > 0.0 {
                     let profit_r = if is_long {
                         (mid - p.entry_price) / r_init

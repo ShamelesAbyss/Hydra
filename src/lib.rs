@@ -4,6 +4,7 @@
 //! All live execution is gated behind `ENABLE_LIVE_TRADING` in `.env`.
 
 pub mod account;
+pub mod account_positions;
 pub mod adapters;
 pub mod aegis;
 pub mod cli;
@@ -22,6 +23,7 @@ pub mod monitoring;
 pub mod oracle;
 pub mod ownership;
 pub mod portfolio;
+pub mod position_context;
 pub mod reporting;
 pub mod research;
 #[cfg(feature = "desktop")]
