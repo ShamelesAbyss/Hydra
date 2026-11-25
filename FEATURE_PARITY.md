@@ -47,3 +47,5 @@ Alpha.15 adds bounded offline `wire-history` inspection of retained unsigned nat
 Alpha.16 checks exact native acknowledgment bounds against any retained unsigned action on persistence and later reads, using one transaction. Historical absence remains explicit; full signed provenance and settlement remain incomplete.
 
 Alpha.17 adds a durable signer-nonce coordinator Rust foundation. It is not wired into the live sender yet; account ownership, signing preparation and recovery integration remain distinct acceptance work.
+
+Alpha.18 integrates the durable coordinator into all native IOC sender calls and adds engine pre-signing metadata journaling. Full signed-envelope proof, preparation inspection, automatic recovery and net settlement remain incomplete.

@@ -44,5 +44,6 @@ pub mod order_status;
 pub mod status_history;
 
 pub mod signer_nonce;
+mod signing_preparation;
 pub mod submission_wire;
 pub mod wire_history;

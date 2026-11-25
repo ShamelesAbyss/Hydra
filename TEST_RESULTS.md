@@ -1,3 +1,22 @@
+# Release verification — 1.7.0-alpha.18
+
+All **351 offline desktop-feature all-target release-version tests pass**.
+New preparation tests cover supported domain/hash/public-signer metadata, absent
+secret/signature fields, scope/action/intent conflicts, invalid identity/nonce,
+immutable duplicate intent/signer-nonce refusal, restart and nonce consumption on
+journal failure. Ignored/rewritten JSON or indexed metadata rolls back. Native
+simulated senders verify preparation before their send counter and refuse nonce
+history or preparation persistence faults. The old process-local allocator test
+is replaced with a durable async-reservation test; coordinator coverage remains.
+
+Formatting and Clippy complete with existing warnings. Fresh lockfile audit exits
+0 with zero vulnerability entries and one Chrono maintenance warning, no ignores.
+Windows CLI/cockpit compilation and extracted smoke are checked before publication.
+No real account probes, signed network requests, orders or transfers were used.
+Native fixtures retain invalid keys and simulated transport as independent guards.
+Alpha.17 passed all four tagged CI jobs and all five release asset digests match:
+[Verified alpha.17 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45700688152).
+
 # Release verification — 1.7.0-alpha.17
 
 All **341 offline desktop-feature all-target release-version tests pass**.

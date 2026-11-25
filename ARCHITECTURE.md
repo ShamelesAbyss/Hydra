@@ -304,3 +304,33 @@ The native sender still uses its original process-local counter. Signing nonce
 preparation, envelope provenance, automatic recovery and net settlement remain
 incomplete. Existing live defaults, signed transport and independent holds are
 unchanged. Verification uses offline fixtures and separate local child processes.
+
+## Durable nonce / engine signing-preparation integration — alpha.18
+
+All native IOC sender calls now derive the public signer locally and reserve a
+nonce through the shared operator coordinator on a Tokio blocking worker. The old
+process-local counter is removed. The platform engine additionally commits an
+immutable `execution_signing_preparations` row before signing or HTTP construction:
+account, public signer, canonical nonce, exact action hash, mainnet Agent digest,
+chain 1337/source a, absent vault/expiry, original preparation time and phase
+`prepared_not_sent`. No key, signature or signed authorization payload is stored.
+
+The capability requires the unchanged submitted intent, current account binding
+and an exact match to the retained unsigned action. Duplicate intent or signer/nonce
+rows, scope/byte conflicts and failed/ignored/rewritten persistence stop submission.
+The shared nonce transaction commits first; failed local preparation burns that
+nonce rather than rolling it back or making it reusable. This is ordered durable
+preparation, not a distributed transaction across the two databases.
+
+Native sends require writable shared operator state at the alpha.17 coordinator
+path, including direct low-level callers. Only the engine capability guarantees
+local action/preparation journaling; direct callers still own their order journal.
+Preserve one shared root across cooperating clients and account database paths.
+Existing upstream account/agent checks and fixed mainnet IOC/no-redirect/no-retry
+transport remain. No risk snapshot is refreshed by this record.
+
+Preparation is not proof of signing, sending, acceptance or financial settlement.
+Historical absence, unresolved execution/risk/financial holds and unsigned release
+classification remain. The CLI still inspects unsigned action history; bounded
+preparation inspection is the next increment. Verification uses invalid-key native
+fixtures, pure metadata checks and simulated senders, never signed network requests.

@@ -7,14 +7,10 @@ use anyhow::{ensure, Context, Result};
 use secp256k1::{ecdsa::RecoverableSignature, Message, SecretKey};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
-use std::{
-    str::FromStr,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::str::FromStr;
 
 const MAINNET_EXCHANGE: &str = "https://api.hyperliquid.xyz/exchange";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
-static LAST_NONCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn keccak256(bytes: impl AsRef<[u8]>) -> [u8; 32] {
     Keccak256::digest(bytes.as_ref()).into()
@@ -298,23 +294,46 @@ struct ExchangePayload<'a> {
     vault_address: Option<String>,
 }
 
-fn next_nonce() -> Result<u64> {
-    let now = u64::try_from(chrono::Utc::now().timestamp_millis())?;
-    allocate_nonce(&LAST_NONCE, now)
-}
-fn allocate_nonce(last: &AtomicU64, now: u64) -> Result<u64> {
-    let old = last
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prior| {
-            let candidate = now.max(prior.checked_add(1)?);
-            (candidate <= now.checked_add(1000)?).then_some(candidate)
-        })
-        .map_err(|_| anyhow::anyhow!("signing nonce exceeds clock window"))?;
-    Ok(now.max(old + 1))
+pub(crate) async fn reserve_nonce_at(
+    coordinator: crate::signer_nonce::NonceCoordinator,
+    signer: &str,
+) -> Result<u64> {
+    let signer = signer.to_owned();
+    tokio::task::spawn_blocking(move || coordinator.reserve(&signer))
+        .await
+        .map_err(|_| anyhow::anyhow!("nonce coordinator worker failed"))?
 }
 
 /// Submit exactly once, to the fixed mainnet endpoint, with no body/signature logs.
 /// Transport/HTTP/decoding failures stay errors for the durable unresolved gate.
 pub async fn submit_ioc(key: &str, action: &OrderAction) -> Result<ExchangeResponseStatus> {
+    submit_ioc_impl(key, action, None).await
+}
+
+#[cfg(not(test))]
+pub(crate) async fn submit_ioc_journaled(
+    key: &str,
+    action: &OrderAction,
+    journal: &crate::submission_wire::SubmissionJournal<'_>,
+) -> Result<ExchangeResponseStatus> {
+    submit_ioc_impl(key, action, Some(journal)).await
+}
+
+async fn submit_ioc_impl(
+    key: &str,
+    action: &OrderAction,
+    journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
+) -> Result<ExchangeResponseStatus> {
+    let signer = derive_address(key)?;
+    let nonce = reserve_nonce_at(
+        crate::signer_nonce::NonceCoordinator::operator_default()?,
+        &signer,
+    )
+    .await?;
+    if let Some(journal) = journal {
+        journal.record_signing_preparation(&signer, nonce, action)?;
+    }
+
     // The signed boundary owns transport policy. Callers cannot inject a client
     // that follows 307/308 redirects or retries a signed mutation automatically.
     let http = reqwest::Client::builder()
@@ -322,7 +341,6 @@ pub async fn submit_ioc(key: &str, action: &OrderAction) -> Result<ExchangeRespo
         .retry(reqwest::retry::never())
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
-    let nonce = next_nonce()?;
     let signature = sign_digest(
         key,
         agent_digest(action_hash(&action.packed()?, nonce, None, None), true),
@@ -409,17 +427,22 @@ pub enum ExchangeResponseStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn nonce_allocation_is_monotonic_and_refuses_clock_drift() {
-        let last = AtomicU64::new(0);
-        assert_eq!(allocate_nonce(&last, 100).unwrap(), 100);
-        assert_eq!(allocate_nonce(&last, 100).unwrap(), 101);
-        assert_eq!(allocate_nonce(&last, 90).unwrap(), 102);
-        assert!(allocate_nonce(&last, 0).is_ok());
-        assert!(allocate_nonce(&last, u64::MAX).is_err());
-        let ahead = AtomicU64::new(1100);
-        assert!(allocate_nonce(&ahead, 99).is_err());
-        assert_eq!(ahead.load(Ordering::SeqCst), 1100);
+    #[tokio::test]
+    async fn async_nonce_reservation_shares_durable_history_and_propagates_file_failure() {
+        let d = tempfile::tempdir().unwrap();
+        let c = crate::signer_nonce::NonceCoordinator::at_root(d.path());
+        let signer = "0x1111111111111111111111111111111111111111";
+        let first = reserve_nonce_at(c.clone(), signer).await.unwrap();
+        let second = reserve_nonce_at(c, signer).await.unwrap();
+        assert!(second > first);
+        let blocked = d.path().join("not-a-directory");
+        std::fs::write(&blocked, b"fixture").unwrap();
+        assert!(reserve_nonce_at(
+            crate::signer_nonce::NonceCoordinator::at_root(&blocked),
+            signer
+        )
+        .await
+        .is_err());
     }
     #[test]
     fn production_action_uses_canonical_cloid_exact_decimal_and_ordered_msgpack() {

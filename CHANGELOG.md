@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0-alpha.18
+
+- Integrate durable per-signer nonce reservation into native IOC sends on a blocking
+  worker, replacing the process-local counter.
+- Commit immutable engine signing-preparation metadata before signing; preserve
+  nonce consumption and unresolved holds on preparation failure.
+
 ## 1.7.0-alpha.17
 
 - Add the separate durable signer-nonce coordinator Rust foundation with atomic

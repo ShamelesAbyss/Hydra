@@ -1,32 +1,40 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.17
+# HYDRA — Project Leviathan 1.7.0-alpha.18
 
-Durable signer-nonce coordinator foundation. Engineering prerelease on main;
-this does not yet change the live sender's process-local nonce allocation.
+Durable signer nonce integration and engine signing-preparation provenance.
+Engineering prerelease on main; live-trading readiness remains incomplete.
 
 ## Implemented
 
-- Reserve nonces per canonical public signer through a separate operator-owned
-  SQLite coordinator, shared across cooperating processes and account databases.
-- Use IMMEDIATE transactions, FULL synchronization, bounded canonical u64 history,
-  schema/application identity checks and a five-second busy timeout. Sample time
-  after obtaining the transaction; burn returned reservations even if later work fails.
-- Refuse corruption, unsupported schema/journal mode, excessive clock drift,
-  overflow and file/commit failures without falling back to memory or resetting
-  history. Store public identities/nonces only; no keys, signatures or requests.
+- Replace the native process-local nonce counter with the shared durable signer
+  coordinator. Reserve on a blocking worker before signing; failures stop submission.
+- On the engine path, atomically retain account, public signer, selected nonce,
+  action hash, mainnet Agent digest/domain, absent vault/expiry and original time
+  before signing. Scope and exact bytes must match the unchanged submitted intent
+  and retained rounded IOC action. Phase is explicitly `prepared_not_sent`.
+- Refuse duplicates, conflicts and failed/ignored/rewritten journal writes. Nonces
+  remain consumed if preparation fails; neither database is reset or rolled back
+  as a substitute for recovery. Independent execution/risk/financial holds remain.
+- Preserve fixed mainnet IOC transport, no redirects/retries and upstream identity
+  checks. No key, signature or signed authorization payload is retained or logged.
 
-Tests cover restarts and rollback, shared aliases and independent signers, concurrent
-connections, four child processes with separate bound account histories, injected
-write failures, corrupt/foreign/future/view/schema refusal and invalid input.
-Full release tests, audit, Windows builds and extracted smoke are checked before
-publication. No real account probes, signed requests or exchange orders were used.
-Native UI remains unchanged from the actual alpha.9 screenshots.
+Native sender tests use invalid keys and simulated responses. Additional tests cover
+metadata/domain agreement, changed scope/action/intent, duplicate nonce/intent,
+rollback and ignored/rewritten rows, restart, nonce consumption on journal failure,
+and sender refusal on nonce/preparation faults. Existing signing fixtures remain.
+Full tests, audit, Windows builds and extracted smoke are checked before publication.
+No real account probes, signed network requests, orders or transfers were used.
+Native interface remains unchanged from the actual alpha.9 screenshots.
 
-## Remaining limits
+## Operation and remaining limits
 
-This is a synchronous Rust foundation. Native engine integration and signing
-preparation provenance are the next milestone; the existing live sender is unchanged.
-Cooperating clients must preserve one shared operator state root. Separate roots,
-users/hosts, deletion or tampering cannot be coordinated or attested by this API.
-No crash/power-loss certification, complete signed-envelope evidence, automatic
-recovery or financial settlement is claimed. Independent holds remain intact.
-Executables are unsigned; previous artifacts remain immutable.
+Native calls now require writable shared operator nonce state. Direct low-level
+callers use the durable coordinator but still own their action/order journals;
+the engine path supplies the opaque preparation capability. Preserve one operator
+root across cooperating clients. Separate users/hosts/roots, deleted or tampered
+history and legacy clients are outside the coordination guarantee.
+
+Preparation is not proof of signing, sending, venue acceptance or net settlement.
+Full signed-envelope attestation, bounded preparation inspection, automatic recovery,
+complete fee/funding attribution and protected credential storage remain incomplete.
+The two database commits are ordered, not a distributed atomic transaction.
+Executables are unsigned; historical artifacts remain immutable.

@@ -59,6 +59,8 @@ pub struct HyperliquidAdapter {
     sz_decimals: Arc<Mutex<std::collections::HashMap<String, (u32, u8)>>>,
     #[cfg(test)]
     test_submissions: Arc<std::sync::atomic::AtomicUsize>,
+    #[cfg(test)]
+    test_nonce_root: Option<tempfile::TempDir>,
 }
 
 impl HyperliquidAdapter {
@@ -167,6 +169,8 @@ impl HyperliquidAdapter {
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             #[cfg(test)]
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            #[cfg(test)]
+            test_nonce_root: None,
         };
         // Prefetch metadata; orders fail closed if the instrument is unavailable.
         adapter.warm_meta().await;
@@ -321,14 +325,34 @@ impl HyperliquidAdapter {
             .as_deref()
             .ok_or_else(|| anyhow!("signing key missing"))?;
         #[cfg(not(test))]
-        let resp = crate::hyperliquid_wire::submit_ioc(key, &action).await?;
+        let resp = match journal {
+            Some(journal) => {
+                crate::hyperliquid_wire::submit_ioc_journaled(key, &action, journal).await?
+            }
+            None => crate::hyperliquid_wire::submit_ioc(key, &action).await?,
+        };
         #[cfg(test)]
         let resp = {
             // Native adapter unit tests cannot send signed mutations. Fixtures
             // also use an invalid signing key as an independent safety barrier.
             let _ = key;
+            let root = self
+                .test_nonce_root
+                .as_ref()
+                .ok_or_else(|| anyhow!("offline nonce root required"))?;
+            let signer = self
+                .account_address
+                .as_deref()
+                .ok_or_else(|| anyhow!("offline public signer required"))?;
+            let nonce = crate::hyperliquid_wire::reserve_nonce_at(
+                crate::signer_nonce::NonceCoordinator::at_root(root.path()),
+                signer,
+            )
+            .await?;
             if let Some(journal) = journal {
                 journal.assert_persisted_action(&action)?;
+                journal.record_signing_preparation(signer, nonce, &action)?;
+                journal.assert_persisted_preparation(&action)?;
             }
             self.test_submissions
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -995,6 +1019,8 @@ mod tests {
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             #[cfg(test)]
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            #[cfg(test)]
+            test_nonce_root: None,
         };
         assert!(adapter.sz_decimals_for("ETH").await.is_err());
         assert!(adapter
@@ -1258,6 +1284,8 @@ mod tests {
                 (4, 4),
             )]))),
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            #[cfg(test)]
+            test_nonce_root: Some(tempfile::tempdir().unwrap()),
         };
         (db, intent, adapter)
     }
@@ -1351,5 +1379,63 @@ mod tests {
                 0
             );
         }
+    }
+    #[tokio::test]
+    async fn native_signing_preparation_fault_prevents_simulated_sender() {
+        let (db, intent, adapter) = wire_fixture();
+        db.with_conn(|c|c.execute_batch("CREATE TRIGGER fail_preparation BEFORE INSERT ON execution_signing_preparations BEGIN SELECT RAISE(ABORT,'offline-preparation-fault');END")).unwrap();
+        let error = adapter
+            .submit_order_journaled(
+                &intent,
+                &crate::submission_wire::SubmissionJournal::new(&db, &intent),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("offline-preparation-fault"));
+        assert_eq!(
+            adapter
+                .test_submissions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert!(db.ensure_execution_resolved().is_err());
+    }
+    #[tokio::test]
+    async fn native_nonce_history_failure_prevents_simulated_sender() {
+        let (db, intent, adapter) = wire_fixture();
+        std::fs::write(
+            adapter
+                .test_nonce_root
+                .as_ref()
+                .unwrap()
+                .path()
+                .join("nonces.sqlite"),
+            b"offline corrupt nonce fixture",
+        )
+        .unwrap();
+        assert!(adapter
+            .submit_order_journaled(
+                &intent,
+                &crate::submission_wire::SubmissionJournal::new(&db, &intent)
+            )
+            .await
+            .is_err());
+        assert_eq!(
+            adapter
+                .test_submissions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        let count: i64 = db
+            .with_conn(|c| {
+                c.query_row(
+                    "SELECT count(*) FROM execution_signing_preparations",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(db.ensure_execution_resolved().is_err());
     }
 }

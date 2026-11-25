@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.17** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.17^{commit}`.
-- Previous recovery: v1.7.0-alpha.16 (`0a86095bc147e3c10bf2841de2b72ac2635f1b4b`).
+- Version and current recovery tag: **v1.7.0-alpha.18** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.18^{commit}`.
+- Previous recovery: v1.7.0-alpha.17 (`e5b502e1d354733fb089149d31c2f3daea830c81`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: exact native execution facts, complete financial settlement and broader recovery; native cockpit, bounded research, scoped reconciliation and atomic entry admission are implemented.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.17 source: 341 offline desktop-feature tests pass; alpha.16 contains 330.
+- Alpha.18 source: 351 offline desktop-feature tests pass; alpha.17 contains 341.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -48,7 +48,7 @@ This is still an engineering prerelease, not a complete Leviathan or stable-live
    fail closed. Do not switch account modes merely to bypass a readiness block.
 6. Locks coordinate cooperating Hydra processes on one host/user, not other OS
    users, machines, manual exchange activity or third-party bots.
-7. The alpha.17 lockfile audit reports zero vulnerability entries and one Chrono
+7. The alpha.18 lockfile audit reports zero vulnerability entries and one Chrono
    maintenance warning. This is not a complete security audit. Protected Windows
    credential storage is still pending.
 8. Native GUI, read-only telemetry, deterministic Oracle research and bounded
@@ -367,3 +367,33 @@ The native sender still uses its original process-local counter. Signing nonce
 preparation, envelope provenance, automatic recovery and net settlement remain
 incomplete. Existing live defaults, signed transport and independent holds are
 unchanged. Verification uses offline fixtures and separate local child processes.
+
+## Durable nonce / engine signing-preparation integration — alpha.18
+
+All native IOC sender calls now derive the public signer locally and reserve a
+nonce through the shared operator coordinator on a Tokio blocking worker. The old
+process-local counter is removed. The platform engine additionally commits an
+immutable `execution_signing_preparations` row before signing or HTTP construction:
+account, public signer, canonical nonce, exact action hash, mainnet Agent digest,
+chain 1337/source a, absent vault/expiry, original preparation time and phase
+`prepared_not_sent`. No key, signature or signed authorization payload is stored.
+
+The capability requires the unchanged submitted intent, current account binding
+and an exact match to the retained unsigned action. Duplicate intent or signer/nonce
+rows, scope/byte conflicts and failed/ignored/rewritten persistence stop submission.
+The shared nonce transaction commits first; failed local preparation burns that
+nonce rather than rolling it back or making it reusable. This is ordered durable
+preparation, not a distributed transaction across the two databases.
+
+Native sends require writable shared operator state at the alpha.17 coordinator
+path, including direct low-level callers. Only the engine capability guarantees
+local action/preparation journaling; direct callers still own their order journal.
+Preserve one shared root across cooperating clients and account database paths.
+Existing upstream account/agent checks and fixed mainnet IOC/no-redirect/no-retry
+transport remain. No risk snapshot is refreshed by this record.
+
+Preparation is not proof of signing, sending, acceptance or financial settlement.
+Historical absence, unresolved execution/risk/financial holds and unsigned release
+classification remain. The CLI still inspects unsigned action history; bounded
+preparation inspection is the next increment. Verification uses invalid-key native
+fixtures, pure metadata checks and simulated senders, never signed network requests.

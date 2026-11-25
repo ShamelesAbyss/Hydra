@@ -16,10 +16,42 @@ impl<'a> SubmissionJournal<'a> {
     pub fn intent_id(&self) -> &str {
         &self.intent.id
     }
+    pub(crate) fn record_signing_preparation(
+        &self,
+        signer: &str,
+        nonce: u64,
+        action: &OrderAction,
+    ) -> Result<()> {
+        crate::signing_preparation::record(self.storage, self.intent, signer, nonce, action)
+    }
     pub(crate) fn verify_intent(&self, intent: &OrderIntent) -> Result<()> {
         ensure!(
             serde_json::to_string(self.intent)? == serde_json::to_string(intent)?,
             "native journal capability intent mismatch"
+        );
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(crate) fn assert_persisted_preparation(&self, action: &OrderAction) -> Result<()> {
+        let encoded: String = self.storage.with_conn(|c| {
+            c.query_row(
+                "SELECT preparation_json FROM execution_signing_preparations WHERE intent_id=?1",
+                [&self.intent.id],
+                |r| r.get(0),
+            )
+        })?;
+        let prepared: crate::signing_preparation::Preparation = serde_json::from_str(&encoded)?;
+        let nonce = prepared.nonce.parse::<u64>()?;
+        ensure!(
+            prepared.phase == "prepared_not_sent"
+                && prepared.connection_hash
+                    == hex::encode(crate::hyperliquid_wire::action_hash(
+                        &action.packed()?,
+                        nonce,
+                        None,
+                        None
+                    )),
+            "signing preparation was not retained before simulated sender"
         );
         Ok(())
     }

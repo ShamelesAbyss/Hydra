@@ -211,6 +211,7 @@ impl Storage {
         crate::execution_facts::migrate_on(&tx)?;
         crate::order_status::migrate_on(&tx)?;
         crate::submission_wire::migrate_on(&tx)?;
+        crate::signing_preparation::migrate_on(&tx)?;
         tx.pragma_update(None, "user_version", 2)?;
         tx.commit()?;
         Ok(())
