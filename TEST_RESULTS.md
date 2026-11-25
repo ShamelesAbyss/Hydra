@@ -12,9 +12,11 @@ Formatting and Clippy complete with warnings. Fresh lockfile audit exits 0 with
 zero vulnerability entries and one Chrono maintenance warning, without ignores.
 Windows CLI/cockpit release compilation and extracted smoke are checked before
 publication. No real accounts, signed network requests or orders were used.
-Alpha.15 passed all four exact-source CI jobs, and all five asset digests and
-download URLs were verified:
-[Verified alpha.15 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45648387540).
+Alpha.16 passed all four tagged CI jobs for commit
+`0a86095bc147e3c10bf2841de2b72ac2635f1b4b`. All five published asset digests
+match and all five download URLs pass HTTP checks. Extracted Windows CLI/cockpit
+packages pass seven smoke checks; Linux bytes come from the verified tagged job.
+[Verified alpha.16 run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45650103078).
 
 # Release verification — 1.7.0-alpha.15
 

@@ -189,7 +189,7 @@ signed-envelope unavailable and submission/acceptance unproven. This validates l
 consistency, not database attestation or current venue state. No hold is released,
 no accounting result is inferred, and older history is never fabricated.
 
-## Next acceptance increment — retained action / acknowledgment consistency
+## Acceptance increment delivered in alpha.16 — action / acknowledgment consistency
 
 Use the same SQLite transaction to read any retained action alongside native
 acknowledgment facts. Require exact quantity, side-aware limit, precision and
@@ -219,3 +219,34 @@ Older acknowledgments with no retained action remain readable as historical fact
 missing action history is not fabricated or relabelled as pre-write provenance.
 No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
 or live readiness is established. Verification is offline.
+
+## Next acceptance increment — durable signing preparation (planned)
+
+The current signer allocates a process-local monotonic nonce and refuses excessive
+clock drift. Alpha.14 retains the unsigned action; alpha.16 checks acknowledgment
+bounds. None retains the selected signing nonce or proves a complete signed envelope.
+
+Before changing the signed path, establish these acceptance boundaries:
+
+1. Coordinate nonce identity by canonical public signer, which can differ from the
+   bound trading account for approved agents. Define durable coordination across
+   processes, restarts and different account-database paths; account locking alone
+   must not be assumed to provide signer-wide nonce uniqueness.
+2. Retain account, public signer, selected nonce, exact action digest and supported
+   mainnet domain/vault/expiry scope before signing or network write. Preparation
+   must refer to the unchanged retained action through the opaque journal capability.
+   Never store keys or emit signature/payload logs. Do not add automatic replay.
+3. Preserve bounded clock-drift/overflow refusal, fixed mainnet IOC-only transport,
+   no redirects/retries and existing unresolved-order gates. A committed preparation
+   is explicitly not proof of signing, sending or venue acceptance. Full envelope
+   attestation remains separate unless independently designed and verified.
+4. Test multiple connections/processes/database paths, shared and distinct signers,
+   restart, clock rollback, overflow and persistence faults. Use pure preparation
+   fixtures and simulated senders; verify committed nonce/action consistency before
+   any simulated mutation. Keep the eight official cross-language fixtures passing.
+5. Preserve historical absence and all execution/risk/financial holds. Add truthful
+   read-only inspection only after the underlying provenance contract is implemented.
+   Do not activate live verification, signed account probes or real orders.
+
+The coordinator design and crash semantics require implementation and verification;
+this section records acceptance work, not an already delivered signing guarantee.

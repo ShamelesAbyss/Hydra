@@ -330,3 +330,15 @@ Older acknowledgments with no retained action remain readable as historical fact
 missing action history is not fabricated or relabelled as pre-write provenance.
 No signed-envelope/nonce proof, automatic repair, risk release, complete settlement
 or live readiness is established. Verification is offline.
+
+## Published alpha.16 verification and continuation
+
+Commit `0a86095bc147e3c10bf2841de2b72ac2635f1b4b` is on main and tagged
+v1.7.0-alpha.16. All four tagged CI jobs pass in run 45650103078. Windows CLI/cockpit,
+Linux CLI, source and both checksum manifests are published; all five remote asset
+digests and download URLs verify. All 330 offline tests pass locally. The live
+README renders 20 images without broken assets. No new branch was created.
+
+Continue with the planned durable signing-preparation boundary below. Signing
+nonce/full envelope provenance remains unimplemented; do not infer it from the
+unsigned action or acknowledgment consistency checks. Keep independent holds.
