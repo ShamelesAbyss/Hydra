@@ -135,3 +135,34 @@ in VISUAL_CAMPAIGN.md. Normal engineering blockers/deferred work remain recorded
 above and are not discarded. After visual completion/publication, provide a full
 handoff and pause for explicit owner authorization before returning to that queue.
 No original major milestone is fully certified and no financial safeguard is waived.
+
+### Alpha.26 — The Treasury, The Offering, and Autonomous Readiness Matrix
+
+Added permanent architectural and native visual integration for **LEVIATHAN TREASURY**
+and **THE OFFERING** (`src/treasury.rs`, `src/treasury_ui.rs`) inside the single unified
+window, preserving every financial safeguard and Ashlan Haley Rapponotti's permanent
+memorial:
+
+- **Implemented now:** dedicated-wallet onboarding (**THE OFFERING**) with explicit
+  dedicated-wallet warning and verbatim capital-loss acknowledgment; Windows DPAPI
+  (`CryptProtectData`, current OS user) and Unix `0700`/`0600` persistent credential
+  storage with zeroizing secret buffers, masked UI inputs, credential verification,
+  replacement and secure overwrite-removal; read-only public-address Hyperliquid `/info`
+  account verification (signer/agent role, standard perp `disabled` mode, equity,
+  available collateral, margin used, unrealized PnL; private keys never touch the
+  network); Offering illumination across the Amethyst Heart, AEGIS, and NEXUS only after
+  genuine validation; 12-metric truthful Treasury portfolio view (never fabricating
+  unavailable figures; deposits/withdrawals explicitly separated from trading profits);
+  six operational modes (`DORMANT`, `OBSERVATION`, `SIMULATION`, gated `AWAKENED`,
+  `GUARDIAN`, `SUSPENDED`) with prominent one-click **EMERGENCY SUSPEND** and persistent
+  local suspension latch; and an explicit 14-item Autonomous Leviathan Architecture
+  Matrix. No automatic withdrawal or arbitrary transfer capability exists.
+- **Explicitly pending / unfinished (gated in UI & tracked here):**
+  - Unattended live **AWAKENED** certification remains locked (`PendingCertification`)
+    until complete fee/funding round-trip net settlement, external deposit/withdrawal
+    cash-flow ledger reconciliation, full WebSocket stream/restart recovery,
+    authenticated engine-control IPC, external watchdog supervision daemon, and
+    configurable external notification channels are implemented and independently
+    verified.
+  - Headless engine operation remains independent of GUI responsiveness; live execution
+    defaults remain disabled and no real-money trading was activated during development.

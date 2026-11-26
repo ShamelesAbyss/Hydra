@@ -34,6 +34,9 @@ pub mod state;
 pub mod storage;
 pub mod strategies;
 pub mod telemetry;
+pub mod treasury;
+#[cfg(feature = "desktop")]
+pub mod treasury_ui;
 pub mod tui;
 pub mod utils;
 

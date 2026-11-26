@@ -21,11 +21,14 @@ struct Options {
     /// Use OS decorations instead of the integrated borderless frame.
     #[arg(long)]
     decorated: bool,
+    /// Open directly to the LEVIATHAN TREASURY / THE OFFERING settings tab.
+    #[arg(long)]
+    treasury: bool,
 }
 
 fn main() -> eframe::Result {
     let options = Options::parse();
-    hydra::cockpit::run_configured(
+    hydra::cockpit::run_with_initial_tab(
         options.db,
         options.renderer,
         options.fullscreen,
@@ -33,5 +36,6 @@ fn main() -> eframe::Result {
         options.quality,
         options.reduced_motion,
         options.frame_cap,
+        options.treasury,
     )
 }

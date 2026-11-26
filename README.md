@@ -58,9 +58,15 @@ The cockpit runs independently of the trading engine. Closing its window sends n
 
 ## The unified Leviathan cockpit
 
-<img src="docs/assets/leviathan-awakened-wgpu.png" width="100%" alt="Actual native Alpha.26 release WGPU render of the awakened seven-headed Leviathan cockpit with volumetric atmosphere shader, sweeping wings, Amethyst Heart, and obsidian-glass rails" />
+<img src="docs/assets/leviathan-awakened-wgpu.png" width="100%" alt="Actual native Alpha.26 WGPU render of the awakened seven-headed Leviathan cockpit with volumetric atmosphere shader, sweeping wings, Amethyst Heart, Treasury controls, and obsidian-glass rails" />
 
-*Alpha.26 release WGPU capture (`--features desktop-wgpu`, High quality, empty offline local history database, observed `UI 142.0/s · build 1.25 ms`). Historical earlier alpha.26 Glow capture remains preserved at [`docs/assets/leviathan-first-native.png`](docs/assets/leviathan-first-native.png). Published executables and checksums are listed above.*
+*Alpha.26 WGPU capture (`--features desktop-wgpu`, High quality, empty offline local history database). Historical earlier alpha.26 Glow capture remains preserved at [`docs/assets/leviathan-first-native.png`](docs/assets/leviathan-first-native.png). Published executables and checksums are listed above.*
+
+### Leviathan Treasury & The Offering
+
+<img src="docs/assets/leviathan-treasury-offering.png" width="100%" alt="Actual native Alpha.26 WGPU render of the LEVIATHAN TREASURY tab and THE OFFERING dedicated wallet onboarding altar inside the single unified cockpit" />
+
+*Actual native capture of **LEVIATHAN TREASURY** and **THE OFFERING** inside the unified command center (`--treasury`), showing OS-protected Windows DPAPI credential storage, masked signing key entry, mandatory risk acknowledgment, and the dormant Offering altar awaiting genuine dedicated-wallet validation. Live `AWAKENED` mode remains gated until all engineering, settlement, recovery, and security certification checks pass.*
 
 <a id="seven-heads"></a>
 ## Seven heads. Distinct responsibilities.

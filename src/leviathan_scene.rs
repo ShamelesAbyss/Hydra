@@ -36,6 +36,10 @@ pub struct SceneInput<'a> {
     pub quality: SceneQuality,
     pub heart_status: &'a str,
     pub wgpu_atmosphere: bool,
+    /// Genuine Offering / Treasury verification illumination (`0.0..=1.0`).
+    /// Never positive unless real local wallet validation or venue verification completed.
+    pub offering_glow: f32,
+    pub operational_mode: crate::treasury::OperationalMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1616,22 +1620,37 @@ fn head(p: &egui::Painter, c: Canvas, pose: HeadPose, index: usize, input: &Scen
                 accent,
                 Stroke::new(0.7, trim),
             );
-            // Hexagonal Aegis barrier: vivid when active, warned, or blocked; subtle architectural trace when selected.
-            if activity > 0.0 || state.warning || is_blocked || selected {
-                let shield_col = if state.warning || is_blocked {
-                    Color32::from_rgb(255, 184, 78)
+            // Hexagonal Aegis barrier: vivid when active, warned, blocked, Guardian/Suspended mode, or selected.
+            let mode_shield = matches!(
+                input.operational_mode,
+                crate::treasury::OperationalMode::Guardian
+                    | crate::treasury::OperationalMode::Suspended
+            );
+            if activity > 0.0 || state.warning || is_blocked || selected || mode_shield {
+                let shield_col = if state.warning
+                    || is_blocked
+                    || input.operational_mode == crate::treasury::OperationalMode::Suspended
+                {
+                    Color32::from_rgb(255, 168, 78)
+                } else if input.operational_mode == crate::treasury::OperationalMode::Guardian {
+                    Color32::from_rgb(104, 245, 192)
                 } else {
                     accent
                 };
-                let shield_alpha = if state.warning || is_blocked {
-                    185
+                let shield_alpha = if state.warning
+                    || is_blocked
+                    || input.operational_mode == crate::treasury::OperationalMode::Suspended
+                {
+                    195
+                } else if mode_shield {
+                    155
                 } else if activity > 0.0 {
                     (110.0 + activity * 95.0) as u8
                 } else {
                     70
                 };
-                let scale_r = if state.warning || is_blocked {
-                    1.04
+                let scale_r = if state.warning || is_blocked || mode_shield {
+                    1.05
                 } else {
                     1.0
                 };
@@ -1649,7 +1668,7 @@ fn head(p: &egui::Painter, c: Canvas, pose: HeadPose, index: usize, input: &Scen
                     c,
                     &closed,
                     fade(shield_col, shield_alpha),
-                    if state.warning || is_blocked {
+                    if state.warning || is_blocked || mode_shield {
                         2.0
                     } else {
                         1.4
@@ -2114,6 +2133,12 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
         quality: input.quality,
         heart_status: input.heart_status,
         wgpu_atmosphere: input.wgpu_atmosphere,
+        offering_glow: if input.offering_glow.is_finite() {
+            input.offering_glow.clamp(0.0, 1.0)
+        } else {
+            0.0
+        },
+        operational_mode: input.operational_mode,
     };
 
     atmosphere(&p, rect, c, &poses, &effective_input);
@@ -2121,6 +2146,49 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
     // Outer necks first and guardian last preserve a coherent shared silhouette.
     for i in [0, 6, 1, 5, 2, 4, 3] {
         neck(&p, c, poses[i], i, &effective_input);
+    }
+    // Genuine Offering illumination: animates Treasury -> Amethyst Heart -> AEGIS & NEXUS.
+    if effective_input.offering_glow > 0.0 {
+        let g = effective_input.offering_glow;
+        let heart_core = Pos2::new(600.0, 622.0);
+        let gold = Color32::from_rgb(245, 194, 92);
+        glow_ex(
+            &p,
+            c,
+            heart_core,
+            78.0 + g * 24.0,
+            blend(Color32::from_rgb(184, 122, 255), gold, 0.45),
+            1.4 * g,
+            effective_input.quality,
+        );
+        for &(target_idx, beam_col) in &[
+            (3usize, Color32::from_rgb(58, 232, 165)), // AEGIS (Protection)
+            (4usize, Color32::from_rgb(73, 151, 255)), // NEXUS (Execution)
+        ] {
+            let curve = poses[target_idx].neck;
+            let pts: Vec<_> = (0..=28).map(|k| cubic(curve, k as f32 / 28.0)).collect();
+            line(
+                &p,
+                c,
+                &pts,
+                fade(beam_col, (145.0 * g).clamp(20.0, 220.0) as u8),
+                2.6,
+            );
+            if effective_input.motion && effective_input.time.is_finite() {
+                let u = (effective_input.time * 0.48 + target_idx as f32 * 0.25).rem_euclid(1.0);
+                let spark = cubic(curve, u);
+                glow_ex(
+                    &p,
+                    c,
+                    spark,
+                    9.0,
+                    beam_col,
+                    1.3 * g,
+                    effective_input.quality,
+                );
+                p.circle_filled(c.p(spark), 3.8 * c.scale, blend(beam_col, gold, 0.4));
+            }
+        }
     }
     for i in [0, 6, 1, 5, 2, 4, 3] {
         head(&p, c, poses[i], i, &effective_input);
@@ -2224,6 +2292,8 @@ mod tests {
                     quality,
                     heart_status: "UNAVAILABLE / RESEARCH ONLY",
                     wgpu_atmosphere: false,
+                    offering_glow: 0.0,
+                    operational_mode: crate::treasury::OperationalMode::Dormant,
                 };
                 let output = ctx.run_ui(
                     egui::RawInput {
@@ -2297,6 +2367,8 @@ mod interaction_tests {
                                 quality: SceneQuality::Low,
                                 heart_status: "UNAVAILABLE",
                                 wgpu_atmosphere: false,
+                                offering_glow: 0.0,
+                                operational_mode: crate::treasury::OperationalMode::Dormant,
                             },
                         );
                     });
@@ -2362,5 +2434,44 @@ mod interaction_tests {
         heads[0].observation = 0.;
         let (reduced_idle, _) = draw_motion(&ctx, &heads, vec![], false);
         assert_eq!(reduced.shapes.len(), reduced_idle.shapes.len());
+    }
+    #[test]
+    fn offering_illumination_is_gated_by_genuine_validation() {
+        let ctx = egui::Context::default();
+        let heads = heads();
+        let render = |glow_val: f32| {
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200., 820.))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ui, |ui| {
+                            let _ = show(
+                                ui,
+                                &SceneInput {
+                                    heads: &heads,
+                                    selected: None,
+                                    hovered: None,
+                                    time: 1.5,
+                                    motion: true,
+                                    quality: SceneQuality::Low,
+                                    heart_status: "DORMANT",
+                                    wgpu_atmosphere: false,
+                                    offering_glow: glow_val,
+                                    operational_mode: crate::treasury::OperationalMode::Dormant,
+                                },
+                            );
+                        });
+                },
+            )
+            .shapes
+            .len()
+        };
+        let idle = render(0.0);
+        assert_eq!(idle, render(f32::NAN));
+        assert!(render(1.0) > idle);
     }
 }

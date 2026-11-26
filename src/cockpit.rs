@@ -52,6 +52,7 @@ const HEADS: [(&str, &str, Color32); 7] = [
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Workspace {
     Overview,
+    Treasury,
     Head(usize),
     Positions,
     BlackBox,
@@ -75,7 +76,9 @@ pub struct Cockpit {
     renderer: String,
     wgpu_atmosphere: bool,
     research_changed_at: [Option<Instant>; 7],
+    offering_pulse_at: Option<Instant>,
 
+    treasury: crate::treasury_ui::TreasuryWorkspace,
     research: crate::research_ui::ResearchWorkspace,
     hunter: crate::hunter_ui::HunterWorkspace,
     diagnostics: crate::diagnostics_ui::DiagnosticWorkspace,
@@ -190,7 +193,9 @@ impl Cockpit {
             renderer: crate::desktop_renderer::renderer_description(cc),
             wgpu_atmosphere,
             research_changed_at: [None; 7],
+            offering_pulse_at: None,
 
+            treasury: crate::treasury_ui::TreasuryWorkspace::default(),
             research: crate::research_ui::ResearchWorkspace::default(),
             hunter: crate::hunter_ui::HunterWorkspace::default(),
             diagnostics: crate::diagnostics_ui::DiagnosticWorkspace::default(),
@@ -279,6 +284,18 @@ impl Cockpit {
         }
     }
     fn body(&mut self, ui: &mut egui::Ui) {
+        if self.workspace == Workspace::Treasury {
+            let events = self.treasury.show(
+                ui,
+                self.snapshot.as_deref(),
+                self.started.elapsed().as_secs_f32(),
+                !self.reduced_motion,
+            );
+            if events.offering_illuminated {
+                self.offering_pulse_at = Some(Instant::now());
+            }
+            return;
+        }
         if self.workspace == Workspace::Source
             || (self.workspace == Workspace::Overview && self.snapshot.is_none())
         {
@@ -357,6 +374,7 @@ impl Cockpit {
             Workspace::Overview => {
                 self.overview(ui, &data);
             }
+            Workspace::Treasury => {}
             Workspace::Head(index) => {
                 let (name, description, color) = HEADS[index];
                 ui.heading(RichText::new(name).color(color));
@@ -635,6 +653,19 @@ impl Cockpit {
             });
         });
         ui.horizontal_wrapped(|ui| {
+            let mode = self.treasury.mode();
+            pill(
+                ui,
+                &format!("MODE: {}", mode.label()),
+                crate::treasury_ui::mode_color(mode),
+            );
+            if self.treasury.is_venue_verified() {
+                pill(ui, "TREASURY VERIFIED", EMERALD);
+            } else if self.treasury.is_wallet_configured() {
+                pill(ui, "WALLET VAULTED", AMETHYST);
+            } else {
+                pill(ui, "TREASURY UNCONFIGURED", AMBER);
+            }
             pill(ui, "READ ONLY / LOCAL RESEARCH", CYAN);
             pill(ui, "ENGINE LINK UNVERIFIED", AMBER);
             if self.loading {
@@ -661,6 +692,50 @@ impl Cockpit {
             let alerts = states.iter().filter(|s| s.is_alert()).count();
             if alerts > 0 {
                 pill(ui, &format!("{alerts} HEAD ALERTS"), AMBER);
+            }
+            if ui
+                .selectable_label(
+                    self.workspace == Workspace::Treasury,
+                    RichText::new("LEVIATHAN TREASURY")
+                        .monospace()
+                        .size(10.0)
+                        .strong()
+                        .color(Color32::from_rgb(245, 194, 92)),
+                )
+                .on_hover_text("Open dedicated wallet settings, The Offering, portfolio & operational modes (Alt+T)")
+                .clicked()
+            {
+                self.workspace = Workspace::Treasury;
+                self.target_details_height = self.target_details_height.max(460.0);
+            }
+            if self.treasury.is_suspended() {
+                if ui
+                    .button(
+                        RichText::new("SUSPENDED")
+                            .monospace()
+                            .size(10.0)
+                            .strong()
+                            .color(Color32::from_rgb(247, 95, 105)),
+                    )
+                    .on_hover_text("Emergency suspension active. Open Leviathan Treasury to inspect or clear.")
+                    .clicked()
+                {
+                    self.workspace = Workspace::Treasury;
+                    self.target_details_height = self.target_details_height.max(460.0);
+                }
+            } else if ui
+                .button(
+                    RichText::new("EMERGENCY SUSPEND")
+                        .monospace()
+                        .size(10.0)
+                        .strong()
+                        .color(Color32::from_rgb(247, 95, 105)),
+                )
+                .on_hover_text("Immediately latch SUSPENDED mode and block all new trading activity")
+                .clicked()
+            {
+                self.treasury
+                    .trigger_emergency_suspension("Command bar emergency suspension");
             }
             if let Some(frame) = self.frame_stats.summary() {
                 ui.label(
@@ -864,6 +939,13 @@ impl Cockpit {
         nav(
             ui,
             &mut self.workspace,
+            Workspace::Treasury,
+            "LEVIATHAN TREASURY",
+            Color32::from_rgb(245, 194, 92),
+        );
+        nav(
+            ui,
+            &mut self.workspace,
             Workspace::Overview,
             "COMMAND OVERVIEW",
             TEXT,
@@ -895,17 +977,76 @@ impl Cockpit {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(
-                    RichText::new("READINESS NOT CERTIFIED")
-                        .monospace()
-                        .size(11.0)
-                        .strong()
-                        .color(AMBER),
+                    RichText::new(if self.treasury.is_suspended() {
+                        "SUSPENDED · NEW TRADING BLOCKED"
+                    } else {
+                        "READINESS NOT CERTIFIED"
+                    })
+                    .monospace()
+                    .size(10.5)
+                    .strong()
+                    .color(if self.treasury.is_suspended() {
+                        Color32::from_rgb(247, 95, 105)
+                    } else {
+                        AMBER
+                    }),
                 );
                 ui.label(
-                    RichText::new("No wallet access. No order or risk-release controls.")
-                        .small()
-                        .color(Color32::from_rgb(184, 174, 160)),
+                    RichText::new(
+                        "Autonomous live execution stays gated until settlement, recovery & IPC certification pass.",
+                    )
+                    .small()
+                    .color(Color32::from_rgb(184, 174, 160)),
                 );
+            });
+        ui.add_space(8.0);
+        section_title(ui, "TREASURY & COLLATERAL", Color32::from_rgb(245, 194, 92));
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(SURFACE)
+            .stroke(Stroke::new(0.8, Color32::from_rgb(56, 44, 78)))
+            .corner_radius(5)
+            .inner_margin(8)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                if let Some(p) = self.treasury.profile() {
+                    ui.label(
+                        RichText::new(format!(
+                            "Wallet: {}",
+                            crate::treasury::mask_address(&p.dedicated_wallet_address)
+                        ))
+                        .monospace()
+                        .small(),
+                    );
+                    if let Some(v) = self.treasury.verification() {
+                        ui.label(
+                            RichText::new(format!(
+                                "Equity: ${:.2} · Collateral: ${:.2}",
+                                v.account_equity_usd, v.withdrawable_collateral_usd
+                            ))
+                            .monospace()
+                            .small()
+                            .color(EMERALD),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new("Collateral: unavailable (verify on Hyperliquid)")
+                                .small()
+                                .color(MUTED),
+                        );
+                    }
+                } else {
+                    ui.label(
+                        RichText::new("No dedicated wallet configured. Complete The Offering.")
+                            .small()
+                            .color(MUTED),
+                    );
+                }
+                ui.add_space(4.0);
+                if ui.small_button("Open Leviathan Treasury").clicked() {
+                    self.workspace = Workspace::Treasury;
+                    self.target_details_height = self.target_details_height.max(460.0);
+                }
             });
         ui.add_space(10.0);
         section_title(ui, "OBSERVED LOCAL EVIDENCE", HEADS[4].2);
@@ -1196,6 +1337,17 @@ impl eframe::App for Cockpit {
         if let Some(index) = self.research.poll(ui.ctx()) {
             self.research_changed_at[index] = Some(frame_start);
         }
+        let treasury_events = self.treasury.poll(ui.ctx());
+        if treasury_events.offering_illuminated {
+            self.offering_pulse_at = Some(frame_start);
+        }
+        if ui
+            .ctx()
+            .input(|i| i.modifiers.alt && i.key_pressed(egui::Key::T))
+        {
+            self.workspace = Workspace::Treasury;
+            self.target_details_height = self.target_details_height.max(460.0);
+        }
         for (index, key) in [
             egui::Key::Num1,
             egui::Key::Num2,
@@ -1232,6 +1384,7 @@ impl eframe::App for Cockpit {
         let states = self.head_states();
         let details_accent = match self.workspace {
             Workspace::Head(i) => HEADS[i].2,
+            Workspace::Treasury => Color32::from_rgb(245, 194, 92),
             Workspace::Positions => EMERALD,
             Workspace::BlackBox => CYAN,
             Workspace::Source => AMBER,
@@ -1308,8 +1461,33 @@ impl eframe::App for Cockpit {
                             warning: states[index].is_alert(),
                         }
                     });
-                    let heart = if self.active_jobs() > 0 {
+                    let op_mode = self.treasury.mode();
+                    let offering_pulse = if self.reduced_motion {
+                        0.0
+                    } else {
+                        self.offering_pulse_at
+                            .map(|at| {
+                                (1.0 - frame_start.saturating_duration_since(at).as_secs_f32()
+                                    / 4.5)
+                                    .clamp(0.0, 1.0)
+                            })
+                            .unwrap_or(0.0)
+                    };
+                    let offering_glow = if self.treasury.is_suspended() {
+                        0.0
+                    } else if self.treasury.is_venue_verified() {
+                        offering_pulse.max(0.55)
+                    } else if self.treasury.is_wallet_configured() {
+                        offering_pulse.max(0.28)
+                    } else {
+                        0.0
+                    };
+                    let heart = if self.treasury.is_suspended() {
+                        "SUSPENDED / ALL NEW TRADING BLOCKED"
+                    } else if self.active_jobs() > 0 {
                         "LOCAL RESEARCH / ENGINE LINK UNVERIFIED"
+                    } else if self.treasury.is_venue_verified() {
+                        "TREASURY VERIFIED / LIVE CERTIFICATION PENDING"
                     } else if self.snapshot.is_some() {
                         "LOCAL HISTORY / EXECUTION READINESS UNVERIFIED"
                     } else {
@@ -1327,6 +1505,8 @@ impl eframe::App for Cockpit {
                         quality: self.quality,
                         heart_status: heart,
                         wgpu_atmosphere: self.wgpu_atmosphere,
+                        offering_glow,
+                        operational_mode: op_mode,
                     };
                     let scene_resp = crate::leviathan_scene::show_interactive(ui, &input);
                     if scene_resp.hovered.is_some() {
@@ -1371,6 +1551,7 @@ impl eframe::App for Cockpit {
                             ui,
                             match self.workspace {
                                 Workspace::Overview => "COMMAND OVERVIEW",
+                                Workspace::Treasury => "LEVIATHAN TREASURY",
                                 Workspace::Head(i) => HEADS[i].0,
                                 Workspace::Positions => "PORTFOLIO / POSITIONS",
                                 Workspace::BlackBox => "EVENT TIMELINE",
@@ -1389,6 +1570,16 @@ impl eframe::App for Cockpit {
                             .clicked()
                         {
                             self.workspace = Workspace::Overview;
+                        }
+                        if ui
+                            .selectable_label(
+                                self.workspace == Workspace::Treasury,
+                                RichText::new("Treasury").color(Color32::from_rgb(245, 194, 92)),
+                            )
+                            .clicked()
+                        {
+                            self.workspace = Workspace::Treasury;
+                            self.target_details_height = self.target_details_height.max(460.0);
                         }
                         if ui
                             .selectable_label(self.workspace == Workspace::Source, "Source")
@@ -1446,14 +1637,14 @@ impl eframe::App for Cockpit {
                 region(ui, plan.footer, "footer", None, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(
-                            RichText::new("SEVEN HEADS. ONE HEART. ONE LEVIATHAN.")
+                            RichText::new("SEVEN HEADS. ONE HEART. ONE TREASURY.")
                                 .monospace()
                                 .small()
                                 .color(Color32::from_rgb(194, 168, 236)),
                         );
                         ui.label(
                             RichText::new(
-                                "Alt+1…7 heads · F11 fullscreen · idle motion decorative · colored research / silver history",
+                                "Alt+1…7 heads · Alt+T Treasury · F11 fullscreen · idle motion decorative · colored research / silver history",
                             )
                             .small()
                             .color(MUTED),
@@ -1506,6 +1697,28 @@ pub fn run_configured(
     reduced_motion: bool,
     frame_limit: u32,
 ) -> eframe::Result {
+    run_with_initial_tab(
+        path,
+        backend,
+        fullscreen,
+        borderless,
+        quality,
+        reduced_motion,
+        frame_limit,
+        false,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_initial_tab(
+    path: PathBuf,
+    backend: crate::desktop_renderer::Backend,
+    fullscreen: bool,
+    borderless: bool,
+    quality: crate::leviathan_scene::SceneQuality,
+    reduced_motion: bool,
+    frame_limit: u32,
+    open_treasury: bool,
+) -> eframe::Result {
     let attempts = crate::desktop_renderer::attempts(backend)
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let mut failure = None;
@@ -1520,6 +1733,11 @@ pub fn run_configured(
                 let mut app = Cockpit::new(cc, database);
                 app.fullscreen = fullscreen;
                 app.borderless = borderless;
+                if open_treasury {
+                    app.workspace = Workspace::Treasury;
+                    app.details_height = 520.0;
+                    app.target_details_height = 520.0;
+                }
                 app.configure_presentation(quality, reduced_motion, frame_limit);
                 Ok(Box::new(app))
             }),

@@ -78,6 +78,15 @@ is implied. See OPTIMIZATION.md and the upcoming VISUAL_CAMPAIGN.md.
 
 ## Unified Leviathan cockpit (Alpha.26)
 
-Select a dragon head on the central sanctuary, click its card in the left Intelligence rail, or press `Alt+1` through `Alt+7`. Its workspace opens in the lower inline panel while the living seven-headed Leviathan remains visible. Drag the luminous top edge of the lower panel to resize it freely, or use the `Compact`, `Balanced`, and `Expand` presets for smooth choreography. Use `Source` to open existing local history. The `Graphics` panel offers `Low`/`Medium`/`High` quality, reduced motion, event energy toggle, update cadence cap, and window framing.
+Select a dragon head on the central sanctuary, click its card in the left Intelligence rail, or press `Alt+1` through `Alt+7`. Press `Alt+T` (or launch with `--treasury`) to open **LEVIATHAN TREASURY** directly. Its workspace opens in the lower inline panel while the living seven-headed Leviathan remains visible. Drag the luminous top edge of the lower panel to resize it freely, or use the `Compact`, `Balanced`, and `Expand` presets for smooth choreography. Use `Source` to open existing local history. The `Graphics` panel offers `Low`/`Medium`/`High` quality, reduced motion, event energy toggle, update cadence cap, and window framing.
+
+## Leviathan Treasury & The Offering
+
+The **LEVIATHAN TREASURY** tab inside the unified window is the exclusive surface for configuring a dedicated Hyperliquid trading wallet (never connect a primary personal wallet):
+
+- **THE OFFERING:** Enter the dedicated wallet public address and masked private signing key, acknowledge the verbatim capital-loss disclosure, and seal credentials into OS-protected storage (Windows DPAPI `CryptProtectData` current-user encryption on Windows; owner-only `0700`/`0600` storage on Unix). Private keys are zeroized from UI buffers immediately after saving and are never logged or transmitted over the network.
+- **Hyperliquid Verification:** Read-only public-address `/info` verification checks signer/agent role, standard perp (`disabled`) collateral mode, equity, and available collateral. Genuine validation illuminates the Amethyst Heart and animates the conduits between the Treasury, AEGIS, and NEXUS.
+- **Treasury & Portfolio:** Displays all 12 financial metrics with explicit `VERIFIED`, `LOCAL HISTORY`, or `UNAVAILABLE` provenance badges. External deposits and withdrawals are explicitly separated from trading profits; uncertified realized net PnL remains explicitly unavailable.
+- **Awakening & Emergency Suspension:** Offers `DORMANT`, `OBSERVATION`, `SIMULATION`, gated `AWAKENED` (locked until all readiness and unattended certification gates pass), `GUARDIAN`, and `SUSPENDED`, alongside a prominent one-click `EMERGENCY SUSPEND` control in the top command bar.
 
 The Windows desktop build uses WGPU with a custom WGSL volumetric sanctuary backdrop (`WGPU SHADER`) and retains Glow as a compatibility renderer with a layered procedural fallback. Run with `--renderer glow` to select OpenGL explicitly. `F11` toggles fullscreen. The `Graphics` panel reports the observed renderer and UI update cadence separately from CPU time spent building the UI. GPU execution timing is unavailable.
