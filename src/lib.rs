@@ -62,3 +62,5 @@ pub mod portfolio_research;
 pub mod diagnostics;
 #[cfg(feature = "desktop")]
 pub mod diagnostics_ui;
+
+pub mod genesis_checkpoint;

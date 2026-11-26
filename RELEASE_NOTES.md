@@ -1,33 +1,31 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.23
+# HYDRA — Project Leviathan 1.7.0-alpha.24
 
-FANG / COGNITION / AEGIS offline research and native analytical workspaces.
+GENESIS resumable generation checkpoints and native step controls.
 Engineering prerelease on main; live-trading readiness remains incomplete.
 
 ## Implemented
 
-- FANG pure deterministic arbitration with approval/ownership, exact external
-  capacity budgets, rejection reasons and Decimal precision-loss refusal.
-- Basic Hydra-owned EMA Anchor completed-bar research, with bounded price-only
-  suggestions; no Passivbot parity, adaptive grids or live integration claim.
-- COGNITION recency-weighted attribution, effective sample counts, descriptive
-  uncertainty intervals and strictly prior-outcome shadow-policy comparisons.
-  Simulated/caller sources remain separate; verified-net claims are rejected.
-- AEGIS offline Decimal exposure/concentration and supplied-budget diagnostics,
-  explicit unknowns and exactly aligned historical Pearson correlations.
-- Add `diagnose --kind fang|ema-anchor|cognition|aegis --snapshot PATH` and genuine
-  native workspaces, report copy, proportion/interval/pair visualizations.
-- Preserve recorded engine-history surfaces and every existing financial safeguard.
+- Share full/stepped search with exact random state, candidates, parents and history.
+- Bind checkpoints to dataset, normalized strategy config, options and executable
+  version; exclude wallet/account/runtime paths. Add state corruption checksum,
+  structural/resource validation and JSON float-roundtrip fidelity.
+- Publish synced bytes by an atomic non-replacing hard link into a new destination.
+  Existing checkpoints are never overwritten; unsupported filesystems fail visibly.
+- Add offline `optimize-step` and native complete-generation step/input/output
+  controls with saved-state status and JSON copy. Normal full search remains.
+- Preserve every execution/financial hold and the exact final memorial dedication.
 
-Core and real CLI isolation tests cover determinism, budget precision, no lookahead,
-sparse/unknown data, invalid inputs, correlation and no wallet/database authority.
-Full test/audit/build/package checks precede publication. No real-account requests,
-signed network calls, orders, transfers or real-money activation were used.
+Five targeted core tests cover serialized resume parity, completed-state stability,
+context/corruption/schema refusal, secret exclusion/map ordering and immutable file
+publication. Real CLI regression compares resumed/full results and preserves the
+prior checkpoint with an invalid key/live flag but no wallet or engine storage.
+Full test/audit/build/package checks precede publication; no signed requests or
+real-money trading were activated.
 
-## Remaining limits / next work
+## Remaining limits
 
-All data is caller-supplied and unverified. Research reports cannot authorize
-execution, certify settlement, release holds or install live learning policies.
-The planner is not yet shared by live/replay consumers. Regimes are caller labels,
-intervals are approximate, correlation omits tail stress, and portfolio ratios use
-Decimal representation limits. GENESIS resumability/OOS is next. All seven original
-major milestones remain partial; see MILESTONE_MATRIX.md for outstanding acceptance.
+Checkpoint hashes detect corruption, not authenticity or financial truth. State is
+build-specific and resumable only at generation boundaries. Hard-link support is
+required; power-loss directory durability depends on the filesystem. Candidate OOS,
+full train/select/test walk-forward, NSGA-II and GPU remain outstanding. All original
+Oracle model limitations remain. No major milestone is fully certified.

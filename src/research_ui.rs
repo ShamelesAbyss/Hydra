@@ -17,8 +17,17 @@ enum Completed {
     Oracle(ReplayReport),
     Validation(crate::oracle_validation::ValidationReport),
     Genesis(SearchReport),
+    GenesisStep {
+        progress: crate::genesis::SearchProgress,
+        output: String,
+    },
 }
 pub struct ResearchWorkspace {
+    checkpoint_mode: bool,
+    checkpoint_input: String,
+    checkpoint_output: String,
+    generations_per_step: usize,
+    saved_checkpoint: Option<(crate::genesis::SearchCheckpoint, String, bool)>,
     validation_mode: bool,
     validation_options_path: String,
     validation: Option<crate::oracle_validation::ValidationReport>,
@@ -36,6 +45,11 @@ pub struct ResearchWorkspace {
 impl Default for ResearchWorkspace {
     fn default() -> Self {
         Self {
+            checkpoint_mode: false,
+            checkpoint_input: String::new(),
+            checkpoint_output: String::new(),
+            generations_per_step: 1,
+            saved_checkpoint: None,
             validation_mode: false,
             validation_options_path: String::new(),
             validation: None,
@@ -81,6 +95,11 @@ impl ResearchWorkspace {
                 self.oracle = Some(report);
                 self.error = None;
             }
+            Ok(Completed::GenesisStep { progress, output }) => {
+                self.saved_checkpoint = Some((progress.checkpoint, output, progress.complete));
+                self.genesis = Some(progress.report);
+                self.error = None;
+            }
             Ok(Completed::Genesis(report)) => {
                 self.genesis = Some(report);
                 self.error = None;
@@ -106,6 +125,23 @@ impl ResearchWorkspace {
             path(ui, "Strategy TOML", &mut self.config_path);
             path(ui, "Candles JSON", &mut self.candles_path);
             if optimizer {
+                ui.checkbox(&mut self.checkpoint_mode, "Resumable generation steps");
+                if self.checkpoint_mode {
+                    path(
+                        ui,
+                        "Input checkpoint (blank starts new)",
+                        &mut self.checkpoint_input,
+                    );
+                    path(
+                        ui,
+                        "New output checkpoint (must not exist)",
+                        &mut self.checkpoint_output,
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("Generations this step");
+                        ui.add(egui::DragValue::new(&mut self.generations_per_step).range(1..=100));
+                    });
+                }
                 path(
                     ui,
                     "Search options JSON (optional)",
@@ -149,7 +185,11 @@ impl ResearchWorkspace {
                 }
             }
             let label = if optimizer {
-                "Run bounded optimization"
+                if self.checkpoint_mode {
+                    "Run optimizer step / save checkpoint"
+                } else {
+                    "Run bounded optimization"
+                }
             } else {
                 if self.validation_mode {
                     "Run held-out validation"
@@ -193,6 +233,14 @@ impl ResearchWorkspace {
             ui.label("Displayed results belong to the last completed job.");
         }
         if optimizer {
+            if let Some((checkpoint, path, complete)) = &self.saved_checkpoint {
+                ui.label(format!(
+                    "Last saved checkpoint: {path} / {} complete generations / complete {complete}",
+                    checkpoint.state.generations.len()
+                ));
+                ui.label("Use this as the next input with a new output filename. Checksum is not authenticity or financial proof.");
+                copy_report(ui, "Copy last saved checkpoint JSON", checkpoint);
+            }
             if let Some(report) = &self.genesis {
                 genesis_report(ui, report);
             }
@@ -212,6 +260,16 @@ impl ResearchWorkspace {
             self.error = Some("Select both strategy configuration and candle dataset paths".into());
             return;
         }
+        if optimizer && self.checkpoint_mode && self.checkpoint_output.trim().is_empty() {
+            self.error = Some(
+                "Choose a new output checkpoint path; existing files are never overwritten".into(),
+            );
+            return;
+        }
+        let checkpoint_mode = optimizer && self.checkpoint_mode;
+        let checkpoint_input = self.checkpoint_input.clone();
+        let checkpoint_output = self.checkpoint_output.clone();
+        let generations_per_step = self.generations_per_step;
         let config = self.config_path.clone();
         let candles = self.candles_path.clone();
         let validation = !optimizer && self.validation_mode;
@@ -245,9 +303,34 @@ impl ResearchWorkspace {
                         } else {
                             research::read_json(Path::new(&options))?
                         };
-                        Ok(Completed::Genesis(genesis::optimize(
-                            &cfg, &candles, &options,
-                        )?))
+                        if checkpoint_mode {
+                            let checkpoint = if checkpoint_input.trim().is_empty() {
+                                None
+                            } else {
+                                Some(research::read_json::<crate::genesis::SearchCheckpoint>(
+                                    Path::new(&checkpoint_input),
+                                )?)
+                            };
+                            let progress = genesis::advance(
+                                &cfg,
+                                &candles,
+                                &options,
+                                checkpoint.as_ref(),
+                                generations_per_step,
+                            )?;
+                            crate::genesis_checkpoint::save_new(
+                                Path::new(&checkpoint_output),
+                                &progress.checkpoint,
+                            )?;
+                            Ok(Completed::GenesisStep {
+                                progress,
+                                output: checkpoint_output,
+                            })
+                        } else {
+                            Ok(Completed::Genesis(genesis::optimize(
+                                &cfg, &candles, &options,
+                            )?))
+                        }
                     } else {
                         let options: ReplayOptions = if options.trim().is_empty() {
                             ReplayOptions::default()

@@ -1,3 +1,10 @@
+# Alpha.24 dependency verification
+
+Fresh `cargo audit --json` exits 0: zero vulnerability entries and one existing
+Chrono maintenance warning (RUSTSEC-2026-0543). No ignores or dependencies added.
+The existing serde_json float_roundtrip feature is enabled for checkpoint fidelity.
+This does not certify complete security or live-trading readiness.
+
 # Alpha.23 dependency verification
 
 Fresh `cargo audit --json` exits 0: zero vulnerability entries and one existing

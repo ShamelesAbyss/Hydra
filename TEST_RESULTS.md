@@ -1,3 +1,26 @@
+# Release verification — 1.7.0-alpha.24
+
+All **413 offline desktop-feature all-target release-version tests pass**.
+Five GENESIS core regressions cover serialized resume/full-search parity, terminal
+stability, dataset/options/state corruption rejection, structural refusal, normalized
+strategy-map ordering, secret exclusion and immutable checkpoint publication.
+The real CLI regression verifies resumed/full report equality, disabled deployment,
+prior-file preservation and no wallet/engine storage even with invalid key/live flag.
+Formatting and Clippy complete with warnings. Fresh dependency audit exits 0:
+zero vulnerability entries and one existing Chrono maintenance warning, no ignores.
+JSON float-roundtrip parsing is enabled; no dependencies were added. Every existing
+native signing, execution, financial hold, research and telemetry regression passes.
+Native builds and extracted packages are checked before publication.
+No real-account probes, signed network calls, orders or transfers were used.
+
+Alpha.23 passed all four tagged CI jobs for source
+`5ef23b4d2ed1e46da4e4f9d3fe37fdd5a9323fbc`:
+[Verified run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45740225803).
+All five release asset digests/download links match. Extracted Windows packages
+pass eleven smoke checks; Linux bytes, checksum and exact memorial were verified
+against the tagged job. The COGNITION populated native capture uses the explicitly
+simulated repository fixture solely for UI verification, not profitability evidence.
+
 # Release verification — 1.7.0-alpha.23
 
 All **407 offline desktop-feature all-target release-version tests pass**.

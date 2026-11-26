@@ -23,7 +23,7 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 | Historical data management | Polling candle snapshots only | Cache, integrity manifests, funding history pending |
 | Backtesting | Oracle deterministic single-instrument replay | Explicit costs/limits; richer execution models remain |
 | Multi-scenario simulation | Fixed-configuration disjoint held-out windows and explicit cost scenarios | Train/select/test fitting, shared planner and latency models remain |
-| Evolutionary optimization | Genesis seeded bounded CPU search through Oracle | Resumability and out-of-sample validation remain |
+| Evolutionary optimization | Seeded bounded CPU search with immutable generation checkpoint/resume | Candidate out-of-sample validation remains |
 | Multi-objective optimization | Return/drawdown/fee Pareto filtering implemented | Constraint-aware NSGA-II remains planned |
 | Pareto front analysis | Actual Genesis report and native visualization | Out-of-sample verification remains |
 | Execution recovery | Durable intents, original entry context, narrow known-fill application recovery | Broad cloid/fill replay and net settlement remain |

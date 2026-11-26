@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.23** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.23^{commit}`.
-- Previous recovery: v1.7.0-alpha.22 (`2b0d8cb947bf54e4afa6a50ead986d3669437299`).
+- Version and current recovery tag: **v1.7.0-alpha.24** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.24^{commit}`.
+- Previous recovery: v1.7.0-alpha.23 (`5ef23b4d2ed1e46da4e4f9d3fe37fdd5a9323fbc`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, ORACLE held-out scenarios delivered; next GENESIS resumability/OOS and FANG/COGNITION/AEGIS research. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
+- Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, ORACLE held-out scenarios delivered; FANG/COGNITION/AEGIS research and GENESIS resumability delivered; next candidate OOS and shared-planner integration. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -507,3 +507,17 @@ engine-history surfaces are retained. See ANALYTICS.md and MILESTONE_MATRIX.md.
 Alpha.22 passed all four tagged jobs in run 45738692751. All five published asset
 digests/download links verify; extracted Windows packages pass ten smoke checks.
 Linux bytes, checksum and exact memorial are verified against the tagged job.
+
+## Alpha.24 — GENESIS generation checkpoint/resume
+
+GENESIS CLI/native research can advance complete generations and save new immutable
+checkpoint files. Context and state checks reject changed data/settings/build,
+corrupt or inconsistent state. Existing files and prior checkpoints survive failures.
+No completed candidate replay is repeated on resume. JSON float-roundtrip parsing
+is enabled for state fidelity; every existing safety/reference test remains required.
+Candidate held-out assessment is next; checkpoints have no authenticity/financial
+settlement/deployment authority. See OPTIMIZATION.md and MILESTONE_MATRIX.md.
+
+Alpha.23 publication verified: all four tagged jobs passed in run 45740225803;
+all five asset digests and links match. Eleven extracted Windows smoke checks pass;
+Linux bytes/checksum/memorial match the verified tagged build.

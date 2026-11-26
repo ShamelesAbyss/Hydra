@@ -44,3 +44,7 @@ The 60 deterministic, explicitly simulated synthetic outcomes test interval/shad
 rendering only. They are not market data, performance, a benchmark or a profitability
 claim. No account/credentials/exchange session is involved. The empty capture is
 retained separately; all chart values are computed by the actual research kernel.
+
+`genesis-checkpoint-workspace.png` is an actual alpha.24 native eframe/glow capture.
+Alt+7 opens GENESIS and application input enables generation-step controls. No
+candles, optimizer results, account session or checkpoint file is supplied or saved.

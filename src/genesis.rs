@@ -78,7 +78,8 @@ pub struct Objectives {
     pub drawdown_fraction: f64,
     pub fee_fraction: f64,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Candidate {
     pub id: String,
     pub parameters: Parameters,
@@ -86,7 +87,8 @@ pub struct Candidate {
     pub trade_count: usize,
     pub first_generation: usize,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Generation {
     pub index: usize,
     pub new_candidate_ids: Vec<String>,
@@ -161,13 +163,59 @@ pub fn optimize(
     candles: &[Candle],
     options: &SearchOptions,
 ) -> Result<SearchReport> {
+    Ok(advance(cfg, candles, options, None, options.generations)?.report)
+}
+
+/// Advance complete generations without re-evaluating prior candidates.
+/// Checkpoints are caller-owned research state, not authenticated financial evidence.
+pub fn advance(
+    cfg: &AppConfig,
+    candles: &[Candle],
+    options: &SearchOptions,
+    checkpoint: Option<&SearchCheckpoint>,
+    generations_to_run: usize,
+) -> Result<SearchProgress> {
     validate(cfg, candles, options)?;
-    let mut random = Random(options.seed);
-    let mut evaluated = BTreeMap::<Parameters, Candidate>::new();
-    let mut generations = Vec::new();
-    let mut parents = Vec::<Parameters>::new();
-    let mut termination = "generation_budget".to_string();
-    for generation in 0..options.generations {
+    ensure!(
+        (1..=100).contains(&generations_to_run),
+        "step generation budget must be 1..100"
+    );
+    let context = context_digest(cfg, candles, options)?;
+    let (mut random, mut evaluated, mut generations, mut parents, mut termination) =
+        if let Some(c) = checkpoint {
+            validate_checkpoint(c, &context, options)?;
+            (
+                Random(c.state.random_state),
+                c.state
+                    .candidates
+                    .iter()
+                    .cloned()
+                    .map(|candidate| (candidate.parameters.clone(), candidate))
+                    .collect::<BTreeMap<_, _>>(),
+                c.state.generations.clone(),
+                c.state.parents.clone(),
+                c.state.termination.clone(),
+            )
+        } else {
+            (
+                Random(options.seed),
+                BTreeMap::<Parameters, Candidate>::new(),
+                Vec::new(),
+                Vec::<Parameters>::new(),
+                "generation_budget".to_string(),
+            )
+        };
+    let first_generation = generations.len();
+    let already_complete = evaluated.len() >= options.max_evaluations
+        || termination == "unique_candidate_attempt_budget";
+    let end_generation = if already_complete {
+        first_generation
+    } else {
+        first_generation
+            .saturating_add(generations_to_run)
+            .min(options.generations)
+    };
+    for generation in first_generation..end_generation {
         let remaining = options.max_evaluations - evaluated.len();
         if remaining == 0 {
             termination = "evaluation_budget".into();
@@ -264,6 +312,25 @@ pub fn optimize(
                 .collect(),
         });
     }
+    if generations.len() < options.generations && evaluated.len() >= options.max_evaluations {
+        termination = "evaluation_budget".into();
+    }
+    let complete = generations.len() >= options.generations
+        || evaluated.len() >= options.max_evaluations
+        || termination == "unique_candidate_attempt_budget";
+    let mut checkpoint = SearchCheckpoint {
+        schema_version: 1,
+        context_sha3_256: context,
+        state: SearchState {
+            random_state: random.0,
+            candidates: evaluated.values().cloned().collect(),
+            generations: generations.clone(),
+            parents,
+            termination: termination.clone(),
+        },
+        checksum_sha3_256: String::new(),
+    };
+    checkpoint.checksum_sha3_256 = state_digest(&checkpoint)?;
     let candidates: Vec<_> = evaluated.into_values().collect();
     let frontier = pareto_indices(
         &candidates
@@ -271,7 +338,7 @@ pub fn optimize(
             .map(|c| c.objectives.clone())
             .collect::<Vec<_>>(),
     )?;
-    Ok(SearchReport{schema_version:1,algorithm:"seeded-pareto-parent-mutation-crossover-v1".into(),simulated:true,
+    let report = SearchReport{schema_version:1,algorithm:"seeded-pareto-parent-mutation-crossover-v1".into(),simulated:true,
         options:options.clone(),strategy_profile:"momentum-only; remaining strategy configuration inherited".into(),
         bar_count:candles.len(),data_start_ms:candles.first().unwrap().ts.timestamp_millis(),
         data_end_ms:candles.last().unwrap().ts.timestamp_millis(),pareto_candidate_ids:frontier.iter().map(|index|candidates[*index].id.clone()).collect(),
@@ -279,7 +346,14 @@ pub fn optimize(
             "Pareto-parent evolutionary search with bounded retries; NSGA-II crowding/ranking is not implemented".into(),
             "Single input dataset; out-of-sample acceptance and walk-forward validation remain operator research work".into(),
             "Oracle candle execution assumptions and omitted funding/liquidation models apply".into(),
-            "No live configuration is modified or deployed".into()]})
+            "No live configuration is modified or deployed".into()]};
+    Ok(SearchProgress {
+        research_only: true,
+        auto_deployment_authorized: false,
+        complete,
+        checkpoint,
+        report,
+    })
 }
 
 fn validate(cfg: &AppConfig, candles: &[Candle], o: &SearchOptions) -> Result<()> {
@@ -387,5 +461,274 @@ fn breed(
             &bounds.min_atr_milli_pct,
             mutation,
         ),
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchState {
+    pub random_state: u64,
+    pub candidates: Vec<Candidate>,
+    pub generations: Vec<Generation>,
+    pub parents: Vec<Parameters>,
+    pub termination: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchCheckpoint {
+    pub schema_version: u32,
+    pub context_sha3_256: String,
+    pub state: SearchState,
+    pub checksum_sha3_256: String,
+}
+#[derive(Clone, Debug, Serialize)]
+pub struct SearchProgress {
+    pub research_only: bool,
+    pub auto_deployment_authorized: bool,
+    pub complete: bool,
+    pub checkpoint: SearchCheckpoint,
+    pub report: SearchReport,
+}
+fn context_digest(cfg: &AppConfig, candles: &[Candle], options: &SearchOptions) -> Result<String> {
+    use sha3::{Digest, Sha3_256};
+    let mut hash = Sha3_256::new();
+    hash.update(b"hydra-genesis-context-v1\0");
+    hash.update(env!("CARGO_PKG_VERSION").as_bytes());
+    // StrategyConfig contains a HashMap; normalize its order without touching keys.
+    // No AppConfig Debug/serialization occurs: wallet/account/paths are excluded.
+    let ordered: BTreeMap<_, _> = cfg.strategies.per_symbol.iter().collect();
+    let mut strategies = cfg.strategies.clone();
+    strategies.per_symbol.clear();
+    hash.update(format!("{strategies:?}|{ordered:?}").as_bytes());
+    hash.update(serde_json::to_vec(options)?);
+    hash.update(serde_json::to_vec(candles)?);
+    Ok(format!("{:x}", hash.finalize()))
+}
+fn state_digest(c: &SearchCheckpoint) -> Result<String> {
+    use sha3::{Digest, Sha3_256};
+    let payload = serde_json::to_vec(&(c.schema_version, &c.context_sha3_256, &c.state))?;
+    Ok(format!("{:x}", Sha3_256::digest(payload)))
+}
+fn validate_checkpoint(c: &SearchCheckpoint, context: &str, o: &SearchOptions) -> Result<()> {
+    ensure!(
+        c.schema_version == 1 && c.context_sha3_256 == context,
+        "checkpoint dataset/config/options/build context mismatch"
+    );
+    ensure!(
+        c.state.candidates.len() <= o.max_evaluations
+            && c.state.generations.len() <= o.generations
+            && c.state.parents.len() <= o.max_evaluations,
+        "checkpoint resource budget exceeded"
+    );
+    ensure!(
+        c.checksum_sha3_256 == state_digest(c)?,
+        "checkpoint checksum mismatch (not an authenticity proof)"
+    );
+    ensure!(
+        [
+            "generation_budget",
+            "evaluation_budget",
+            "unique_candidate_attempt_budget"
+        ]
+        .contains(&c.state.termination.as_str()),
+        "invalid checkpoint termination"
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    for candidate in &c.state.candidates {
+        let p = &candidate.parameters;
+        let in_range = |v: u32, r: &ParameterRange| v >= r.min && v <= r.max;
+        ensure!(
+            candidate.id == p.id()
+                && seen.insert(p.clone())
+                && p.fast_ema < p.slow_ema
+                && in_range(p.fast_ema, &o.bounds.fast_ema)
+                && in_range(p.slow_ema, &o.bounds.slow_ema)
+                && in_range(p.atr_period, &o.bounds.atr_period)
+                && in_range(p.min_atr_milli_pct, &o.bounds.min_atr_milli_pct)
+                && candidate.first_generation < c.state.generations.len()
+                && candidate.trade_count <= o.replay.max_trades,
+            "invalid checkpoint candidate"
+        );
+        validate_objectives(&candidate.objectives)?;
+    }
+    ensure!(
+        c.state
+            .candidates
+            .windows(2)
+            .all(|pair| pair[0].parameters < pair[1].parameters),
+        "checkpoint candidates must use canonical ordering"
+    );
+    let mut count = 0;
+    for (index, generation) in c.state.generations.iter().enumerate() {
+        let new: Vec<_> = c
+            .state
+            .candidates
+            .iter()
+            .filter(|v| v.first_generation == index)
+            .map(|v| v.id.clone())
+            .collect();
+        count += new.len();
+        ensure!(
+            generation.index == index
+                && !new.is_empty()
+                && new.len() <= o.population
+                && generation.new_candidate_ids == new
+                && generation.cumulative_evaluations == count
+                && generation.pareto_candidate_ids.len() <= count,
+            "invalid checkpoint generation history"
+        );
+    }
+    ensure!(
+        count == c.state.candidates.len(),
+        "checkpoint history coverage mismatch"
+    );
+    let frontier = pareto_indices(
+        &c.state
+            .candidates
+            .iter()
+            .map(|v| v.objectives.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    let parents: Vec<_> = frontier
+        .iter()
+        .map(|i| c.state.candidates[*i].parameters.clone())
+        .collect();
+    ensure!(
+        c.state.parents == parents,
+        "checkpoint parent frontier mismatch"
+    );
+    if let Some(last) = c.state.generations.last() {
+        let ids: Vec<_> = frontier
+            .iter()
+            .map(|i| c.state.candidates[*i].id.clone())
+            .collect();
+        ensure!(
+            last.pareto_candidate_ids == ids,
+            "checkpoint final frontier mismatch"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+    fn fixture() -> (AppConfig, Vec<Candle>, SearchOptions) {
+        let cfg = AppConfig::load_research(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/config/strategies.toml"),
+            None,
+        )
+        .unwrap();
+        let bars = (0..300)
+            .map(|i| Candle {
+                ts: Utc
+                    .timestamp_millis_opt(1_700_000_000_000 + i * 60000)
+                    .unwrap(),
+                open: 100.0,
+                high: 101.0,
+                low: 99.0,
+                close: 100.0,
+                volume: 1.0,
+            })
+            .collect();
+        let o = SearchOptions {
+            population: 3,
+            generations: 3,
+            max_evaluations: 9,
+            ..Default::default()
+        };
+        (cfg, bars, o)
+    }
+    #[test]
+    fn serialized_resume_matches_uninterrupted_search_exactly() {
+        let (c, b, o) = fixture();
+        let expected = optimize(&c, &b, &o).unwrap();
+        let mut progress = advance(&c, &b, &o, None, 1).unwrap();
+        assert!(!progress.complete);
+        for _ in 0..2 {
+            let checkpoint: SearchCheckpoint =
+                serde_json::from_slice(&serde_json::to_vec(&progress.checkpoint).unwrap()).unwrap();
+            progress = advance(&c, &b, &o, Some(&checkpoint), 1).unwrap();
+        }
+        assert!(progress.complete);
+        assert_eq!(
+            serde_json::to_value(expected).unwrap(),
+            serde_json::to_value(&progress.report).unwrap()
+        );
+        let done = advance(&c, &b, &o, Some(&progress.checkpoint), 1).unwrap();
+        assert_eq!(
+            serde_json::to_value(done.report).unwrap(),
+            serde_json::to_value(progress.report).unwrap()
+        );
+    }
+    #[test]
+    fn altered_state_context_and_unsafe_step_are_rejected() {
+        let (c, mut b, o) = fixture();
+        let p = advance(&c, &b, &o, None, 1).unwrap();
+        let mut changed = p.checkpoint.clone();
+        changed.state.random_state ^= 1;
+        assert!(advance(&c, &b, &o, Some(&changed), 1)
+            .unwrap_err()
+            .to_string()
+            .contains("checksum"));
+        b[0].close = 100.5;
+        assert!(advance(&c, &b, &o, Some(&p.checkpoint), 1)
+            .unwrap_err()
+            .to_string()
+            .contains("context"));
+        assert!(advance(&c, &b, &o, None, 0).is_err());
+        let mut different = o.clone();
+        different.seed += 1;
+        assert!(advance(&c, &b, &different, Some(&p.checkpoint), 1).is_err());
+    }
+    #[test]
+    fn impossible_rechecksummed_state_is_rejected() {
+        let (c, b, o) = fixture();
+        let mut p = advance(&c, &b, &o, None, 1).unwrap().checkpoint;
+        p.state.candidates[0].parameters.fast_ema = 0;
+        p.checksum_sha3_256 = state_digest(&p).unwrap();
+        assert!(advance(&c, &b, &o, Some(&p), 1).is_err());
+    }
+    #[test]
+    fn checkpoint_publication_preserves_previous_file_and_cleans_temporary_link() {
+        let (c, b, o) = fixture();
+        let checkpoint = advance(&c, &b, &o, None, 1).unwrap().checkpoint;
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("generation-1.json");
+        crate::genesis_checkpoint::save_new(&path, &checkpoint).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(crate::genesis_checkpoint::save_new(&path, &checkpoint).is_err());
+        assert_eq!(before, std::fs::read(&path).unwrap());
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
+        let loaded: SearchCheckpoint = serde_json::from_slice(&before).unwrap();
+        assert!(advance(&c, &b, &o, Some(&loaded), 1).is_ok());
+    }
+    #[test]
+    fn strategy_map_order_is_normalized_and_secrets_are_excluded() {
+        let (mut a, b, o) = fixture();
+        let mut c = a.clone();
+        a.strategies.per_symbol.clear();
+        c.strategies.per_symbol.clear();
+        for key in ["ETH", "BTC"] {
+            a.strategies
+                .per_symbol
+                .insert(key.into(), Default::default());
+        }
+        for key in ["BTC", "ETH"] {
+            c.strategies
+                .per_symbol
+                .insert(key.into(), Default::default());
+        }
+        c.hl_private_key = Some("must-not-be-serialized".into());
+        let p = advance(&a, &b, &o, None, 1).unwrap();
+        assert_eq!(
+            context_digest(&a, &b, &o).unwrap(),
+            context_digest(&c, &b, &o).unwrap()
+        );
+        assert!(!serde_json::to_string(&p)
+            .unwrap()
+            .contains("must-not-be-serialized"));
+        assert!(advance(&c, &b, &o, Some(&p.checkpoint), 1).is_ok());
     }
 }

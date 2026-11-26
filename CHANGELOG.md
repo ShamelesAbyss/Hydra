@@ -1,3 +1,10 @@
+## 1.7.0-alpha.24 — GENESIS resumable generation checkpoints
+
+- Share full and stepped search kernels; retain RNG/candidates/parents/history.
+- Bind state to dataset/settings/options/build with bounded corruption checks.
+- Publish synced immutable files without overwrite; preserve previous checkpoints.
+- Add native generation-step controls and offline CLI; no automatic deployment.
+
 ## 1.7.0-alpha.23 — FANG / COGNITION / AEGIS research workspaces
 
 - Add pure deterministic planning/EMA research, strict prior-outcome confidence and

@@ -112,6 +112,19 @@ pub enum Command {
         #[arg(long)]
         options: Option<std::path::PathBuf>,
     },
+    /// Advance complete optimizer generations and publish an immutable checkpoint.
+    OptimizeStep {
+        #[arg(long)]
+        candles: std::path::PathBuf,
+        #[arg(long)]
+        options: Option<std::path::PathBuf>,
+        #[arg(long)]
+        checkpoint: Option<std::path::PathBuf>,
+        #[arg(long)]
+        output: std::path::PathBuf,
+        #[arg(long, default_value_t = 1)]
+        generations: usize,
+    },
     /// Run a bounded seeded momentum-parameter research search.
     Optimize {
         #[arg(long)]
@@ -229,6 +242,31 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         );
         return Ok(());
     }
+    if let Command::OptimizeStep {
+        candles,
+        options,
+        checkpoint,
+        output,
+        generations,
+    } = &cli.cmd
+    {
+        let cfg = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
+        let bars = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
+        let options = options
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::genesis::SearchOptions>(p))
+            .transpose()?
+            .unwrap_or_default();
+        let checkpoint = checkpoint
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::genesis::SearchCheckpoint>(p))
+            .transpose()?;
+        let progress =
+            crate::genesis::advance(&cfg, &bars, &options, checkpoint.as_ref(), *generations)?;
+        crate::genesis_checkpoint::save_new(output, &progress.checkpoint)?;
+        println!("{}", serde_json::to_string(&progress)?);
+        return Ok(());
+    }
     if let Command::Optimize { candles, options } = &cli.cmd {
         let config = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
         let bars = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
@@ -290,7 +328,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::Hunter { .. }
         | Command::ValidateResearch { .. }
         | Command::Backtest { .. }
-        | Command::Optimize { .. } => {
+        | Command::Optimize { .. }
+        | Command::OptimizeStep { .. } => {
             unreachable!("offline research handled before engine storage setup")
         }
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),

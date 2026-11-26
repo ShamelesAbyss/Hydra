@@ -57,3 +57,12 @@ prior-outcome shadow comparisons and actual approximate confidence intervals. AE
 shows exposure, breaches/unknowns and aligned historical pair correlations. Recorded
 engine history remains under a separate collapsing panel. No controller writes,
 authorization or live-risk changes are available. See ANALYTICS.md.
+
+## GENESIS checkpoint steps (alpha.24)
+
+Enable **Resumable generation steps**, select an optional input checkpoint and a
+new output filename, set the complete-generation budget and run the worker. The
+last successfully saved checkpoint, generation count and completion state are
+shown with JSON copy. Use that file as the next input with a new output path.
+Existing files are preserved, failed writes never appear as successful saves,
+and the normal full optimizer remains available. See OPTIMIZATION.md.
