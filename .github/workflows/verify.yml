@@ -16,6 +16,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked --features desktop-wgpu --all-targets
       - run: cargo build --locked --release --features desktop-wgpu --bin hydra-cockpit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hydra-cockpit-x86_64-pc-windows-msvc
+          path: target/release/hydra-cockpit.exe
   build:
     strategy:
       fail-fast: false
@@ -79,3 +83,106 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-audit --locked
       - run: cargo audit
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, build, audit]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve permanent memorial dedication
+        shell: pwsh
+        run: ./.github/scripts/verify-memorial.ps1
+      - uses: actions/download-artifact@v4
+        with:
+          name: hydra-cockpit-x86_64-pc-windows-msvc
+          path: stage/cockpit
+      - uses: actions/download-artifact@v4
+        with:
+          name: hydra-x86_64-pc-windows-msvc
+          path: stage/win
+      - uses: actions/download-artifact@v4
+        with:
+          name: hydra-x86_64-unknown-linux-gnu
+          path: stage/linux
+      - name: Assemble, smoke-test, and publish exact-tag GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $out = "release-assets"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+
+          # 1. Assemble complete Windows portable package containing BOTH hydra.exe and WGPU hydra-cockpit.exe.
+          $winDir = "stage/win-combined"
+          Expand-Archive -Path "stage/win/hydra-x86_64-pc-windows-msvc.zip" -DestinationPath $winDir -Force
+          Copy-Item "stage/cockpit/hydra-cockpit.exe" "$winDir/hydra-cockpit.exe" -Force
+          if (-not (Test-Path "$winDir/hydra.exe")) { throw "hydra.exe missing from Windows portable package" }
+          if (-not (Test-Path "$winDir/hydra-cockpit.exe")) { throw "hydra-cockpit.exe missing from Windows portable package" }
+
+          # Smoke-test extracted portable binaries and permanent memorial.
+          $cliVer = & "$winDir/hydra.exe" --version
+          if ($LASTEXITCODE -ne 0 -or $cliVer -notmatch [regex]::Escape($version)) {
+            throw "Unexpected hydra.exe --version output: $cliVer"
+          }
+          $cockpitHelp = & "$winDir/hydra-cockpit.exe" --help
+          if ($LASTEXITCODE -ne 0) { throw "hydra-cockpit.exe --help failed" }
+          $readmeText = [IO.File]::ReadAllText("$winDir/README.md")
+          if (-not $readmeText.Contains("In Loving Memory of Ashlan Haley Rapponotti")) {
+            throw "Permanent memorial missing from packaged README.md"
+          }
+
+          $winZip = "hydra-$version-x86_64-pc-windows-msvc.zip"
+          Compress-Archive -Path "$winDir/*" -DestinationPath "$out/$winZip" -Force
+
+          # 2. Prepare verified Linux headless package + Linux SHA-256 manifest.
+          $linuxTar = "hydra-$version-x86_64-unknown-linux-gnu.tar.gz"
+          Copy-Item "stage/linux/hydra-x86_64-unknown-linux-gnu.tar.gz" "$out/$linuxTar" -Force
+          $linuxHash = (Get-FileHash "$out/$linuxTar" -Algorithm SHA256).Hash.ToLower()
+          $linuxSums = "hydra-$version-linux-SHA256SUMS.txt"
+          "$linuxHash  $linuxTar" | Set-Content "$out/$linuxSums" -Encoding ascii
+
+          # 3. Export exact tag source ZIP (excluding inherited legacy bin/).
+          $srcZip = "hydra-$version-source.zip"
+          git archive --format=zip --output="$out/$srcZip" $tag -- . ':!bin'
+          if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
+
+          # 4. Generate combined SHA-256 manifest for Windows portable + source + Linux archives.
+          $winHash = (Get-FileHash "$out/$winZip" -Algorithm SHA256).Hash.ToLower()
+          $srcHash = (Get-FileHash "$out/$srcZip" -Algorithm SHA256).Hash.ToLower()
+          $sums = "hydra-$version-SHA256SUMS.txt"
+          @(
+            "$winHash  $winZip"
+            "$srcHash  $srcZip"
+            "$linuxHash  $linuxTar"
+          ) | Set-Content "$out/$sums" -Encoding ascii
+
+          # 5. Never overwrite an existing published GitHub Release.
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $tag already exists; refusing to overwrite historical release."
+          }
+
+          $isPrerelease = $version -match '-(alpha|beta|rc)'
+          $titleLine = (Get-Content RELEASE_NOTES.md | Select-Object -First 1).TrimStart('#').Trim()
+          if ([string]::IsNullOrWhiteSpace($titleLine)) { $titleLine = "HYDRA — Project Leviathan $version" }
+
+          $createArgs = @(
+            'release', 'create', $tag,
+            "$out/$winZip",
+            "$out/$linuxTar",
+            "$out/$srcZip",
+            "$out/$sums",
+            "$out/$linuxSums",
+            '--title', $titleLine,
+            '--notes-file', 'RELEASE_NOTES.md'
+          )
+          if ($isPrerelease) { $createArgs += '--prerelease' }
+          & gh @createArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }

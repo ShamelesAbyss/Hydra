@@ -1,3 +1,22 @@
+# Release verification — 1.7.0-alpha.26
+
+All **449 offline desktop-wgpu all-target tests pass** (across 32 test binaries).
+Added regressions cover WGSL uniform alignment and NaN sanitization (`leviathan_shader`),
+physiological breathing/heartbeat/eyelid waves and genuine validation-gated Offering
+illumination (`leviathan_scene`), and Treasury dedicated-wallet identity validation,
+zeroizing secret redaction, Windows DPAPI / Unix `0700`/`0600` credential roundtrip
+and secure overwrite-removal, loopback Hyperliquid `/info` account verification
+without key transmission, readiness gating keeping `AWAKENED` locked pending
+certification, and truthful 12-metric portfolio reporting (`treasury`).
+
+Glow-only desktop compilation (`--features desktop --all-targets`), `cargo fmt --check`,
+`cargo clippy --locked --all-targets`, optimized `--release` builds of both `hydra.exe`
+and WGPU `hydra-cockpit.exe`, and `verify-memorial.ps1` all pass. Native Windows 11
+WGPU captures (`docs/assets/leviathan-awakened-wgpu.png` and
+`docs/assets/leviathan-treasury-offering.png`) confirm live shader rendering at
+observed `UI 111–142/s` and `1.25–1.96 ms` UI-build CPU duration. No real exchange
+orders, live wallet credentials, or transfers were used.
+
 # Release verification — 1.7.0-alpha.25
 
 All **418 offline desktop-feature all-target release-version tests pass**.

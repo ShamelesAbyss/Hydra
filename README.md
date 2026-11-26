@@ -7,16 +7,16 @@
 **A native Rust trading engine and research command center for Hyperliquid.**<br>
 Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuous evolution.
 
-[![Release](docs/assets/release-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.25) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](docs/assets/offline-tests-badge.svg)](TEST_RESULTS.md) [![Language](docs/assets/rust-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/Cargo.toml) [![License](docs/assets/license-badge.svg)](LICENSE)
+[![Release](docs/assets/release-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.26) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](docs/assets/offline-tests-badge.svg)](TEST_RESULTS.md) [![Language](docs/assets/rust-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.26/Cargo.toml) [![License](docs/assets/license-badge.svg)](LICENSE)
 
-[![Windows native](docs/assets/windows-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.25) [![Linux CLI](docs/assets/linux-badge.svg)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Alpha.25 dependency audit](docs/assets/audit-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/DEPENDENCY_AUDIT.md)
+[![Windows native](docs/assets/windows-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.26) [![Linux CLI](docs/assets/linux-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.26) [![Alpha.26 dependency audit](docs/assets/audit-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.26/DEPENDENCY_AUDIT.md)
 
 [**Download**](#download) · [**Cockpit**](#cockpit) · [**Seven heads**](#seven-heads) · [**Architecture**](#architecture) · [**Quick start**](#quick-start) · [**Readiness**](#readiness) · [**Roadmap**](#roadmap)
 
 </div>
 
 > [!IMPORTANT]
-> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The published alpha.25 source passes 418 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow the verified main consolidation](https://github.com/ShamelesAbyss/Hydra/actions/runs/45581670769). Alpha.25 adds frozen-frontier held-out candidate assessment; financial settlement remains unverified. Prior releases remain available as historical checkpoints.
+> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. **v1.7.0-alpha.26** passes **449 offline tests** (`--features desktop-wgpu --all-targets`) and a dependency audit with zero vulnerability entries and one Chrono maintenance warning. Alpha.26 delivers the living WGPU-shaded seven-headed Leviathan cockpit, **LEVIATHAN TREASURY**, **THE OFFERING**, truthful 12-metric portfolio reporting, and gated operational modes; financial settlement and unattended live certification remain incomplete. No stable release exists yet; prior alpha releases remain available as historical checkpoints.
 
 ## Project Leviathan
 
@@ -32,9 +32,9 @@ The native cockpit makes that evidence visible. Oracle replays historical candle
 
 | Track | What it contains | Where to go |
 | :--- | :--- | :--- |
-| **Authoritative main** | Authoritative Project Leviathan codebase and continuing development | [Browse main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
-| **Downloadable prerelease** | **1.7.0-alpha.25**, native cockpit/research, exact execution evidence and independent risk; 418 offline tests | [Release and checksums](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.25) |
-| **Development on main** | Consistent local intent evidence; conservative recovery and settlement and financial settlement continue | [Authoritative main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
+| **Latest development prerelease** | **v1.7.0-alpha.26** — living WGPU Leviathan cockpit, **LEVIATHAN TREASURY** / **THE OFFERING**, 449 offline tests | [Download v1.7.0-alpha.26](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.26) |
+| **Latest stable release** | None yet — live unattended trading certification remains in progress | [All GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) |
+| **Authoritative main** | Continuing Project Awakening development directly on `main` | [Browse main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
 
 Project Leviathan is Hydra. `main` contains the authoritative implementation and all continuing development. The [retired 1.6.2 archive](https://github.com/ShamelesAbyss/Hydra/tree/archive/dead-code-hydra-1.6.2) exists only for historical preservation and must not be used for live trading. Promotion to main does not establish stable-live readiness.
 
@@ -199,16 +199,18 @@ The native client reads consistent local snapshots; the headless engine owns sig
 [Architecture notes](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/ARCHITECTURE.md) · [Hyperliquid boundary](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/HYPERLIQUID_INTEGRATION.md) · [Risk authority](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/RISK_MANAGEMENT.md)
 
 <a id="download"></a>
-## Download a verified checkpoint
+## Download a verified release
+
+> **Latest development prerelease:** [**v1.7.0-alpha.26**](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.26) · **Latest stable release:** *None yet (engineering prerelease only)* · [**Browse all releases**](https://github.com/ShamelesAbyss/Hydra/releases)
 
 | Artifact | Release | Contents / verification |
 | :--- | :--- | :--- |
-| [**Windows x86_64 portable ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.25/hydra-1.7.0-alpha.25-x86_64-pc-windows-msvc.zip) | **alpha.25** | `hydra.exe` + `hydra-cockpit.exe`, config and guides; locally built and smoke checked |
-| [**Source ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.25/hydra-1.7.0-alpha.25-source.zip) | **alpha.25** | Exact release source export; excludes inherited legacy binaries |
-| [**SHA-256 manifest**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.25/hydra-1.7.0-alpha.25-SHA256SUMS.txt) | **alpha.25** | Verify the archive hash before extraction |
-| [**Linux x86_64 headless tar.gz**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.25/hydra-1.7.0-alpha.25-x86_64-unknown-linux-gnu.tar.gz) | **alpha.25** | Verified CI executable plus exact-tag guides/assets; [Linux SHA-256 manifest](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.25/hydra-1.7.0-alpha.25-linux-SHA256SUMS.txt) |
+| [**Windows x86_64 portable ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.26/hydra-1.7.0-alpha.26-x86_64-pc-windows-msvc.zip) | **alpha.26** | `hydra.exe` + WGPU-enabled `hydra-cockpit.exe` (with Glow fallback), config, assets and guides; smoke-checked in tagged CI |
+| [**Linux x86_64 headless tar.gz**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.26/hydra-1.7.0-alpha.26-x86_64-unknown-linux-gnu.tar.gz) | **alpha.26** | Verified Ubuntu CI headless executable plus exact-tag guides/assets; [Linux SHA-256 manifest](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.26/hydra-1.7.0-alpha.26-linux-SHA256SUMS.txt) |
+| [**Source ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.26/hydra-1.7.0-alpha.26-source.zip) | **alpha.26** | Exact tag source export; excludes inherited legacy binaries |
+| [**SHA-256 manifest**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.26/hydra-1.7.0-alpha.26-SHA256SUMS.txt) | **alpha.26** | Verify archive hashes before extraction |
 
-**Dependency fix delivery:** alpha.25 retains the remediated graph. Older alpha.4 assets retain their original dependencies and are preserved as historical downloads.
+**Dependency fix delivery:** alpha.26 retains the remediated dependency graph (0 vulnerability entries, 1 Chrono maintenance warning). Prior releases remain preserved unchanged as historical checkpoints.
 
 Windows executables are **unsigned**. There is no installer or code-signing claim. macOS and Linux native-desktop distribution are not currently verified. Release artifacts and source history are retained; newer branch changes are not silently substituted into a published ZIP.
 
@@ -241,10 +243,10 @@ For a local empty history and read-only snapshot, without credentials or exchang
 From the download directory, verify the Linux manifest and extract into an empty folder:
 
 ```sh
-sha256sum --check hydra-1.7.0-alpha.25-linux-SHA256SUMS.txt
-mkdir hydra-alpha14
-tar -xzf hydra-1.7.0-alpha.25-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha14
-cd hydra-alpha14
+sha256sum --check hydra-1.7.0-alpha.26-linux-SHA256SUMS.txt
+mkdir hydra-alpha26
+tar -xzf hydra-1.7.0-alpha.26-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha26
+cd hydra-alpha26
 ./hydra --version
 ./hydra --no-banner config-check
 ```
@@ -312,7 +314,7 @@ Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `
 
 | Evidence | Verified state |
 | :--- | :--- |
-| **Local test suite** | Main: **418 offline desktop-feature tests**; published alpha.25: 418. [Current test evidence](TEST_RESULTS.md) |
+| **Local test suite** | Main / alpha.26: **449 offline desktop-wgpu tests** (`--all-targets`). [Current test evidence](TEST_RESULTS.md) |
 | **GitHub builds** | Alpha.25 [passed all four tagged jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45708423982): Linux, Windows, native desktop and audit |
 | **Formatting / Clippy** | Passed locally; Clippy retains style warnings |
 | **Signing references** | Eight offline cross-language fixtures against published official Python SDK constants |

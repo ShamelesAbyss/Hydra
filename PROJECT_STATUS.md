@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.25** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.25^{commit}`.
-- Previous recovery: v1.7.0-alpha.24 (`5297238f74d217e2ef945aa17b5f325a8cbf73c3`).
+- Version and current recovery tag: **v1.7.0-alpha.26** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.26^{commit}`.
+- Previous recovery: v1.7.0-alpha.25.
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: finish/publish alpha.25, then the owner-directed unified Leviathan visual campaign; handoff and explicit authorization required before returning to the normal queue.
+- Current phase: **Project Awakening** — publish verified `v1.7.0-alpha.26` GitHub Release, then deliver **LEVIATHAN EVOLUTION** (secure native updater in `v1.7.0-alpha.27`) and continue advancing all seven major milestones with mandatory release publication per coherent milestone.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1

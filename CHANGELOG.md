@@ -1,3 +1,21 @@
+## 1.7.0-alpha.26 — living Leviathan WGPU sanctuary, Treasury & The Offering
+
+- Transform the unified native cockpit with a GPU-accelerated WGSL volumetric
+  sanctuary shader (`desktop-wgpu`) and layered Glow fallback (`src/leviathan_shader.rs`).
+- Sculpt sweeping amethyst-veined cybernetic dragon wings, physiological breathing,
+  smooth organic eyelid blinking, serpentine neck sway, seven distinct dragon
+  phenotypes, dual-peak Amethyst Heart with 7 pylon conduits, and obsidian-glass rails.
+- Add dedicated **LEVIATHAN TREASURY** tab (`Alt+T` / `--treasury`) and **THE OFFERING**
+  onboarding altar with Windows DPAPI / Unix `0700`/`0600` OS-protected credential
+  storage, zeroizing secret buffers, masked UI inputs, verbatim risk acknowledgment,
+  read-only public-address Hyperliquid `/info` verification, truthful 12-metric
+  portfolio view, six operational modes (`DORMANT`..`SUSPENDED`), and one-click
+  `EMERGENCY SUSPEND`.
+- Establish the 14-point Permanent Release Publication Protocol in `AGENTS.md` and
+  automate exact-tag GitHub Release packaging/publication in CI.
+- Preserve all financial safeguards, headless/Ratatui operation, and Ashlan Haley
+  Rapponotti's permanent memorial dedication across the cockpit, README, CI, and packages.
+
 ## 1.7.0-alpha.25 — frozen-frontier held-out candidate assessment
 
 - Freeze a completed training frontier before later held-out evaluation.

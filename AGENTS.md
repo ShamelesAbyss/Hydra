@@ -33,14 +33,30 @@ independent acceptance work elsewhere over nonblocking refinements. Preserve eve
 financial safeguard; defer live certification rather than blocking offline research
 or read-only cockpit work. Never put material after the README memorial.
 
-## Active owner sequence: Project Manifestation
+## Permanent Release Publication Protocol (Mandatory)
 
-Finish alpha.25, then suspend the normal engineering backlog for the unified native
-seven-headed Leviathan visual campaign in VISUAL_CAMPAIGN.md. Preserve every financial
-safeguard and the memorial. After completing/publishing that visual campaign, provide
-its comprehensive handoff and pause for explicit owner authorization before returning
-to the normal engineering queue. Do not interpret earlier continuous-work guidance as
-permission to bypass this owner-requested post-campaign pause.
+Every coherent, verified implementation milestone MUST produce all 14 deliverables:
+
+1. An incremented application version in `Cargo.toml`.
+2. Updated `CHANGELOG.md`.
+3. Updated `RELEASE_NOTES.md`.
+4. Updated `PROJECT_STATUS.md`.
+5. Updated `TEST_RESULTS.md`.
+6. Updated `MILESTONE_MATRIX.md`.
+7. Updated `README.md` version badges and GitHub Release download links (preserving the exact verbatim final memorial).
+8. A committed and pushed `main` branch.
+9. A corresponding exact Git tag (`v<version>`).
+10. Passing exact-tag GitHub Actions verification (`desktop`, `build` Windows/Linux, `audit`).
+11. A visible GitHub Release at `https://github.com/ShamelesAbyss/Hydra/releases`.
+12. Downloadable, verified executable packages (Windows portable ZIP containing BOTH `hydra.exe` and WGPU-enabled `hydra-cockpit.exe`, Linux headless `tar.gz`, and source ZIP).
+13. SHA-256 checksum manifests (`SHA256SUMS.txt` and `linux-SHA256SUMS.txt`), and signed release manifests once release-signing keys are configured.
+14. Clear release notes describing changes, measured evidence, limitations, installation instructions, and verification.
+
+A successful `git push` alone is NOT completion. A local build alone is NOT completion. A CI workflow artifact alone is NOT completion. Ordinary users must never have to search through GitHub Actions artifacts to download a release. Always preserve truthful `alpha`, `beta`, `rc`, and `stable` classifications, never label unfinished engineering builds as stable, and never overwrite historical releases.
+
+## Active owner directive: Project Awakening
+
+Continue autonomously on `main` across all seven major milestones (HUNTER, FANG, COGNITION, AEGIS, NEXUS, ORACLE, GENESIS), the native **LEVIATHAN EVOLUTION** update manager, **LEVIATHAN TREASURY / THE OFFERING**, reliable autonomous infrastructure, and continuous visual integration in the single unified native cockpit. Preserve every financial safeguard, headless/Ratatui operation, and Ashlan Haley Rapponotti's permanent memorial dedication across the application, README, automated checks, distributed packages, and future update packages.
 
 Release documentation uses repository-owned SVG status badges. Update release,
 offline-test and dependency-audit values from verified evidence for each release;
