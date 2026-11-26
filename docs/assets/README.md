@@ -29,3 +29,7 @@ conceptual branding, not telemetry or a measured computational result.
 Alt+1 selects the real HUNTER workspace through application input. No database,
 market snapshot, credentials or exchange connection is supplied; the empty state
 explicitly shows that no observations or scores are inferred.
+
+`oracle-validation-workspace.png` is an actual alpha.22 native eframe/glow capture.
+Application input opens ORACLE and its held-out-validation option. No candle data,
+performance results, credentials or account session is supplied.

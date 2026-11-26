@@ -52,3 +52,5 @@ pub mod wire_history;
 
 #[cfg(feature = "desktop")]
 pub mod hunter_ui;
+
+pub mod oracle_validation;

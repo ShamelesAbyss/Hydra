@@ -98,6 +98,13 @@ pub enum Command {
         #[arg(long)]
         options: Option<std::path::PathBuf>,
     },
+    /// Compare fixed-configuration held-out folds and explicit simulation costs.
+    ValidateResearch {
+        #[arg(long)]
+        candles: std::path::PathBuf,
+        #[arg(long)]
+        options: Option<std::path::PathBuf>,
+    },
     /// Run a bounded seeded momentum-parameter research search.
     Optimize {
         #[arg(long)]
@@ -192,6 +199,22 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         println!("{}", serde_json::to_string(&report)?);
         return Ok(());
     }
+    if let Command::ValidateResearch { candles, options } = &cli.cmd {
+        let cfg = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
+        let candles = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
+        let options = options
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::oracle_validation::ValidationOptions>(p))
+            .transpose()?
+            .unwrap_or_default();
+        println!(
+            "{}",
+            serde_json::to_string(&crate::oracle_validation::evaluate(
+                &cfg, &candles, &options
+            )?)?
+        );
+        return Ok(());
+    }
     if let Command::Optimize { candles, options } = &cli.cmd {
         let config = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
         let bars = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
@@ -249,7 +272,10 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
 
     match cli.cmd {
         Command::BindHistory { .. } => unreachable!("handled before configuration"),
-        Command::Hunter { .. } | Command::Backtest { .. } | Command::Optimize { .. } => {
+        Command::Hunter { .. }
+        | Command::ValidateResearch { .. }
+        | Command::Backtest { .. }
+        | Command::Optimize { .. } => {
             unreachable!("offline research handled before engine storage setup")
         }
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),

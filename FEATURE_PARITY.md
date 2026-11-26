@@ -22,7 +22,7 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 | Dynamic asset selection | Bounded research watchlist with deterministic hysteresis | Live rotation, correlation and capital budgets remain |
 | Historical data management | Polling candle snapshots only | Cache, integrity manifests, funding history pending |
 | Backtesting | Oracle deterministic single-instrument replay | Explicit costs/limits; richer execution models remain |
-| Multi-scenario simulation | Not implemented | Shared planner plus cost/latency scenarios |
+| Multi-scenario simulation | Fixed-configuration disjoint held-out windows and explicit cost scenarios | Train/select/test fitting, shared planner and latency models remain |
 | Evolutionary optimization | Genesis seeded bounded CPU search through Oracle | Resumability and out-of-sample validation remain |
 | Multi-objective optimization | Return/drawdown/fee Pareto filtering implemented | Constraint-aware NSGA-II remains planned |
 | Pareto front analysis | Actual Genesis report and native visualization | Out-of-sample verification remains |

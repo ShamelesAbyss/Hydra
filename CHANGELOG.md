@@ -1,9 +1,16 @@
-## 1.7.0-alpha.21 — balanced progression and HUNTER Radar
+## 1.7.0-alpha.22 â€” ORACLE held-out cost scenarios
+
+- Add fixed-configuration disjoint rolling validation with fresh state/capital.
+- Compare bounded fee/slippage scenarios with full fold reports and clear summaries.
+- Add wallet-independent `validate-research` and native scenario/fold workspaces.
+- Preserve original simulation limitations and all live financial safeguards.
+
+## 1.7.0-alpha.21 â€” balanced progression and HUNTER Radar
 
 - Reassess all seven original milestones in an explicit acceptance/dependency matrix.
 - Add bounded offline market eligibility, liquidity/cost ranking and watchlist hysteresis.
 - Add wallet-independent CLI and native background Radar workspace, real observation
-  plotting, filtering and Alt+1…7 subsystem navigation.
+  plotting, filtering and Alt+1â€¦7 subsystem navigation.
 - Preserve execution/financial holds, disabled live defaults and memorial distribution.
 
 # Changelog

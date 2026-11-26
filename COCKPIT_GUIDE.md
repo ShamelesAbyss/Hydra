@@ -37,3 +37,12 @@ the bounded background evaluation. Search results, inspect rejection reasons,
 filter selected members and explore actual depth/spread observations. This is
 an offline research watchlist with no trading or capital-allocation authority.
 Alt+1 through Alt+7 selects a subsystem. See [HUNTER.md](HUNTER.md).
+
+## ORACLE held-out comparison (alpha.22)
+
+Toggle **Rolling held-out / cost scenarios** in ORACLE. Supply strategy, candle
+and optional validation-options paths. The background job compares fixed parameters
+across disjoint test intervals and explicit fee/slippage scenarios. Expand each
+scenario/fold for original simulated equity and trades; copy the complete report.
+Capital resets per fold. No parameter training, automated deployment, continuous
+portfolio compounding or real performance is implied. See [BACKTESTING.md](BACKTESTING.md).

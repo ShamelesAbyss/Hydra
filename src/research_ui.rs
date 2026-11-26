@@ -15,9 +15,13 @@ use std::{
 
 enum Completed {
     Oracle(ReplayReport),
+    Validation(crate::oracle_validation::ValidationReport),
     Genesis(SearchReport),
 }
 pub struct ResearchWorkspace {
+    validation_mode: bool,
+    validation_options_path: String,
+    validation: Option<crate::oracle_validation::ValidationReport>,
     config_path: String,
     candles_path: String,
     oracle_options_path: String,
@@ -32,6 +36,9 @@ pub struct ResearchWorkspace {
 impl Default for ResearchWorkspace {
     fn default() -> Self {
         Self {
+            validation_mode: false,
+            validation_options_path: String::new(),
+            validation: None,
             config_path: "config/strategies.toml".into(),
             candles_path: String::new(),
             oracle_options_path: String::new(),
@@ -47,7 +54,7 @@ impl Default for ResearchWorkspace {
 }
 impl ResearchWorkspace {
     pub fn oracle_ready(&self) -> bool {
-        self.oracle.is_some()
+        self.oracle.is_some() || self.validation.is_some()
     }
     pub fn genesis_ready(&self) -> bool {
         self.genesis.is_some()
@@ -66,6 +73,10 @@ impl ResearchWorkspace {
         self.receiver = None;
         self.started = None;
         match result {
+            Ok(Completed::Validation(report)) => {
+                self.validation = Some(report);
+                self.error = None;
+            }
             Ok(Completed::Oracle(report)) => {
                 self.oracle = Some(report);
                 self.error = None;
@@ -86,6 +97,12 @@ impl ResearchWorkspace {
         );
         ui.label("Select a candle JSON dataset and strategy TOML. Reports use explicit execution-cost assumptions.");
         ui.add_enabled_ui(self.receiver.is_none(), |ui| {
+            if !optimizer {
+                ui.checkbox(
+                    &mut self.validation_mode,
+                    "Rolling held-out / cost scenarios",
+                );
+            }
             path(ui, "Strategy TOML", &mut self.config_path);
             path(ui, "Candles JSON", &mut self.candles_path);
             if optimizer {
@@ -99,6 +116,22 @@ impl ResearchWorkspace {
                     match serde_json::to_string_pretty(&SearchOptions::default()) {
                         Ok(json) => ui.ctx().copy_text(json),
                         Err(error) => self.error = Some(error.to_string()),
+                    }
+                }
+            } else if self.validation_mode {
+                path(
+                    ui,
+                    "Validation options JSON (optional)",
+                    &mut self.validation_options_path,
+                );
+                ui.label(
+                    "Fixed parameters; disjoint held-out windows; independent capital per fold.",
+                );
+                if ui.button("Copy default validation options JSON").clicked() {
+                    if let Ok(json) = serde_json::to_string_pretty(
+                        &crate::oracle_validation::ValidationOptions::default(),
+                    ) {
+                        ui.ctx().copy_text(json);
                     }
                 }
             } else {
@@ -118,7 +151,11 @@ impl ResearchWorkspace {
             let label = if optimizer {
                 "Run bounded optimization"
             } else {
-                "Run backtest"
+                if self.validation_mode {
+                    "Run held-out validation"
+                } else {
+                    "Run backtest"
+                }
             };
             if ui.button(label).clicked() {
                 self.start(optimizer, ui.ctx());
@@ -147,6 +184,8 @@ impl ResearchWorkspace {
         if (self.receiver.is_some() || self.error.is_some())
             && (if optimizer {
                 self.genesis.is_some()
+            } else if self.validation_mode {
+                self.validation.is_some()
             } else {
                 self.oracle.is_some()
             })
@@ -156,6 +195,10 @@ impl ResearchWorkspace {
         if optimizer {
             if let Some(report) = &self.genesis {
                 genesis_report(ui, report);
+            }
+        } else if self.validation_mode {
+            if let Some(report) = &self.validation {
+                validation_report(ui, report);
             }
         } else if let Some(report) = &self.oracle {
             oracle_report(ui, report);
@@ -171,7 +214,10 @@ impl ResearchWorkspace {
         }
         let config = self.config_path.clone();
         let candles = self.candles_path.clone();
-        let options = if optimizer {
+        let validation = !optimizer && self.validation_mode;
+        let options = if validation {
+            self.validation_options_path.clone()
+        } else if optimizer {
             self.genesis_options_path.clone()
         } else {
             self.oracle_options_path.clone()
@@ -184,7 +230,16 @@ impl ResearchWorkspace {
                 let result = (|| -> anyhow::Result<Completed> {
                     let cfg = AppConfig::load_research(&config, None)?;
                     let candles: Vec<Candle> = research::read_json(Path::new(&candles))?;
-                    if optimizer {
+                    if validation {
+                        let options = if options.trim().is_empty() {
+                            crate::oracle_validation::ValidationOptions::default()
+                        } else {
+                            research::read_json(Path::new(&options))?
+                        };
+                        Ok(Completed::Validation(crate::oracle_validation::evaluate(
+                            &cfg, &candles, &options,
+                        )?))
+                    } else if optimizer {
                         let options: SearchOptions = if options.trim().is_empty() {
                             SearchOptions::default()
                         } else {
@@ -525,4 +580,34 @@ mod tests {
         assert!(workspace.receiver.is_none());
         assert!(workspace.error.is_some());
     }
+}
+
+fn validation_report(ui: &mut egui::Ui, report: &crate::oracle_validation::ValidationReport) {
+    ui.heading("ORACLE / held-out cost scenarios");
+    ui.label(
+        "SIMULATED · fixed configuration · no fitting or automatic selection · folds reset capital",
+    );
+    ui.label(format!(
+        "{} input bars | {} unused trailing bars",
+        report.input_bar_count, report.unused_trailing_bars
+    ));
+    copy_report(ui, "Copy validation report JSON", report);
+    for limitation in &report.limitations {
+        ui.label(limitation);
+    }
+    egui::ScrollArea::vertical().id_salt("validation_scenarios").show(ui,|ui| {
+        for scenario in &report.scenarios {
+            ui.push_id(&scenario.scenario.name,|ui| {
+                let s=&scenario.summary;
+                ui.heading(&scenario.scenario.name);
+                ui.label(format!("Fee {} bps | slip {} bps | {} folds | {} trades",scenario.scenario.fee_bps,scenario.scenario.slippage_bps,s.fold_count,s.trade_count));
+                ui.label(format!("Mean fold {:.2}% | worst fold {:.2}% | worst DD {:.2}% | independent net sum {:.4}",s.mean_fold_return*100.0,s.worst_fold_return*100.0,s.worst_fold_drawdown_fraction*100.0,s.pooled_net_pnl));
+                for fold in &scenario.folds {
+                    ui.collapsing(format!("Fold {} | test [{}..{}) | {} to {} ms",fold.index+1,fold.test_start_index,fold.test_end_index_exclusive,fold.test_start_ms,fold.test_end_ms),|ui| {
+                        ui.push_id(fold.index,|ui| oracle_report(ui,&fold.replay));
+                    });
+                }
+            });
+        }
+    });
 }

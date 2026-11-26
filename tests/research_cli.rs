@@ -6,7 +6,7 @@ use std::process::Command;
 #[test]
 fn research_commands_emit_simulation_json_without_creating_live_storage() {
     let directory = tempfile::tempdir().unwrap();
-    let candles: Vec<Candle> = (0..300)
+    let candles: Vec<Candle> = (0..500)
         .map(|i| Candle {
             ts: Utc
                 .timestamp_millis_opt(1_700_000_000_000 + i * 60_000)
@@ -20,7 +20,7 @@ fn research_commands_emit_simulation_json_without_creating_live_storage() {
         .collect();
     let input = directory.path().join("synthetic-test-only.json");
     std::fs::write(&input, serde_json::to_vec(&candles).unwrap()).unwrap();
-    for command in ["backtest", "optimize"] {
+    for command in ["backtest", "optimize", "validate-research"] {
         let output = Command::new(env!("CARGO_BIN_EXE_hydra"))
             .current_dir(directory.path())
             .env("ENABLE_LIVE_TRADING", "true")

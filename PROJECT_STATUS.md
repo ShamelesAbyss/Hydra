@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.21** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.21^{commit}`.
-- Previous recovery: v1.7.0-alpha.20 (`19307270b866b02ad109ab72e15927e9760e2333`).
+- Version and current recovery tag: **v1.7.0-alpha.22** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.22^{commit}`.
+- Previous recovery: v1.7.0-alpha.21 (`51010cfe67c9e41d4e326f2b5a9c53fcca75f87e`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, next ORACLE/GENESIS validation. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
+- Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, ORACLE held-out scenarios delivered; next GENESIS resumability/OOS and FANG/COGNITION/AEGIS research. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -26,7 +26,7 @@
   Debug output redacts key material.
 - Dependency modernization: baseline 39 vulnerability entries / 20 warnings, then 19 / 17, now 0 vulnerability entries / 1 Chrono maintenance warning after native signing/parent upgrades.
 - Transactional core schema version 2; ALTER failures and critical pragmas propagate.
-- Alpha.21 source: 377 offline desktop-feature tests pass; alpha.20 contains 368.
+- Alpha.22 source verification is recorded in TEST_RESULTS.md; alpha.21 passes 377 tests.
   Release artifacts and tagged CI evidence are tracked separately.
 
 ## Important remaining limits
@@ -483,3 +483,15 @@ watchlist hysteresis, searchable eligibility reasons and depth/spread visualizat
 It cannot allocate capital or rotate live positions. No original major milestone
 is fully certified. See [MILESTONE_MATRIX.md](MILESTONE_MATRIX.md) for acceptance,
 dependencies, deferred work and the next ORACLE/GENESIS objectives.
+
+## Alpha.22 — ORACLE held-out cost scenarios
+
+Fixed-configuration rolling disjoint test intervals, bounded cost scenarios and
+native comparison panels now complement single replay. Every fold resets capital
+and strategy state and retains full simulated reports. No training/selection,
+continuous compounded portfolio return or unseen-data certification is claimed.
+The next independent cycles are recorded in MILESTONE_MATRIX.md.
+
+Alpha.21 publication verified: all four tagged jobs passed in run 45713459367;
+all five asset SHA-256 digests and download links match. Windows extracted package
+passes nine smoke checks; Linux package and memorial verified from the tagged job.

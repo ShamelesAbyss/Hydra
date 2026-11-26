@@ -1,4 +1,24 @@
-# Release verification � 1.7.0-alpha.21
+# Release verification — 1.7.0-alpha.22
+
+All **383 offline desktop-feature all-target release-version tests pass**.
+Six ORACLE validation regressions cover deterministic disjoint ranges, fresh state,
+forced fold closing, adverse costs, future-price isolation, chronology, schema and
+aggregate work/memory/call budgets. The existing real research CLI isolation test
+now includes validation without wallet initialization or live database creation.
+Formatting and Clippy complete with existing warnings. Fresh dependency audit exits
+0 with zero vulnerabilities and one existing Chrono maintenance warning, no ignores.
+Native builds and extracted package smoke are verified before publication.
+No real account probes, signed network requests, orders or transfers were used.
+
+Alpha.21 passed all four tagged CI jobs for source
+`51010cfe67c9e41d4e326f2b5a9c53fcca75f87e`:
+[Verified run](https://github.com/ShamelesAbyss/Hydra/actions/runs/45713459367).
+All five published asset digests and download links verify. Extracted Windows
+CLI/cockpit packages pass nine smoke checks; Linux comes from the verified job.
+Its memorial ships unchanged in README and project rules. Alpha.22 also corrects
+UTF-8 encoding of the preceding changelog/test-record headings.
+
+# Release verification — 1.7.0-alpha.21
 
 All **377 offline desktop-feature all-target release-version tests pass**.
 Eight HUNTER regressions cover approval/freshness/completeness, scoring independent
