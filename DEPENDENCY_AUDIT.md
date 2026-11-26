@@ -1,3 +1,9 @@
+# Alpha.23 dependency verification
+
+Fresh `cargo audit --json` exits 0: zero vulnerability entries and one existing
+Chrono maintenance warning (RUSTSEC-2026-0543). No new dependencies or ignores.
+This does not certify live readiness or a full security assessment.
+
 # Alpha.22 dependency verification
 
 Fresh `cargo audit --json` exits 0: zero vulnerability entries and one existing

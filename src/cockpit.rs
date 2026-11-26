@@ -19,13 +19,13 @@ const CYAN: Color32 = Color32::from_rgb(54, 205, 245);
 const AMBER: Color32 = Color32::from_rgb(246, 188, 83);
 const HEADS: [(&str, &str, Color32); 7] = [
     ("HUNTER", "Market eligibility & ranking", CYAN),
-    ("FANG", "Strategy signal history", AMBER),
+    ("FANG", "Planning & strategy evidence", AMBER),
     (
         "COGNITION",
-        "Learning provenance",
+        "Confidence & shadow policies",
         Color32::from_rgb(173, 133, 255),
     ),
-    ("AEGIS", "Persistent risk authority", EMERALD),
+    ("AEGIS", "Portfolio analysis & risk history", EMERALD),
     (
         "NEXUS",
         "Execution and fill evidence",
@@ -56,6 +56,7 @@ type SnapshotResponse = (PathBuf, Result<TelemetrySnapshot, String>);
 pub struct Cockpit {
     research: crate::research_ui::ResearchWorkspace,
     hunter: crate::hunter_ui::HunterWorkspace,
+    diagnostics: crate::diagnostics_ui::DiagnosticWorkspace,
     database_input: String,
     active_path: PathBuf,
     requests: SyncSender<PathBuf>,
@@ -103,6 +104,7 @@ impl Cockpit {
         let mut app = Self {
             research: crate::research_ui::ResearchWorkspace::default(),
             hunter: crate::hunter_ui::HunterWorkspace::default(),
+            diagnostics: crate::diagnostics_ui::DiagnosticWorkspace::default(),
             database_input: path.display().to_string(),
             active_path: path,
             requests,
@@ -249,6 +251,24 @@ impl Cockpit {
         ui.label(RichText::new("Viewer lifecycle is independent of the engine. Closing this window sends no stop or trading command.").small().color(MUTED));
     }
     fn body(&mut self, ui: &mut egui::Ui) {
+        if let Workspace::Head(index @ (1..=3)) = self.workspace {
+            ui.heading(RichText::new(HEADS[index].0).color(HEADS[index].2));
+            self.diagnostics.show(ui, index);
+            if let Some(data) = self.snapshot.clone() {
+                ui.collapsing("Recorded engine history",|ui| match index {
+                    1=>signals(ui,&data,&self.filter),
+                    2=>{
+                        metric(ui,"Legacy learning context records",&count_text(&data,"trade_context"),HEADS[2].2);
+                        ui.colored_label(AMBER,"Historical context may contain estimated outcomes. This viewer does not certify those outcomes or feed them into learning.");
+                        ui.label("The authoritative ledger remains separate until complete fill, fee and funding attribution is proven.");
+                        signals(ui,&data,&self.filter);
+                    },
+                    _=>risk(ui,&data),
+                });
+            }
+            return;
+        }
+
         if self.workspace == Workspace::Head(0) {
             ui.heading(RichText::new("HUNTER / MARKET RADAR").color(CYAN));
             self.hunter.show(ui);
@@ -565,6 +585,9 @@ impl Cockpit {
 
 impl eframe::App for Cockpit {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if let Some(index) = self.diagnostics.poll(ui.ctx()) {
+            self.changed_at[index] = Some(Instant::now());
+        }
         if self.hunter.poll(ui.ctx()) {
             self.changed_at[0] = Some(Instant::now());
         }

@@ -54,3 +54,11 @@ pub mod wire_history;
 pub mod hunter_ui;
 
 pub mod oracle_validation;
+
+pub mod cognition_shadow;
+pub mod fang_planner;
+pub mod portfolio_research;
+
+pub mod diagnostics;
+#[cfg(feature = "desktop")]
+pub mod diagnostics_ui;

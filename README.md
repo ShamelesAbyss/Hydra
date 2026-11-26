@@ -7,16 +7,16 @@
 **A native Rust trading engine and research command center for Hyperliquid.**<br>
 Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuous evolution.
 
-[![Release](https://img.shields.io/badge/release-v1.7.0--alpha.22-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.22) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](https://img.shields.io/badge/offline_tests-383_on_main-26D9FF?style=flat-square&labelColor=101C29)](TEST_RESULTS.md) [![Language](https://img.shields.io/badge/engine-Rust_2021-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/Cargo.toml) [![License](https://img.shields.io/badge/license-MIT-B19BFF?style=flat-square&labelColor=101C29)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.7.0--alpha.23-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.23) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](https://img.shields.io/badge/offline_tests-407_on_main-26D9FF?style=flat-square&labelColor=101C29)](TEST_RESULTS.md) [![Language](https://img.shields.io/badge/engine-Rust_2021-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/Cargo.toml) [![License](https://img.shields.io/badge/license-MIT-B19BFF?style=flat-square&labelColor=101C29)](LICENSE)
 
-[![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.22) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Alpha.22 dependency audit](https://img.shields.io/badge/alpha.22_audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/DEPENDENCY_AUDIT.md)
+[![Windows native](https://img.shields.io/badge/Windows-x64_native-48A8FF?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.23) [![Linux CLI](https://img.shields.io/badge/Linux-x64_CLI-FFCA58?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Alpha.23 dependency audit](https://img.shields.io/badge/alpha.23_audit-0_vulnerabilities_%7C_1_warning-29F0B4?style=flat-square&labelColor=101C29)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/DEPENDENCY_AUDIT.md)
 
 [**Download**](#download) · [**Cockpit**](#cockpit) · [**Seven heads**](#seven-heads) · [**Architecture**](#architecture) · [**Quick start**](#quick-start) · [**Readiness**](#readiness) · [**Roadmap**](#roadmap)
 
 </div>
 
 > [!IMPORTANT]
-> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The published alpha.22 source passes 383 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow the verified main consolidation](https://github.com/ShamelesAbyss/Hydra/actions/runs/45581670769). Alpha.22 adds native ORACLE held-out cost-scenario validation; financial settlement remains unverified. Prior releases remain available as historical checkpoints.
+> **Engineering prerelease. Live-trading readiness is incomplete.** Exchange integration exists and live execution defaults disabled. Unresolved orders and unknown net settlement block new exposure. The published alpha.23 source passes 407 offline tests and a dependency audit with zero vulnerability entries and one maintenance warning. [Follow the verified main consolidation](https://github.com/ShamelesAbyss/Hydra/actions/runs/45581670769). Alpha.23 adds native FANG, COGNITION and AEGIS research diagnostics; financial settlement remains unverified. Prior releases remain available as historical checkpoints.
 
 ## Project Leviathan
 
@@ -33,7 +33,7 @@ The native cockpit makes that evidence visible. Oracle replays historical candle
 | Track | What it contains | Where to go |
 | :--- | :--- | :--- |
 | **Authoritative main** | Authoritative Project Leviathan codebase and continuing development | [Browse main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
-| **Downloadable prerelease** | **1.7.0-alpha.22**, native cockpit/research, exact execution evidence and independent risk; 383 offline tests | [Release and checksums](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.22) |
+| **Downloadable prerelease** | **1.7.0-alpha.23**, native cockpit/research, exact execution evidence and independent risk; 407 offline tests | [Release and checksums](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.23) |
 | **Development on main** | Consistent local intent evidence; conservative recovery and settlement and financial settlement continue | [Authoritative main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
 
 Project Leviathan is Hydra. `main` contains the authoritative implementation and all continuing development. The [retired 1.6.2 archive](https://github.com/ShamelesAbyss/Hydra/tree/archive/dead-code-hydra-1.6.2) exists only for historical preservation and must not be used for live trading. Promotion to main does not establish stable-live readiness.
@@ -54,7 +54,7 @@ The obsidian interface uses cyan, amber, violet, emerald, blue, rose and orchid 
 | **Terminal dashboard** | Ratatui monitoring with bounded buffers, alongside headless operation |
 | **CLI** | Engine commands, configuration checks, local initialization, read-only telemetry, historical research and ledger ingestion |
 
-The cockpit runs independently of the trading engine. Closing its window sends no trading or stop command. First-launch history initialization is an explicit local action that preserves existing files. [Cockpit guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/COCKPIT_GUIDE.md).
+The cockpit runs independently of the trading engine. Closing its window sends no trading or stop command. First-launch history initialization is an explicit local action that preserves existing files. [Cockpit guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/COCKPIT_GUIDE.md).
 
 <a id="seven-heads"></a>
 ## Seven heads. Distinct responsibilities.
@@ -79,12 +79,20 @@ These are logical subsystem boundaries in an evolving Rust application. They are
 <a id="fang"></a>
 <img src="docs/assets/head-fang.svg" width="100%" alt="02 FANG — Strategy and intent" />
 
+**Planning foundation:** offline deterministic arbitration now applies approval, ownership and exact external notional budgets, with explicit rejection reasons. A basic EMA Anchor research kernel supplies bounded price-only suggestions. Neither is integrated into live/replay orchestration; no Passivbot parity or grid execution is claimed. [Analytics guide](ANALYTICS.md).
+
 **Turn context into a candidate.** Existing divergence, momentum/breakout and mean-reversion strategies produce signals and order intents. Oracle uses the existing strategy factory for deterministic candle evaluation.
 
 **Next:** a shared deterministic live/research planner, explicit multi-strategy ownership and bounded grid planning. Grid parity, Auto-Unstuck and Martingale systems are not implemented.
 
 <a id="cognition"></a>
 <img src="docs/assets/head-cognition.svg" width="100%" alt="03 COGNITION — Adaptive context" />
+
+<img src="docs/assets/cognition-synthetic-workspace.png" width="100%" alt="Actual alpha.23 native COGNITION chart using an explicitly simulated synthetic rendering fixture" />
+
+*Actual alpha.23 native rendering of the [synthetic UI fixture](docs/assets/cognition-synthetic-render-fixture.json), labelled Simulated. Values demonstrate the renderer only; they are not market observations, live returns, benchmarks or profitability evidence.*
+
+**New offline diagnostics:** source-separated strategy/regime attribution, recency-weighted statistics, effective sample counts and strictly prior-outcome shadow-policy comparisons. Approximate intervals are descriptive; verified-net claims are rejected, and no live learning policy changes. [Method and limitations](ANALYTICS.md#cognition--strict-prior-outcome-shadow-evaluation).
 
 **Remember with provenance.** Rolling expectancy, historical similarity, multi-timeframe regime context, adaptive strictness and bounded exploration exist. Unknown net outcomes from new reductions are excluded from learning and compounding.
 
@@ -94,6 +102,8 @@ These are logical subsystem boundaries in an evolving Rust application. They are
 
 <a id="aegis"></a>
 <img src="docs/assets/head-aegis.svg" width="100%" alt="04 AEGIS — Persistent risk authority" />
+
+**New portfolio workspace:** checked Decimal exposures, explicit unknowns, concentration/budget analysis and timestamp-aligned historical correlations. Caller data is unverified; this research report cannot release holds or override persistent AEGIS. [Analytics guide](ANALYTICS.md#aegis--portfolio-concentration-and-historical-correlation).
 
 **Protect the boundary.** Persistent equity peaks, drawdown latches, explicit audited rearm, immutable risk policies and transactional exposure reservations include pending exposure. Reservations do not expire automatically. Entry checks require fresh account evidence.
 
@@ -127,7 +137,7 @@ Exact native acknowledgments are checked against retained action quantity, preci
 
 *Oracle input workspace before loading a dataset. [Full unedited capture](docs/assets/oracle-workspace.png). No simulation result is implied.*
 
-**Model limits:** full fills and fixed costs; no funding, order-book queues, partial fills, liquidation, adaptive learning, trailing/time-stop parity or portfolio margin. [Simulation contract](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/BACKTESTING.md).
+**Model limits:** full fills and fixed costs; no funding, order-book queues, partial fills, liquidation, adaptive learning, trailing/time-stop parity or portfolio margin. [Simulation contract](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/BACKTESTING.md).
 
 
 <img src="docs/assets/oracle-validation-workspace.png" width="100%" alt="Actual alpha.22 native ORACLE held-out validation controls before dataset input" />
@@ -141,7 +151,7 @@ Exact native acknowledgments are checked against retained action quantity, preci
 
 **Search, measure, propose.** Seeded CPU search evaluates momentum parameters through Oracle, using mutation, crossover, deduplication and Pareto filtering over return, drawdown and fee burden. Evaluation and work budgets are enforced. Reports preserve the algorithm identity and inputs.
 
-**Next:** resumable checkpoints, out-of-sample evaluation, richer scenarios and constrained search. This is not NSGA-II, GPU optimization or automatic live deployment. [Optimization contract](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/OPTIMIZATION.md).
+**Next:** resumable checkpoints, out-of-sample evaluation, richer scenarios and constrained search. This is not NSGA-II, GPU optimization or automatic live deployment. [Optimization contract](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/OPTIMIZATION.md).
 
 <a id="architecture"></a>
 ## Anatomy of the engine
@@ -162,19 +172,19 @@ The native client reads consistent local snapshots; the headless engine owns sig
 | **Protective exits** | One instrument's close failure does not starve later instruments |
 | **Restart context** | At `a941c68`, original risk/context survives; legacy unknowns are preserved |
 
-[Architecture notes](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/ARCHITECTURE.md) · [Hyperliquid boundary](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/HYPERLIQUID_INTEGRATION.md) · [Risk authority](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/RISK_MANAGEMENT.md)
+[Architecture notes](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/ARCHITECTURE.md) · [Hyperliquid boundary](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/HYPERLIQUID_INTEGRATION.md) · [Risk authority](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/RISK_MANAGEMENT.md)
 
 <a id="download"></a>
 ## Download a verified checkpoint
 
 | Artifact | Release | Contents / verification |
 | :--- | :--- | :--- |
-| [**Windows x86_64 portable ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.22/hydra-1.7.0-alpha.22-x86_64-pc-windows-msvc.zip) | **alpha.22** | `hydra.exe` + `hydra-cockpit.exe`, config and guides; locally built and smoke checked |
-| [**Source ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.22/hydra-1.7.0-alpha.22-source.zip) | **alpha.22** | Exact release source export; excludes inherited legacy binaries |
-| [**SHA-256 manifest**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.22/hydra-1.7.0-alpha.22-SHA256SUMS.txt) | **alpha.22** | Verify the archive hash before extraction |
-| [**Linux x86_64 headless tar.gz**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.22/hydra-1.7.0-alpha.22-x86_64-unknown-linux-gnu.tar.gz) | **alpha.22** | Verified CI executable plus exact-tag guides/assets; [Linux SHA-256 manifest](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.22/hydra-1.7.0-alpha.22-linux-SHA256SUMS.txt) |
+| [**Windows x86_64 portable ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.23/hydra-1.7.0-alpha.23-x86_64-pc-windows-msvc.zip) | **alpha.23** | `hydra.exe` + `hydra-cockpit.exe`, config and guides; locally built and smoke checked |
+| [**Source ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.23/hydra-1.7.0-alpha.23-source.zip) | **alpha.23** | Exact release source export; excludes inherited legacy binaries |
+| [**SHA-256 manifest**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.23/hydra-1.7.0-alpha.23-SHA256SUMS.txt) | **alpha.23** | Verify the archive hash before extraction |
+| [**Linux x86_64 headless tar.gz**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.23/hydra-1.7.0-alpha.23-x86_64-unknown-linux-gnu.tar.gz) | **alpha.23** | Verified CI executable plus exact-tag guides/assets; [Linux SHA-256 manifest](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.23/hydra-1.7.0-alpha.23-linux-SHA256SUMS.txt) |
 
-**Dependency fix delivery:** alpha.22 retains the remediated graph. Older alpha.4 assets retain their original dependencies and are preserved as historical downloads.
+**Dependency fix delivery:** alpha.23 retains the remediated graph. Older alpha.4 assets retain their original dependencies and are preserved as historical downloads.
 
 Windows executables are **unsigned**. There is no installer or code-signing claim. macOS and Linux native-desktop distribution are not currently verified. Release artifacts and source history are retained; newer branch changes are not silently substituted into a published ZIP.
 
@@ -207,9 +217,9 @@ For a local empty history and read-only snapshot, without credentials or exchang
 From the download directory, verify the Linux manifest and extract into an empty folder:
 
 ```sh
-sha256sum --check hydra-1.7.0-alpha.22-linux-SHA256SUMS.txt
+sha256sum --check hydra-1.7.0-alpha.23-linux-SHA256SUMS.txt
 mkdir hydra-alpha14
-tar -xzf hydra-1.7.0-alpha.22-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha14
+tar -xzf hydra-1.7.0-alpha.23-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha14
 cd hydra-alpha14
 ./hydra --version
 ./hydra --no-banner config-check
@@ -231,11 +241,11 @@ cargo fmt --check
 cargo clippy --locked --features desktop --all-targets
 ```
 
-For exactly the packaged release, run `git checkout v1.7.0-alpha.22` before building. Main continues to evolve.
+For exactly the packaged release, run `git checkout v1.7.0-alpha.23` before building. Main continues to evolve.
 
 ### Configuration
 
-Strategy TOML lives in [`config/strategies.toml`](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/config/strategies.toml). Environment settings are documented in [`.env.example`](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/.env.example). Keep secrets outside version control.
+Strategy TOML lives in [`config/strategies.toml`](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/config/strategies.toml). Environment settings are documented in [`.env.example`](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/.env.example). Keep secrets outside version control.
 
 ```dotenv
 ENABLE_LIVE_TRADING=false
@@ -262,7 +272,7 @@ Inspect retained local lifecycle observations without exchange access:
 
 Replace the placeholder with a known canonical intent UUID. `wire-history` now emits protocol **2**, including retained preparation metadata when available; `status-history` remains protocol 1. The new `intent-evidence` protocol 1 report groups both histories and exact native quantity in one read-only transaction, with explicit availability and no repair authority. The immutable preparation phase describes its capture event, not the current order state. These commands need an existing bound history. It reports local records, unavailable tables and capping explicitly; it does not query the venue or prove complete exchange history.
 
-Account-bound commands require explicit identity and additional checks. Read [the integration guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/HYPERLIQUID_INTEGRATION.md) before considering account access. This README does not establish live readiness.
+Account-bound commands require explicit identity and additional checks. Read [the integration guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/HYPERLIQUID_INTEGRATION.md) before considering account access. This README does not establish live readiness.
 
 ### Research without an engine session
 
@@ -271,15 +281,15 @@ Account-bound commands require explicit identity and additional checks. Read [th
 .\hydra.exe --config config/strategies.toml optimize --candles historical-candles.json
 ```
 
-Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `low`, `close` and `volume`. Inputs are bounded to 32 MiB. Use sufficient warmup history; the default replay warmup is 240 bars. Add `--options path/to/options.json` for explicit settings. The GUI provides default-options JSON for copying. [Oracle guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/BACKTESTING.md) · [Genesis guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/OPTIMIZATION.md).
+Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `low`, `close` and `volume`. Inputs are bounded to 32 MiB. Use sufficient warmup history; the default replay warmup is 240 bars. Add `--options path/to/options.json` for explicit settings. The GUI provides default-options JSON for copying. [Oracle guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/BACKTESTING.md) · [Genesis guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/OPTIMIZATION.md).
 
 <a id="readiness"></a>
 ## Verification, security and live readiness
 
 | Evidence | Verified state |
 | :--- | :--- |
-| **Local test suite** | Main: **383 offline desktop-feature tests**; published alpha.22: 383. [Current test evidence](TEST_RESULTS.md) |
-| **GitHub builds** | Alpha.22 [passed all four tagged jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45708423982): Linux, Windows, native desktop and audit |
+| **Local test suite** | Main: **407 offline desktop-feature tests**; published alpha.23: 407. [Current test evidence](TEST_RESULTS.md) |
+| **GitHub builds** | Alpha.23 [passed all four tagged jobs](https://github.com/ShamelesAbyss/Hydra/actions/runs/45708423982): Linux, Windows, native desktop and audit |
 | **Formatting / Clippy** | Passed locally; Clippy retains style warnings |
 | **Signing references** | Eight offline cross-language fixtures against published official Python SDK constants |
 | **Dependency audit** | **Source checkpoint passes**: 0 vulnerability entries, 1 Chrono maintenance warning; no advisory ignores. Alpha.7 retains the remediated dependency graph |
@@ -289,7 +299,7 @@ Candle input is an ordered JSON array containing RFC3339 `ts`, `open`, `high`, `
 
 Build success and security-audit success are separate checks. The workflow badge above shows the current aggregate result. The former failing audit remains remediated; older downloads remain unchanged. A passing test suite is evidence about tested contracts, not a trading recommendation.
 
-Open readiness work includes complete trade settlement, broader recovery, risk-reservation reconciliation, legacy learning provenance and Chrono modernization. Legacy history is preserved without retroactive accuracy certification. [Test evidence](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/TEST_RESULTS.md) · [Dependency inventory](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/DEPENDENCY_AUDIT.md) · [Engineering audit](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/HYDRA_AUDIT.md).
+Open readiness work includes complete trade settlement, broader recovery, risk-reservation reconciliation, legacy learning provenance and Chrono modernization. Legacy history is preserved without retroactive accuracy certification. [Test evidence](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/TEST_RESULTS.md) · [Dependency inventory](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/DEPENDENCY_AUDIT.md) · [Engineering audit](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/HYDRA_AUDIT.md).
 
 <a id="roadmap"></a>
 ## Continuous evolution
@@ -306,20 +316,21 @@ Open readiness work includes complete trade settlement, broader recovery, risk-r
 | **08 / Research depth** | Planned | Out-of-sample testing, resumable optimization, multi-scenario/portfolio models |
 | **09 / Operational certification** | Planned | Verified complete recovery, financial/security review and distribution hardening |
 
-All seven original major milestones remain partial; their acceptance, verified capabilities, blockers and deferred work are tracked in the [milestone matrix](MILESTONE_MATRIX.md). Unimplemented capabilities remain visible in the [capability ledger](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/FEATURE_PARITY.md) and [implementation plan](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/IMPLEMENTATION_PLAN.md). GPU research, NSGA-II and automatic candidate deployment are not part of the current executable contract.
+All seven original major milestones remain partial; their acceptance, verified capabilities, blockers and deferred work are tracked in the [milestone matrix](MILESTONE_MATRIX.md). Unimplemented capabilities remain visible in the [capability ledger](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/FEATURE_PARITY.md) and [implementation plan](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/IMPLEMENTATION_PLAN.md). GPU research, NSGA-II and automatic candidate deployment are not part of the current executable contract.
 
 ## Engineering atlas
 
 | Build and operate | Understand and extend |
 | :--- | :--- |
-| [Project status](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/PROJECT_STATUS.md) | [Architecture](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/ARCHITECTURE.md) |
-| [Cockpit guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/COCKPIT_GUIDE.md) | [Implementation plan](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/IMPLEMENTATION_PLAN.md) |
-| [Hyperliquid integration](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/HYPERLIQUID_INTEGRATION.md) | [Capability ledger](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/FEATURE_PARITY.md) |
-| [Risk management](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/RISK_MANAGEMENT.md) | [Passivbot research](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/PASSIVBOT_AUDIT.md) |
-| [Test results](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/TEST_RESULTS.md) | [Oracle simulation](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/BACKTESTING.md) |
-| [Dependency audit](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/DEPENDENCY_AUDIT.md) | [Genesis optimization](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/OPTIMIZATION.md) |
+| [Project status](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/PROJECT_STATUS.md) | [Architecture](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/ARCHITECTURE.md) |
+| [Cockpit guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/COCKPIT_GUIDE.md) | [Implementation plan](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/IMPLEMENTATION_PLAN.md) |
+| [Hyperliquid integration](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/HYPERLIQUID_INTEGRATION.md) | [Capability ledger](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/FEATURE_PARITY.md) |
+| [Risk management](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/RISK_MANAGEMENT.md) | [Passivbot research](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/PASSIVBOT_AUDIT.md) |
+| [Test results](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/TEST_RESULTS.md) | [Oracle simulation](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/BACKTESTING.md) |
+| [Dependency audit](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/DEPENDENCY_AUDIT.md) | [Genesis optimization](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/OPTIMIZATION.md) |
+| [Offline analytics](ANALYTICS.md) | [Research methods](BACKTESTING.md) |
 | [Milestone acceptance matrix](MILESTONE_MATRIX.md) | [HUNTER radar](HUNTER.md) |
-| [Release notes](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.22/RELEASE_NOTES.md) | [MIT license](LICENSE) |
+| [Release notes](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.23/RELEASE_NOTES.md) | [MIT license](LICENSE) |
 
 Supporting documents are linked to the inspected development checkpoint so they resolve from the default branch. The architecture, capability ledger and verification evidence have been refreshed from the inspected implementation. Historical milestone records remain explicitly dated.
 

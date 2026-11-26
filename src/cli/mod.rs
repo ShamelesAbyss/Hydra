@@ -86,6 +86,13 @@ pub enum Command {
         #[arg(long)]
         adopt_existing_history: bool,
     },
+    /// Run offline FANG, EMA Anchor, COGNITION or AEGIS diagnostics.
+    Diagnose {
+        #[arg(long, value_enum)]
+        kind: crate::diagnostics::DiagnosticKind,
+        #[arg(long)]
+        snapshot: std::path::PathBuf,
+    },
     /// Rank an offline approved-market snapshot without engine or wallet access.
     Hunter {
         #[arg(long)]
@@ -166,6 +173,13 @@ pub enum Command {
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
+    if let Command::Diagnose { kind, snapshot } = &cli.cmd {
+        println!(
+            "{}",
+            serde_json::to_string(&crate::diagnostics::evaluate(*kind, snapshot)?)?
+        );
+        return Ok(());
+    }
     if let Command::Hunter { snapshot } = &cli.cmd {
         let request = crate::research::read_json::<crate::hunter::HunterRequest>(snapshot)?;
         println!(
@@ -272,7 +286,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
 
     match cli.cmd {
         Command::BindHistory { .. } => unreachable!("handled before configuration"),
-        Command::Hunter { .. }
+        Command::Diagnose { .. }
+        | Command::Hunter { .. }
         | Command::ValidateResearch { .. }
         | Command::Backtest { .. }
         | Command::Optimize { .. } => {

@@ -46,3 +46,14 @@ across disjoint test intervals and explicit fee/slippage scenarios. Expand each
 scenario/fold for original simulated equity and trades; copy the complete report.
 Capital resets per fold. No parameter training, automated deployment, continuous
 portfolio compounding or real performance is implied. See [BACKTESTING.md](BACKTESTING.md).
+
+## FANG / COGNITION / AEGIS diagnostics (alpha.23)
+
+Alt+2/3/4 opens typed offline analytical workspaces independently of engine history.
+Copy an empty template, supply a local JSON path and evaluate off the render thread.
+FANG shows selections/rejection explanations and notional proportions; its EMA mode
+shows actual completed-bar bands and bounded price-only suggestions. COGNITION shows
+prior-outcome shadow comparisons and actual approximate confidence intervals. AEGIS
+shows exposure, breaches/unknowns and aligned historical pair correlations. Recorded
+engine history remains under a separate collapsing panel. No controller writes,
+authorization or live-risk changes are available. See ANALYTICS.md.

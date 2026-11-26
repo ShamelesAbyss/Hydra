@@ -2,9 +2,9 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.22** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.22^{commit}`.
-- Previous recovery: v1.7.0-alpha.21 (`51010cfe67c9e41d4e326f2b5a9c53fcca75f87e`).
+- Version and current recovery tag: **v1.7.0-alpha.23** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.23^{commit}`.
+- Previous recovery: v1.7.0-alpha.22 (`2b0d8cb947bf54e4afa6a50ead986d3669437299`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
 - Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, ORACLE held-out scenarios delivered; next GENESIS resumability/OOS and FANG/COGNITION/AEGIS research. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
@@ -495,3 +495,15 @@ The next independent cycles are recorded in MILESTONE_MATRIX.md.
 Alpha.21 publication verified: all four tagged jobs passed in run 45713459367;
 all five asset SHA-256 digests and download links match. Windows extracted package
 passes nine smoke checks; Linux package and memorial verified from the tagged job.
+
+## Alpha.23 — balanced planning / confidence / portfolio research
+
+Pure FANG arbitration/basic EMA Anchor, COGNITION strictly historical shadow-policy
+analysis and AEGIS portfolio concentration/correlation diagnostics are available
+through offline CLI and native workspaces. They cannot authorize execution, certify
+financial evidence, update live learning or release risk holds. Existing recorded
+engine-history surfaces are retained. See ANALYTICS.md and MILESTONE_MATRIX.md.
+
+Alpha.22 passed all four tagged jobs in run 45738692751. All five published asset
+digests/download links verify; extracted Windows packages pass ten smoke checks.
+Linux bytes, checksum and exact memorial are verified against the tagged job.

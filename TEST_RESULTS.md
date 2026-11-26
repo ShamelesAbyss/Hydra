@@ -1,3 +1,22 @@
+# Release verification — 1.7.0-alpha.23
+
+All **407 offline desktop-feature all-target release-version tests pass**.
+Twenty-two new core tests cover FANG determinism/ownership/exact budgets/precision
+and EMA bounds; COGNITION sparse/recency/source-separated strict historical shadow
+statistics; AEGIS exact exposure/unknown identity/budgets/correlation/resource limits.
+Two integration tests verify diagnostics bypass missing engine configuration and an
+invalid key without creating storage, and empty EMA input never invents a price.
+Formatting and Clippy complete with existing warnings. Fresh dependency audit exits
+0 with zero vulnerabilities and one existing Chrono maintenance warning, no ignores.
+Native builds and extracted portable smoke are verified before publication.
+No real-account requests, signed network calls, orders or transfers were used.
+
+Alpha.22 passed all four tagged jobs for source
+`2b0d8cb947bf54e4afa6a50ead986d3669437299`:
+[Verified CI](https://github.com/ShamelesAbyss/Hydra/actions/runs/45738692751).
+All five asset digests/download links match. Extracted Windows packages pass ten
+smoke checks; Linux bytes/checksum/memorial are verified from the tagged job.
+
 # Release verification — 1.7.0-alpha.22
 
 All **383 offline desktop-feature all-target release-version tests pass**.

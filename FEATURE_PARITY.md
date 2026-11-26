@@ -6,9 +6,9 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 | Requested upstream capability | Hydra equivalent/status | Validation or next work |
 |---|---|---|
 | Rust strategy engine | Existing divergence/momentum/mean reversion | Existing indicator/learning tests preserved |
-| Deterministic orchestration | Intent boundary added; planner not extracted | Shared live/simulation planner pending |
+| Deterministic orchestration | Pure research arbitration with exact external budgets/ownership | Live/replay orchestration integration pending |
 | Hyperliquid execution | Existing mainnet adapter, journal/typed response improvements | Offline faults; comprehensive reconciliation pending |
-| EMA Anchor | Not integrated | Port kernel with stable/development fixture comparison |
+| EMA Anchor | Basic Hydra-owned offline EMA-band kernel | Not a Passivbot port/parity; live/adaptive integration pending |
 | Trailing Martingale | Not integrated | Hard exposure budget required; no unbounded doubling |
 | Trailing grids | Not integrated | Planner and trailing-state persistence first |
 | Dynamic entry grids | Not integrated | Metadata and exposure-aware order planning |
@@ -53,3 +53,7 @@ Alpha.18 integrates the durable coordinator into all native IOC sender calls and
 Alpha.19 adds protocol-2 read-only signing-preparation inspection and shared native-fact validation. Preparation remains local metadata without signature, submission, acceptance or financial-settlement proof.
 
 Alpha.20 adds one-snapshot inspection-only `intent-evidence` and bounds native fact/schema reads. Recovery classification, automatic repair, complete signed-envelope proof and net settlement remain open.
+
+Alpha.23 adds native FANG planning/EMA, COGNITION strict historical shadow analytics
+and AEGIS offline portfolio/correlation diagnostics. These do not change live
+strategy orchestration, risk authority or financial settlement. See ANALYTICS.md.

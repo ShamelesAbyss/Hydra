@@ -1,3 +1,11 @@
+## 1.7.0-alpha.23 — FANG / COGNITION / AEGIS research workspaces
+
+- Add pure deterministic planning/EMA research, strict prior-outcome confidence and
+  shadow attribution, and checked Decimal portfolio/correlation diagnostics.
+- Add typed offline CLI and genuine native analytical panels; preserve engine history.
+- Refuse planning-budget precision loss and unverified financial-evidence claims.
+- Preserve all live controls, risk holds, disabled defaults and permanent memorial.
+
 ## 1.7.0-alpha.22 — ORACLE held-out cost scenarios
 
 - Add fixed-configuration disjoint rolling validation with fresh state/capital.

@@ -1,0 +1,613 @@
+{
+  "as_of_ms": 1000000,
+  "policy": {
+    "lookback_ms": 2592000000,
+    "half_life_ms": 604800000,
+    "min_samples": 30,
+    "min_effective_samples": 20.0,
+    "min_lower_bound_r": 0.0,
+    "uncertainty_multiplier": 1.96
+  },
+  "samples": [
+    {
+      "id": "synthetic-000",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 0,
+      "outcome_at_ms": 5000,
+      "normalized_r": 0.1,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-001",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 10000,
+      "outcome_at_ms": 15000,
+      "normalized_r": 0.436588,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-002",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 20000,
+      "outcome_at_ms": 25000,
+      "normalized_r": 0.463719,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-003",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 30000,
+      "outcome_at_ms": 35000,
+      "normalized_r": 0.156448,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-004",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 40000,
+      "outcome_at_ms": 45000,
+      "normalized_r": -0.202721,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-005",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 50000,
+      "outcome_at_ms": 55000,
+      "normalized_r": -0.28357,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-006",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 60000,
+      "outcome_at_ms": 65000,
+      "normalized_r": -0.011766,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-007",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 70000,
+      "outcome_at_ms": 75000,
+      "normalized_r": 0.362795,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-008",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 80000,
+      "outcome_at_ms": 85000,
+      "normalized_r": 0.495743,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-009",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 90000,
+      "outcome_at_ms": 95000,
+      "normalized_r": 0.264847,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-010",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 100000,
+      "outcome_at_ms": 105000,
+      "normalized_r": -0.117608,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-011",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 110000,
+      "outcome_at_ms": 115000,
+      "normalized_r": -0.299996,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-012",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 120000,
+      "outcome_at_ms": 125000,
+      "normalized_r": -0.114629,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-013",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 130000,
+      "outcome_at_ms": 135000,
+      "normalized_r": 0.268067,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-014",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 140000,
+      "outcome_at_ms": 145000,
+      "normalized_r": 0.496243,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-015",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 150000,
+      "outcome_at_ms": 155000,
+      "normalized_r": 0.360115,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-016",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 160000,
+      "outcome_at_ms": 165000,
+      "normalized_r": -0.015161,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-017",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 170000,
+      "outcome_at_ms": 175000,
+      "normalized_r": -0.284559,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-018",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 180000,
+      "outcome_at_ms": 185000,
+      "normalized_r": -0.200395,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-019",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 190000,
+      "outcome_at_ms": 195000,
+      "normalized_r": 0.159951,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-020",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 200000,
+      "outcome_at_ms": 205000,
+      "normalized_r": 0.465178,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-021",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 210000,
+      "outcome_at_ms": 215000,
+      "normalized_r": 0.434662,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-022",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 220000,
+      "outcome_at_ms": 225000,
+      "normalized_r": 0.096459,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-023",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 230000,
+      "outcome_at_ms": 235000,
+      "normalized_r": -0.238488,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-024",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 240000,
+      "outcome_at_ms": 245000,
+      "normalized_r": -0.262231,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-025",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 250000,
+      "outcome_at_ms": 255000,
+      "normalized_r": 0.047059,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-026",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 260000,
+      "outcome_at_ms": 265000,
+      "normalized_r": 0.405023,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-027",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 270000,
+      "outcome_at_ms": 275000,
+      "normalized_r": 0.48255,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-028",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 280000,
+      "outcome_at_ms": 285000,
+      "normalized_r": 0.208362,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-029",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 290000,
+      "outcome_at_ms": 295000,
+      "normalized_r": -0.165454,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-030",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 300000,
+      "outcome_at_ms": 305000,
+      "normalized_r": -0.295213,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-031",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 310000,
+      "outcome_at_ms": 315000,
+      "normalized_r": -0.061615,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-032",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 320000,
+      "outcome_at_ms": 325000,
+      "normalized_r": 0.320571,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-033",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 330000,
+      "outcome_at_ms": 335000,
+      "normalized_r": 0.499965,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-034",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 340000,
+      "outcome_at_ms": 345000,
+      "normalized_r": 0.311633,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-035",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 350000,
+      "outcome_at_ms": 355000,
+      "normalized_r": -0.071273,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-036",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 360000,
+      "outcome_at_ms": 365000,
+      "normalized_r": -0.296712,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-037",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 370000,
+      "outcome_at_ms": 375000,
+      "normalized_r": -0.157415,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-038",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 380000,
+      "outcome_at_ms": 385000,
+      "normalized_r": 0.218547,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-039",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 390000,
+      "outcome_at_ms": 395000,
+      "normalized_r": 0.485518,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-040",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 400000,
+      "outcome_at_ms": 405000,
+      "normalized_r": 0.398045,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-041",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 410000,
+      "outcome_at_ms": 415000,
+      "normalized_r": 0.036551,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-042",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 420000,
+      "outcome_at_ms": 425000,
+      "normalized_r": -0.266609,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-043",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 430000,
+      "outcome_at_ms": 435000,
+      "normalized_r": -0.23271,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-044",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 440000,
+      "outcome_at_ms": 445000,
+      "normalized_r": 0.107081,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-045",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 450000,
+      "outcome_at_ms": 455000,
+      "normalized_r": 0.440361,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-046",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 460000,
+      "outcome_at_ms": 465000,
+      "normalized_r": 0.460715,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-047",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 470000,
+      "outcome_at_ms": 475000,
+      "normalized_r": 0.149429,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-048",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 480000,
+      "outcome_at_ms": 485000,
+      "normalized_r": -0.207302,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-049",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 490000,
+      "outcome_at_ms": 495000,
+      "normalized_r": -0.281501,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-050",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 500000,
+      "outcome_at_ms": 505000,
+      "normalized_r": -0.00495,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-051",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 510000,
+      "outcome_at_ms": 515000,
+      "normalized_r": 0.368092,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-052",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 520000,
+      "outcome_at_ms": 525000,
+      "normalized_r": 0.494651,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-053",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 530000,
+      "outcome_at_ms": 535000,
+      "normalized_r": 0.25837,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-054",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 540000,
+      "outcome_at_ms": 545000,
+      "normalized_r": -0.123516,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-055",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 550000,
+      "outcome_at_ms": 555000,
+      "normalized_r": -0.299902,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-056",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 560000,
+      "outcome_at_ms": 565000,
+      "normalized_r": -0.10862,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-057",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 570000,
+      "outcome_at_ms": 575000,
+      "normalized_r": 0.274466,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-058",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 580000,
+      "outcome_at_ms": 585000,
+      "normalized_r": 0.497149,
+      "source": "simulated"
+    },
+    {
+      "id": "synthetic-059",
+      "strategy": "synthetic-render-fixture",
+      "symbol": "FIXTURE",
+      "regime": "caller-labelled-example",
+      "decision_at_ms": 590000,
+      "outcome_at_ms": 595000,
+      "normalized_r": 0.354695,
+      "source": "simulated"
+    }
+  ]
+}

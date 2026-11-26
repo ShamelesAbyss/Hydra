@@ -33,3 +33,14 @@ explicitly shows that no observations or scores are inferred.
 `oracle-validation-workspace.png` is an actual alpha.22 native eframe/glow capture.
 Application input opens ORACLE and its held-out-validation option. No candle data,
 performance results, credentials or account session is supplied.
+
+`cognition-workspace.png` is the actual alpha.23 native eframe/glow framebuffer.
+Alt+3 selects COGNITION through application input. No dataset, account session or
+outcome report is loaded; no statistics or trading performance are fabricated.
+
+`cognition-synthetic-workspace.png` is an actual alpha.23 native capture after real
+application input loads `cognition-synthetic-render-fixture.json` and evaluates it.
+The 60 deterministic, explicitly simulated synthetic outcomes test interval/shadow
+rendering only. They are not market data, performance, a benchmark or a profitability
+claim. No account/credentials/exchange session is involved. The empty capture is
+retained separately; all chart values are computed by the actual research kernel.
