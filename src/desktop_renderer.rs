@@ -79,7 +79,7 @@ pub fn native_options(
     attempts(backend)?;
     let viewport = egui::ViewportBuilder::default()
         .with_title("HYDRA — PROJECT LEVIATHAN")
-        .with_inner_size([2400.0, 1320.0])
+        .with_inner_size([1600.0, 960.0])
         .with_min_inner_size([960.0, 640.0])
         .with_resizable(true)
         .with_decorations(!borderless)
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn root_window_configuration_supports_modes_and_minimum_geometry() {
         let normal = native_options(Backend::Glow, false, false).unwrap();
-        assert_eq!(normal.viewport.inner_size, Some(egui::vec2(2400.0, 1320.0)));
+        assert_eq!(normal.viewport.inner_size, Some(egui::vec2(1600.0, 960.0)));
         assert_eq!(
             normal.viewport.min_inner_size,
             Some(egui::vec2(960.0, 640.0))

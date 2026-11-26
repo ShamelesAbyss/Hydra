@@ -33,26 +33,23 @@ independent acceptance work elsewhere over nonblocking refinements. Preserve eve
 financial safeguard; defer live certification rather than blocking offline research
 or read-only cockpit work. Never put material after the README memorial.
 
-## Permanent Release Publication Protocol (Mandatory)
+## Permanent Definition of Done & Release Publication Protocol (Mandatory)
 
-Every coherent, verified implementation milestone MUST produce all 14 deliverables:
+A completed Project Leviathan development milestone is NEVER complete until ordinary users can actually download, double-click, and use the application from GitHub Releases. Every coherent, verified implementation milestone MUST produce ALL of the following:
 
-1. An incremented application version in `Cargo.toml`.
-2. Updated `CHANGELOG.md`.
-3. Updated `RELEASE_NOTES.md`.
-4. Updated `PROJECT_STATUS.md`.
-5. Updated `TEST_RESULTS.md`.
-6. Updated `MILESTONE_MATRIX.md`.
-7. Updated `README.md` version badges and GitHub Release download links (preserving the exact verbatim final memorial).
-8. A committed and pushed `main` branch.
-9. A corresponding exact Git tag (`v<version>`).
-10. Passing exact-tag GitHub Actions verification (`desktop`, `build` Windows/Linux, `audit`).
-11. A visible GitHub Release at `https://github.com/ShamelesAbyss/Hydra/releases`.
-12. Downloadable, verified executable packages (Windows portable ZIP containing BOTH `hydra.exe` and WGPU-enabled `hydra-cockpit.exe`, Linux headless `tar.gz`, and source ZIP).
-13. SHA-256 checksum manifests (`SHA256SUMS.txt` and `linux-SHA256SUMS.txt`), and signed release manifests once release-signing keys are configured.
-14. Clear release notes describing changes, measured evidence, limitations, installation instructions, and verification.
+1. Implementation and full regression testing (offline `desktop-wgpu` + headless tests).
+2. Successful compilation (Windows WGPU standalone graphical executable, headless/terminal CLI, Linux headless) and native graphical launch verification.
+3. An incremented application version in `Cargo.toml` (and matching `Cargo.lock`).
+4. Updated `CHANGELOG.md`, `RELEASE_NOTES.md`, `PROJECT_STATUS.md`, `TEST_RESULTS.md`, and `MILESTONE_MATRIX.md`.
+5. Updated `README.md` top download links, version badges, and release links (preserving Ashlan Haley Rapponotti's exact verbatim final memorial).
+6. A committed and pushed `main` branch.
+7. A corresponding exact Git tag (`v<version>`).
+8. Passing exact-tag GitHub Actions release verification (`.github/workflows/release.yml`: tag/version check, memorial check, fmt, Clippy, desktop-wgpu + headless tests, `cargo audit`, smoke tests).
+9. A visible, non-draft GitHub Release at `https://github.com/ShamelesAbyss/Hydra/releases` with comprehensive release notes directly on the release page.
+10. Verified downloadable assets including the primary standalone Windows executable **`HYDRA-Leviathan-Windows-x64.exe`**, advanced Windows portable ZIP (`HYDRA-Leviathan-Windows-x64.exe` + `hydra-cockpit.exe` + `hydra.exe`), Linux headless `tar.gz`, exact-tag source ZIP, and SHA-256 checksum manifests (plus signed manifests when release-signing infrastructure is configured).
+11. Verified public unauthenticated download accessibility and exact SHA-256 integrity.
 
-A successful `git push` alone is NOT completion. A local build alone is NOT completion. A CI workflow artifact alone is NOT completion. Ordinary users must never have to search through GitHub Actions artifacts to download a release. Always preserve truthful `alpha`, `beta`, `rc`, and `stable` classifications, never label unfinished engineering builds as stable, and never overwrite historical releases.
+A successful `git push` alone is NOT completion. A local build alone is NOT completion. A Git tag alone or CI workflow artifact alone is NOT completion. Ordinary users must never search through GitHub Actions artifacts to download Hydra. Always preserve truthful `alpha`, `beta`, `rc`, and `stable` classifications, never label unfinished engineering builds as stable, and never overwrite historical releases.
 
 ## Active owner directive: Project Awakening
 

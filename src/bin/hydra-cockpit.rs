@@ -4,21 +4,26 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(version, about = "Hydra Leviathan unified native command center")]
+#[command(
+    version,
+    about = "HYDRA — Project Leviathan unified native graphical command center"
+)]
 struct Options {
-    #[arg(long, default_value = "data/hydra.db")]
-    db: PathBuf,
-    #[arg(long,value_enum,default_value_t=hydra::desktop_renderer::Backend::Auto)]
+    /// Optional path to an existing Hydra SQLite history database.
+    /// Defaults safely to the OS user data directory on clean launches.
+    #[arg(long)]
+    db: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = hydra::desktop_renderer::Backend::Auto)]
     renderer: hydra::desktop_renderer::Backend,
     #[arg(long)]
     fullscreen: bool,
-    #[arg(long,value_enum,default_value_t=hydra::leviathan_scene::SceneQuality::High)]
+    #[arg(long, value_enum, default_value_t = hydra::leviathan_scene::SceneQuality::High)]
     quality: hydra::leviathan_scene::SceneQuality,
     #[arg(long)]
     reduced_motion: bool,
-    #[arg(long,default_value_t=60,value_parser=clap::value_parser!(u32).range(15..=144))]
+    #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u32).range(15..=144))]
     frame_cap: u32,
-    /// Use OS decorations instead of the integrated borderless frame.
+    /// Use OS window decorations instead of the integrated borderless frame.
     #[arg(long)]
     decorated: bool,
     /// Open directly to the LEVIATHAN TREASURY / THE OFFERING settings tab.
@@ -26,10 +31,21 @@ struct Options {
     treasury: bool,
 }
 
-fn main() -> eframe::Result {
+fn main() {
+    hydra::startup_diagnostics::install_panic_hook();
     let options = Options::parse();
-    hydra::cockpit::run_with_initial_tab(
-        options.db,
+    let db_path = hydra::startup_diagnostics::resolve_default_database(options.db);
+    hydra::startup_diagnostics::log_startup(&format!(
+        "Launching HYDRA cockpit v{} (renderer={}, fullscreen={}, quality={:?}, db={})",
+        env!("CARGO_PKG_VERSION"),
+        options.renderer.name(),
+        options.fullscreen,
+        options.quality,
+        db_path.display()
+    ));
+
+    if let Err(err) = hydra::cockpit::run_with_initial_tab(
+        db_path,
         options.renderer,
         options.fullscreen,
         !options.decorated,
@@ -37,5 +53,18 @@ fn main() -> eframe::Result {
         options.reduced_motion,
         options.frame_cap,
         options.treasury,
-    )
+    ) {
+        let detail = format!("{err}");
+        hydra::startup_diagnostics::log_startup(&format!("STARTUP FAILED: {detail}"));
+        let report = hydra::startup_diagnostics::write_crash_report(
+            "Graphical Cockpit Startup Failed",
+            &detail,
+        );
+        hydra::startup_diagnostics::show_startup_error_dialog(
+            "HYDRA — Project Leviathan",
+            &detail,
+            report.as_deref(),
+        );
+        std::process::exit(1);
+    }
 }

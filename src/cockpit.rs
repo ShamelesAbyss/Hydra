@@ -750,7 +750,7 @@ impl Cockpit {
                 .on_hover_text("Observed UI cadence and UI-build CPU duration; not GPU execution timing or a trading benchmark.");
             }
         });
-        if ui.available_width() < 1800.0 {
+        if ui.available_width() < 1480.0 {
             ui.horizontal_wrapped(|ui| {
                 for (index, (name, _, color)) in HEADS.iter().enumerate() {
                     if ui
@@ -1721,37 +1721,64 @@ pub fn run_with_initial_tab(
 ) -> eframe::Result {
     let attempts = crate::desktop_renderer::attempts(backend)
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
-    let mut failure = None;
+    let mut failure: Option<String> = None;
     for backend in attempts {
         let options = crate::desktop_renderer::native_options(backend, fullscreen, borderless)
             .map_err(|error| eframe::Error::AppCreation(error.into()))?;
         let database = path.clone();
-        match eframe::run_native(
-            "HYDRA — PROJECT LEVIATHAN",
-            options,
-            Box::new(move |cc| {
-                let mut app = Cockpit::new(cc, database);
-                app.fullscreen = fullscreen;
-                app.borderless = borderless;
-                if open_treasury {
-                    app.workspace = Workspace::Treasury;
-                    app.details_height = 520.0;
-                    app.target_details_height = 520.0;
-                }
-                app.configure_presentation(quality, reduced_motion, frame_limit);
-                Ok(Box::new(app))
-            }),
-        ) {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                eprintln!("Native {} startup failed: {}", backend.name(), error);
-                failure = Some(error);
+        crate::startup_diagnostics::log_startup(&format!(
+            "Attempting native renderer backend: {}",
+            backend.name()
+        ));
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            eframe::run_native(
+                "HYDRA — PROJECT LEVIATHAN",
+                options,
+                Box::new(move |cc| {
+                    let mut app = Cockpit::new(cc, database);
+                    app.fullscreen = fullscreen;
+                    app.borderless = borderless;
+                    if open_treasury {
+                        app.workspace = Workspace::Treasury;
+                        app.details_height = 520.0;
+                        app.target_details_height = 520.0;
+                    }
+                    app.configure_presentation(quality, reduced_motion, frame_limit);
+                    Ok(Box::new(app))
+                }),
+            )
+        }));
+        match attempt {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(error)) => {
+                let msg = format!("Native {} startup failed: {error}", backend.name());
+                eprintln!("{msg}");
+                crate::startup_diagnostics::log_startup(&msg);
+                failure = Some(msg);
+            }
+            Err(panic_payload) => {
+                let reason = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    (*s).to_owned()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "renderer panic".into()
+                };
+                let msg = format!(
+                    "Native {} backend panicked during initialization: {reason}",
+                    backend.name()
+                );
+                eprintln!("{msg}");
+                crate::startup_diagnostics::log_startup(&msg);
+                failure = Some(msg);
             }
         }
     }
-    Err(failure.unwrap_or_else(|| {
-        eframe::Error::AppCreation("No native renderer attempt was available".into())
-    }))
+    Err(eframe::Error::AppCreation(
+        failure
+            .unwrap_or_else(|| "No native renderer attempt was available".into())
+            .into(),
+    ))
 }
 fn region(
     ui: &mut egui::Ui,

@@ -81,3 +81,5 @@ pub mod leviathan_scene;
 pub mod leviathan_shader;
 #[cfg(feature = "desktop")]
 pub mod leviathan_state;
+#[cfg(feature = "desktop")]
+pub mod startup_diagnostics;

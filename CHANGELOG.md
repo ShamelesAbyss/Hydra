@@ -1,3 +1,20 @@
+## 1.7.0-alpha.27 — standalone Windows graphical executable, startup diagnostics & automated releases
+
+- Publish standalone double-clickable Windows graphical executable **`HYDRA-Leviathan-Windows-x64.exe`**
+  as the primary Windows download alongside the advanced Windows portable ZIP, Linux CLI archive,
+  exact-tag source ZIP, and SHA-256 checksum manifests.
+- Add `src/startup_diagnostics.rs` for OS-native writable directory resolution
+  (`%LOCALAPPDATA%\Hydra\data\hydra.db`, `logs\`, `treasury\`), clean-profile dormant database
+  bootstrap, global panic hook, readable local crash reports, visible Win32 `MessageBoxW`
+  startup error dialogs (never silent termination), and `catch_unwind` WGPU→Glow fallback.
+- Adjust default initial cockpit window size to monitor-safe `1600 × 960` with wide 3-column
+  command layout enabled at `>= 1480 px` for 1080p/1440p/4K displays.
+- Add dedicated `.github/workflows/release.yml` verifying tag/version match, permanent memorial,
+  tests, audit, binary smoke checks, non-draft GitHub Release creation, and post-publish
+  unauthenticated HTTP 200 + SHA-256 integrity verification.
+- Redesign `README.md` with prominent top-of-page Windows/Linux/Release Notes download links
+  and embed the Permanent Definition of Done in `AGENTS.md`.
+
 ## 1.7.0-alpha.26 — living Leviathan WGPU sanctuary, Treasury & The Offering
 
 - Transform the unified native cockpit with a GPU-accelerated WGSL volumetric

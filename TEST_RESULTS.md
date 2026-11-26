@@ -1,3 +1,15 @@
+# Release verification — 1.7.0-alpha.27
+
+All **451 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding
+startup directory resolution and explicit database preservation regressions in
+`src/startup_diagnostics.rs` alongside updated window-geometry coverage. Dedicated
+exact-tag `.github/workflows/release.yml` validates tag-to-`Cargo.toml` version parity,
+permanent memorial preservation, formatting, Clippy, desktop-wgpu and headless test suites,
+`cargo audit`, standalone `HYDRA-Leviathan-Windows-x64.exe` and `hydra.exe` smoke checks,
+visible non-draft GitHub Release publication, and public unauthenticated HTTP 200 + SHA-256
+verification. Independent clean-folder download and native graphical launch verification
+is recorded in the release handoff. No real exchange orders or live wallet credentials were used.
+
 # Release verification — 1.7.0-alpha.26
 
 All **449 offline desktop-wgpu all-target tests pass** (across 32 test binaries).

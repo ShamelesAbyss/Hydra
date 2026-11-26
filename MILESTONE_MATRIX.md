@@ -166,3 +166,15 @@ memorial:
     verified.
   - Headless engine operation remains independent of GUI responsiveness; live execution
     defaults remain disabled and no real-money trading was activated during development.
+
+### Alpha.27 — Standalone Windows Distribution, Startup Diagnostics & Automated Release Verification
+
+Corrected distribution architecture so ordinary Windows users download and double-click
+**`HYDRA-Leviathan-Windows-x64.exe`** directly from GitHub Releases without needing Rust,
+PowerShell, CLI arguments, repository files, or ZIP extraction. Added OS-native
+`%LOCALAPPDATA%\Hydra` clean-profile bootstrap, readable local crash reports, visible Win32
+startup error dialogs, `catch_unwind` WGPU→Glow fallback, dedicated `.github/workflows/release.yml`
+with post-publish public download & SHA-256 checks, top-of-README download redesign, and the
+Permanent Definition of Done in `AGENTS.md`. Preserves all financial safeguards and Ashlan
+Haley Rapponotti's permanent memorial. Next: **LEVIATHAN EVOLUTION** secure native updater
+(`v1.7.0-alpha.28`) and continued progression across all seven major milestones.

@@ -1,0 +1,269 @@
+name: Release Project Leviathan
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve permanent memorial dedication
+        shell: pwsh
+        run: ./.github/scripts/verify-memorial.ps1
+      - name: Validate Git tag matches Cargo.toml version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = "${{ github.ref_name }}"
+          $cargo = Get-Content Cargo.toml -Raw
+          if ($cargo -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+            throw "Could not read package version from Cargo.toml"
+          }
+          $version = $Matches[1]
+          $expectedTag = "v$version"
+          if ($tag -ne $expectedTag) {
+            throw "Git tag '$tag' does not match Cargo.toml version '$version' (expected '$expectedTag')."
+          }
+          Write-Output "Validated tag $tag == Cargo.toml version $version."
+
+  audit:
+    needs: [validate-tag]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  windows-desktop:
+    needs: [validate-tag]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve permanent memorial dedication
+        shell: pwsh
+        run: ./.github/scripts/verify-memorial.ps1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets
+      - run: cargo test --locked --features desktop-wgpu --all-targets
+      - run: cargo build --locked --release --features desktop-wgpu --bin hydra-cockpit
+      - run: cargo build --locked --release --bin hydra
+      - name: Smoke-test Windows standalone and CLI binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          New-Item -ItemType Directory -Path "dist-win" -Force | Out-Null
+          Copy-Item "target/release/hydra-cockpit.exe" "dist-win/HYDRA-Leviathan-Windows-x64.exe" -Force
+          Copy-Item "target/release/hydra-cockpit.exe" "dist-win/hydra-cockpit.exe" -Force
+          Copy-Item "target/release/hydra.exe" "dist-win/hydra.exe" -Force
+
+          $cliVer = & "dist-win/hydra.exe" --version
+          if ($LASTEXITCODE -ne 0 -or $cliVer -notmatch [regex]::Escape($version)) {
+            throw "Unexpected hydra.exe --version: $cliVer"
+          }
+          $guiVer = & "dist-win/HYDRA-Leviathan-Windows-x64.exe" --version
+          if ($LASTEXITCODE -ne 0 -or $guiVer -notmatch [regex]::Escape($version)) {
+            throw "Unexpected HYDRA-Leviathan-Windows-x64.exe --version: $guiVer"
+          }
+          & "dist-win/HYDRA-Leviathan-Windows-x64.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "HYDRA-Leviathan-Windows-x64.exe --help failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-binaries
+          path: |
+            dist-win/HYDRA-Leviathan-Windows-x64.exe
+            dist-win/hydra-cockpit.exe
+            dist-win/hydra.exe
+
+  linux-headless:
+    needs: [validate-tag]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve permanent memorial dedication
+        shell: pwsh
+        run: ./.github/scripts/verify-memorial.ps1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets
+      - run: cargo test --locked --all-targets
+      - run: cargo build --locked --release --bin hydra
+      - name: Package and verify Linux headless archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $cliVer = & ./target/release/hydra --version
+          if ($LASTEXITCODE -ne 0 -or $cliVer -notmatch [regex]::Escape($version)) {
+            throw "Unexpected Linux hydra --version: $cliVer"
+          }
+          $pkg = "hydra-$version-x86_64-unknown-linux-gnu"
+          New-Item -ItemType Directory -Path "dist/$pkg" -Force | Out-Null
+          Copy-Item "target/release/hydra" "dist/$pkg/hydra"
+          Copy-Item README.md,LICENSE,AGENTS.md,MILESTONE_MATRIX.md,VISUAL_CAMPAIGN.md,HUNTER.md,ANALYTICS.md,CONTRIBUTING.md,CONSOLIDATION.md,PROJECT_STATUS.md,TEST_RESULTS.md,ARCHITECTURE.md,RISK_MANAGEMENT.md,HYPERLIQUID_INTEGRATION.md,COCKPIT_GUIDE.md,BACKTESTING.md,OPTIMIZATION.md,DEPENDENCY_AUDIT.md,RELEASE_NOTES.md "dist/$pkg/"
+          Copy-Item config "dist/$pkg/config" -Recurse
+          Copy-Item .cursor "dist/$pkg/.cursor" -Recurse -Force
+          New-Item -ItemType Directory -Path "dist/$pkg/docs" -Force | Out-Null
+          Copy-Item docs/assets "dist/$pkg/docs/assets" -Recurse
+          $archive = "$pkg.tar.gz"
+          tar -czf "dist/$archive" -C "dist/$pkg" .
+          if ($LASTEXITCODE -ne 0) { throw "Linux tar packaging failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-package
+          path: dist/*.tar.gz
+
+  publish-release:
+    needs: [validate-tag, audit, windows-desktop, linux-headless]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve permanent memorial dedication
+        shell: pwsh
+        run: ./.github/scripts/verify-memorial.ps1
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-windows-binaries
+          path: stage/win
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-linux-package
+          path: stage/linux
+      - name: Assemble, verify, publish GitHub Release, and check public downloads
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $out = "release-assets"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+
+          # 1. Standalone primary Windows graphical executable.
+          $standaloneExe = "HYDRA-Leviathan-Windows-x64.exe"
+          Copy-Item "stage/win/$standaloneExe" "$out/$standaloneExe" -Force
+          if (-not (Test-Path "$out/$standaloneExe")) { throw "Missing mandatory $standaloneExe" }
+
+          # 2. Advanced Windows portable ZIP containing standalone exe, hydra-cockpit.exe, hydra.exe, config, docs, memorial.
+          $winDir = "stage/win-portable"
+          New-Item -ItemType Directory -Path $winDir -Force | Out-Null
+          Copy-Item "stage/win/$standaloneExe" "$winDir/$standaloneExe" -Force
+          Copy-Item "stage/win/hydra-cockpit.exe" "$winDir/hydra-cockpit.exe" -Force
+          Copy-Item "stage/win/hydra.exe" "$winDir/hydra.exe" -Force
+          Copy-Item README.md,LICENSE,AGENTS.md,MILESTONE_MATRIX.md,VISUAL_CAMPAIGN.md,HUNTER.md,ANALYTICS.md,CONTRIBUTING.md,CONSOLIDATION.md,PROJECT_STATUS.md,TEST_RESULTS.md,ARCHITECTURE.md,RISK_MANAGEMENT.md,HYPERLIQUID_INTEGRATION.md,COCKPIT_GUIDE.md,BACKTESTING.md,OPTIMIZATION.md,DEPENDENCY_AUDIT.md,RELEASE_NOTES.md "$winDir/"
+          Copy-Item config "$winDir/config" -Recurse
+          Copy-Item .cursor "$winDir/.cursor" -Recurse -Force
+          New-Item -ItemType Directory -Path "$winDir/docs" -Force | Out-Null
+          Copy-Item docs/assets "$winDir/docs/assets" -Recurse
+
+          # Verify extracted contents & memorial before compressing.
+          foreach ($req in @($standaloneExe, 'hydra-cockpit.exe', 'hydra.exe', 'README.md', '.cursor/rules/permanent-memorial.mdc')) {
+            if (-not (Test-Path (Join-Path $winDir $req))) { throw "Portable Windows package missing $req" }
+          }
+          $readmeText = [IO.File]::ReadAllText("$winDir/README.md")
+          if (-not $readmeText.Contains("In Loving Memory of Ashlan Haley Rapponotti")) {
+            throw "Permanent memorial missing from packaged README.md"
+          }
+          $winZip = "hydra-$version-x86_64-pc-windows-msvc.zip"
+          Compress-Archive -Path "$winDir/*" -DestinationPath "$out/$winZip" -Force
+
+          # 3. Verified Linux headless archive + Linux SHA-256 manifest.
+          $linuxTar = "hydra-$version-x86_64-unknown-linux-gnu.tar.gz"
+          Copy-Item "stage/linux/$linuxTar" "$out/$linuxTar" -Force
+          if (-not (Test-Path "$out/$linuxTar")) { throw "Missing mandatory $linuxTar" }
+          $linuxHash = (Get-FileHash "$out/$linuxTar" -Algorithm SHA256).Hash.ToLower()
+          $linuxSums = "hydra-$version-linux-SHA256SUMS.txt"
+          "$linuxHash  $linuxTar" | Set-Content "$out/$linuxSums" -Encoding ascii
+
+          # 4. Exact tag source ZIP (excluding inherited legacy bin/).
+          $srcZip = "hydra-$version-source.zip"
+          git archive --format=zip --output="$out/$srcZip" $tag -- . ':!bin'
+          if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
+
+          # 5. Combined SHA-256 checksum manifest covering all mandatory release assets.
+          $exeHash = (Get-FileHash "$out/$standaloneExe" -Algorithm SHA256).Hash.ToLower()
+          $winHash = (Get-FileHash "$out/$winZip" -Algorithm SHA256).Hash.ToLower()
+          $srcHash = (Get-FileHash "$out/$srcZip" -Algorithm SHA256).Hash.ToLower()
+          $sums = "hydra-$version-SHA256SUMS.txt"
+          @(
+            "$exeHash  $standaloneExe"
+            "$winHash  $winZip"
+            "$linuxHash  $linuxTar"
+            "$srcHash  $srcZip"
+          ) | Set-Content "$out/$sums" -Encoding ascii
+
+          # 6. Prevent duplicate/overwrite of existing releases.
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            throw "GitHub Release $tag already exists; refusing to overwrite."
+          }
+
+          $isPrerelease = $version -match '-(alpha|beta|rc)'
+          $titleLine = (Get-Content RELEASE_NOTES.md | Select-Object -First 1).TrimStart('#').Trim()
+          if ([string]::IsNullOrWhiteSpace($titleLine)) { $titleLine = "HYDRA — Project Leviathan $tag" }
+
+          $assets = @(
+            "$out/$standaloneExe",
+            "$out/$winZip",
+            "$out/$linuxTar",
+            "$out/$srcZip",
+            "$out/$sums",
+            "$out/$linuxSums"
+          )
+
+          # Create visible non-draft GitHub Release.
+          $createArgs = @('release', 'create', $tag, '--title', $titleLine, '--notes-file', 'RELEASE_NOTES.md')
+          if ($isPrerelease) { $createArgs += '--prerelease' }
+          & gh @createArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
+
+          # Upload each asset with retry handling against transient 5xx.
+          foreach ($asset in $assets) {
+            $uploaded = $false
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              & gh release upload $tag $asset --clobber
+              if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
+              Start-Sleep -Seconds (3 * $attempt)
+            }
+            if (-not $uploaded) { throw "Failed to upload release asset $asset" }
+          }
+
+          # 7. Verify public unauthenticated accessibility & exact SHA-256 digest of published exe.
+          Start-Sleep -Seconds 5
+          $apiUrl = "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag"
+          $pub = Invoke-RestMethod -Uri $apiUrl -Headers @{ 'User-Agent' = 'Hydra-Release-Verifier' }
+          if ($pub.draft -eq $true) { throw "Published release is still marked draft!" }
+          $expectedNames = @($standaloneExe, $winZip, $linuxTar, $srcZip, $sums, $linuxSums)
+          foreach ($n in $expectedNames) {
+            $found = $pub.assets | Where-Object { $_.name -eq $n }
+            if (-not $found) { throw "Published GitHub Release is missing asset: $n" }
+            $head = Invoke-WebRequest -Uri $found.browser_download_url -Method Head -UseBasicParsing
+            if ($head.StatusCode -ne 200) { throw "Asset $n returned HTTP $($head.StatusCode)" }
+          }
+          $exeUrl = ($pub.assets | Where-Object { $_.name -eq $standaloneExe }).browser_download_url
+          $dlPath = "stage/downloaded-$standaloneExe"
+          Invoke-WebRequest -Uri $exeUrl -OutFile $dlPath -UseBasicParsing
+          $dlHash = (Get-FileHash $dlPath -Algorithm SHA256).Hash.ToLower()
+          if ($dlHash -ne $exeHash) {
+            throw "Published $standaloneExe SHA-256 mismatch! expected=$exeHash downloaded=$dlHash"
+          }
+          Write-Output "VERIFIED_PUBLIC_RELEASE=$tag EXE_SHA256=$dlHash"

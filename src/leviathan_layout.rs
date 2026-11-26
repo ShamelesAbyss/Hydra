@@ -46,7 +46,7 @@ impl UnifiedLayout {
         let footer_top = bounds.bottom() - footer_h;
         let details_top = footer_top - details_h;
         let canvas_bottom = (details_top - gap).max(top);
-        let compact = w < 1800.0;
+        let compact = w < 1480.0;
         let left_w = if compact {
             0.0
         } else {
