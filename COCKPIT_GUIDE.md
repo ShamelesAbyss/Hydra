@@ -78,12 +78,6 @@ is implied. See OPTIMIZATION.md and the upcoming VISUAL_CAMPAIGN.md.
 
 ## Unified Leviathan cockpit (Alpha.26)
 
-Select a dragon head or use Alt+1 through Alt+7. Its workspace opens in the lower
-panel while the creature stays visible. Drag the top edge of the lower panel
-to resize it. Use Source to open existing local history. The Graphics controls
-offer quality, reduced motion, event energy, cadence and window framing.
+Select a dragon head on the central sanctuary, click its card in the left Intelligence rail, or press `Alt+1` through `Alt+7`. Its workspace opens in the lower inline panel while the living seven-headed Leviathan remains visible. Drag the luminous top edge of the lower panel to resize it freely, or use the `Compact`, `Balanced`, and `Expand` presets for smooth choreography. Use `Source` to open existing local history. The `Graphics` panel offers `Low`/`Medium`/`High` quality, reduced motion, event energy toggle, update cadence cap, and window framing.
 
-The Windows desktop build uses WGPU with Glow available as a compatibility
-renderer. Run with `--renderer glow` to select it explicitly. F11 toggles fullscreen.
-The Graphics panel reports the observed renderer and UI update cadence separately
-from CPU time spent building the UI. GPU execution timing is unavailable.
+The Windows desktop build uses WGPU with a custom WGSL volumetric sanctuary backdrop (`WGPU SHADER`) and retains Glow as a compatibility renderer with a layered procedural fallback. Run with `--renderer glow` to select OpenGL explicitly. `F11` toggles fullscreen. The `Graphics` panel reports the observed renderer and UI update cadence separately from CPU time spent building the UI. GPU execution timing is unavailable.

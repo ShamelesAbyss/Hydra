@@ -58,9 +58,9 @@ The cockpit runs independently of the trading engine. Closing its window sends n
 
 ## The unified Leviathan cockpit
 
-<img src="docs/assets/leviathan-first-native.png" width="100%" alt="Actual native Alpha.26 development render of the seven-headed Leviathan cockpit" />
+<img src="docs/assets/leviathan-awakened-wgpu.png" width="100%" alt="Actual native Alpha.26 release WGPU render of the awakened seven-headed Leviathan cockpit with volumetric atmosphere shader, sweeping wings, Amethyst Heart, and obsidian-glass rails" />
 
-*Alpha.26 development preview captured at 2560 × 1440 with Glow and an empty local history database. Published executables and checksums are listed above.*
+*Alpha.26 release WGPU capture (`--features desktop-wgpu`, High quality, empty offline local history database, observed `UI 142.0/s · build 1.25 ms`). Historical earlier alpha.26 Glow capture remains preserved at [`docs/assets/leviathan-first-native.png`](docs/assets/leviathan-first-native.png). Published executables and checksums are listed above.*
 
 <a id="seven-heads"></a>
 ## Seven heads. Distinct responsibilities.

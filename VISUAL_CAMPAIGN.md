@@ -51,20 +51,11 @@ implemented behavior and evidence. Unmet target-hardware/performance limits must
 remain explicit; screenshots/concept art are not performance certification.
 
 
-## Alpha.26 first visual checkpoint
+## Alpha.26 living Leviathan & WGPU shader checkpoint
 
-The native cockpit now puts the procedural seven-headed creature at the center of
-one window. Clicking a head or pressing Alt+1 through Alt+7 focuses its existing
-workspace below the creature. The detail divider is draggable. Wide layouts show
-intelligence and protection panels, and compact layouts retain head navigation.
+The unified native cockpit now pairs a GPU-accelerated WGSL volumetric sanctuary shader (`src/leviathan_shader.rs` on `desktop-wgpu`, with a layered Glow fallback) with a sculpted, living seven-headed cybernetic dragon (`src/leviathan_scene.rs`) and obsidian-glass command choreography (`src/cockpit.rs`):
 
-Colored energy indicates local research activity. Silver pips indicate changes
-between recorded history snapshots. Neither is a live connection indicator.
-Warnings remain visible with reduced motion. Ashlan's inscription sits below
-the amethyst heart.
-
-The first 2560 × 1440 native capture used the development Glow build and an empty
-local history database. Release WGPU and Glow measurements are still pending.
-The first checkpoint uses a common procedural mesh path on both renderers.
-Shader effects, more distinct facial anatomy, and richer operational visualizations
-remain open. The normal engineering queue stays suspended during this campaign.
+- **Living anatomy & presence:** smooth physiological breathing expands the thoracic carapace and lifts sweeping amethyst-veined cybernetic dragon wings; prime-staggered organic eyelid blinking animates multi-layered slit-pupil eyes; serpentine multi-harmonic sway ripples through all seven necks; and the central **Amethyst Heart** beats with a dual-peak cardiac pulse, gem-cut refraction facets, caustic star-core, and seven directional pylon sockets explicitly anchoring every neck conduit.
+- **Seven distinct phenotypes & truthful event states:** HUNTER (cyan raptor sensor-horns & active radar sweep), FANG (crimson/molten-gold viper with protruding saber fangs), COGNITION (levitating faceted amethyst crown shards & synaptic third eye), AEGIS (broad sovereign guardian helm & manifest hexagonal protective barrier on activity/alerts/selection), NEXUS (machined parallel conduit horns & bus fins), ORACLE (crescent moon-horns, dual tilted temporal astrolabe rings & lunar third eye), and GENESIS (five-spire prismatic crown & evolutionary nodes). Colored plasma streams require active local research; silver pips require observed local-history snapshot deltas; warnings, blocked holds, and faults take visual precedence and remain visible under reduced motion.
+- **Unified choreography & permanent tribute:** chamfered obsidian-glass left Intelligence cards (with bidirectional hover-to-head focus), structured right Protection/Execution evidence tiles and Energy Signal Key, luminous lower analytical drawer with smooth `Compact` / `Balanced` / `Expand` transitions alongside direct drag resizing, upgraded gradient-ribbon equity chart, and the permanent moonlit-amethyst memorial inscription for **Ashlan Haley Rapponotti** (`June 21, 2003 – November 13, 2026`) seated directly beneath the Amethyst Heart.
+- **Measured release WGPU evidence:** captured from the actual optimized `--release --features desktop-wgpu` native build on Windows 11 (RTX 4070 Laptop GPU, 2560 × 1440 display, fullscreen borderless High quality, empty offline history database): `docs/assets/leviathan-awakened-wgpu.png` shows `WGPU SHADER` active at observed `UI 142.0/s` with `1.25 ms` median UI-build CPU duration (GPU execution timing remains unmeasured). All **443** offline `--features desktop-wgpu --all-targets` tests pass, Glow compatibility builds cleanly, and the permanent README memorial check passes. The normal engineering queue stays suspended during this visual campaign.

@@ -74,5 +74,7 @@ pub mod desktop_renderer;
 pub mod leviathan_layout;
 #[cfg(feature = "desktop")]
 pub mod leviathan_scene;
+#[cfg(feature = "desktop-wgpu")]
+pub mod leviathan_shader;
 #[cfg(feature = "desktop")]
 pub mod leviathan_state;
