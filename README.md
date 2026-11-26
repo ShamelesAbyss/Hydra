@@ -7,17 +7,17 @@
 **A native Rust trading engine and research command center for Hyperliquid.**<br>
 Seven coordinated disciplines. Local persistence. Explicit uncertainty. Continuous evolution.
 
-[![Release](docs/assets/release-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.27) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](docs/assets/offline-tests-badge.svg)](TEST_RESULTS.md) [![Language](docs/assets/rust-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.27/Cargo.toml) [![License](docs/assets/license-badge.svg)](LICENSE)
+![Release](docs/assets/release-badge.svg) [![Main workflow status](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ShamelesAbyss/Hydra/actions/workflows/verify.yml?query=branch%3Amain) [![Offline tests on main](docs/assets/offline-tests-badge.svg)](TEST_RESULTS.md) [![Language](docs/assets/rust-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.27/Cargo.toml) [![License](docs/assets/license-badge.svg)](LICENSE)
 
-[![Windows native](docs/assets/windows-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/HYDRA-Leviathan-Windows-x64.exe) [![Linux CLI](docs/assets/linux-badge.svg)](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-x86_64-unknown-linux-gnu.tar.gz) [![Alpha.27 dependency audit](docs/assets/audit-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.27/DEPENDENCY_AUDIT.md)
+[![Alpha.27 dependency audit](docs/assets/audit-badge.svg)](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.27/DEPENDENCY_AUDIT.md)
 
-### [**⬇ DOWNLOAD HYDRA FOR WINDOWS (`HYDRA-Leviathan-Windows-x64.exe`)**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/HYDRA-Leviathan-Windows-x64.exe)
+### Current development release: `v1.7.0-alpha.27`
 
-[**LATEST DEVELOPMENT RELEASE (`v1.7.0-alpha.27`)**](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.27) · [**VIEW RELEASE NOTES**](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.27) · [**LINUX DOWNLOAD (`tar.gz`)**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-x86_64-unknown-linux-gnu.tar.gz) · **LATEST STABLE RELEASE:** *None yet (engineering prerelease only)*
+**Latest stable release:** None yet (engineering prerelease only). Release notes and compiled artifacts are maintained exclusively in the repository’s Releases section.
 
 *Double-click `HYDRA-Leviathan-Windows-x64.exe` directly on Windows 10/11 — no Rust, Python, PowerShell, CLI arguments, repository clone, or ZIP extraction required. Defaults safely to `DORMANT` with trading disabled.*
 
-[**All Downloads & Checksums**](#download) · [**Cockpit**](#cockpit) · [**Seven heads**](#seven-heads) · [**Architecture**](#architecture) · [**Quick start**](#quick-start) · [**Readiness**](#readiness) · [**Roadmap**](#roadmap)
+[**Distribution**](#distribution) · [**Cockpit**](#cockpit) · [**Seven heads**](#seven-heads) · [**Architecture**](#architecture) · [**Quick start**](#quick-start) · [**Readiness**](#readiness) · [**Roadmap**](#roadmap)
 
 </div>
 
@@ -38,9 +38,9 @@ The native cockpit makes that evidence visible. Oracle replays historical candle
 
 | Track | What it contains | Where to go |
 | :--- | :--- | :--- |
-| **DOWNLOAD HYDRA FOR WINDOWS** | **v1.7.0-alpha.27** — standalone double-click `HYDRA-Leviathan-Windows-x64.exe` (WGPU cockpit + Glow fallback + Treasury/Offering) | [Download `HYDRA-Leviathan-Windows-x64.exe`](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/HYDRA-Leviathan-Windows-x64.exe) |
-| **LATEST DEVELOPMENT RELEASE** | **v1.7.0-alpha.27** — full release notes, portable ZIP, Linux CLI, source ZIP, SHA-256 checksums; **451 offline tests** | [View v1.7.0-alpha.27 Release Notes](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.27) |
-| **LATEST STABLE RELEASE** | None yet — unattended live trading certification remains in progress | [All GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) |
+| **Windows native application** | **v1.7.0-alpha.27** — standalone `HYDRA-Leviathan-Windows-x64.exe` (WGPU cockpit + Glow fallback + Treasury/Offering) | Repository Releases section |
+| **Latest development release** | **v1.7.0-alpha.27** — full release notes, portable ZIP, Linux CLI, source ZIP, SHA-256 checksums; **451 offline tests** | Repository Releases section |
+| **Latest stable release** | None yet — unattended live trading certification remains in progress | Repository Releases section |
 | **Authoritative main** | Continuing Project Awakening development directly on `main` | [Browse main](https://github.com/ShamelesAbyss/Hydra/tree/main) |
 
 Project Leviathan is Hydra. `main` contains the authoritative implementation and all continuing development. The [retired 1.6.2 archive](https://github.com/ShamelesAbyss/Hydra/tree/archive/dead-code-hydra-1.6.2) exists only for historical preservation and must not be used for live trading. Promotion to main does not establish stable-live readiness.
@@ -67,7 +67,7 @@ The cockpit runs independently of the trading engine. Closing its window sends n
 
 <img src="docs/assets/leviathan-awakened-wgpu.png" width="100%" alt="Actual native Alpha.26 WGPU render of the awakened seven-headed Leviathan cockpit with volumetric atmosphere shader, sweeping wings, Amethyst Heart, Treasury controls, and obsidian-glass rails" />
 
-*Alpha.26 WGPU capture (`--features desktop-wgpu`, High quality, empty offline local history database). Historical earlier alpha.26 Glow capture remains preserved at [`docs/assets/leviathan-first-native.png`](docs/assets/leviathan-first-native.png). Published executables and checksums are listed above.*
+*Alpha.26 WGPU capture (`--features desktop-wgpu`, High quality, empty offline local history database). Historical earlier alpha.26 Glow capture remains preserved at [`docs/assets/leviathan-first-native.png`](docs/assets/leviathan-first-native.png). Published executables and checksums are maintained in the repository’s Releases section.*
 
 ### Leviathan Treasury & The Offering
 
@@ -205,18 +205,18 @@ The native client reads consistent local snapshots; the headless engine owns sig
 
 [Architecture notes](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/ARCHITECTURE.md) · [Hyperliquid boundary](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/HYPERLIQUID_INTEGRATION.md) · [Risk authority](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/RISK_MANAGEMENT.md)
 
-<a id="download"></a>
-## Download a verified release
+<a id="distribution"></a>
+## Distribution
 
-> **[DOWNLOAD HYDRA FOR WINDOWS (`HYDRA-Leviathan-Windows-x64.exe`)](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/HYDRA-Leviathan-Windows-x64.exe)** · **[LATEST DEVELOPMENT RELEASE (`v1.7.0-alpha.27`)](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.27)** · **[VIEW RELEASE NOTES](https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0-alpha.27)** · **[LINUX DOWNLOAD](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-x86_64-unknown-linux-gnu.tar.gz)** · **LATEST STABLE RELEASE:** *None yet*
+Compiled executables, portable packages, source archives, release notes and SHA-256 checksums are published exclusively in the repository’s GitHub Releases section. Navigate to that section from the repository interface. This README contains no direct artifact download links.
 
 | Artifact | Release | Contents / verification |
 | :--- | :--- | :--- |
-| [**HYDRA-Leviathan-Windows-x64.exe (Primary Windows Download)**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/HYDRA-Leviathan-Windows-x64.exe) | **alpha.27** | Standalone double-clickable native WGPU graphical command center (automatic Glow fallback, clean-profile auto-init, visible startup diagnostics) |
-| [**Windows x86_64 portable ZIP (Advanced Users)**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-x86_64-pc-windows-msvc.zip) | **alpha.27** | `HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, headless/terminal `hydra.exe`, `config/`, assets and guides |
-| [**Linux x86_64 headless tar.gz**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-x86_64-unknown-linux-gnu.tar.gz) | **alpha.27** | Verified Ubuntu CI headless executable plus exact-tag guides/assets; [Linux SHA-256 manifest](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-linux-SHA256SUMS.txt) |
-| [**Source ZIP**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-source.zip) | **alpha.27** | Exact tag source export; excludes inherited legacy binaries |
-| [**SHA-256 manifest**](https://github.com/ShamelesAbyss/Hydra/releases/download/v1.7.0-alpha.27/hydra-1.7.0-alpha.27-SHA256SUMS.txt) | **alpha.27** | Verify executable and archive hashes before running |
+| **Windows native application** | **alpha.27** | Standalone native WGPU graphical command center (automatic Glow fallback, clean-profile auto-init, visible startup diagnostics) |
+| **Windows x86_64 portable package** | **alpha.27** | `HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, headless/terminal `hydra.exe`, `config/`, assets and guides |
+| **Linux x86_64 headless package** | **alpha.27** | Verified Ubuntu CI headless executable plus exact-tag guides/assets; Linux checksum manifest provided with the release |
+| **Source archive** | **alpha.27** | Exact tag source export; excludes inherited legacy binaries |
+| **SHA-256 manifest** | **alpha.27** | Verify executable and archive hashes before running |
 
 **Dependency fix delivery:** alpha.27 retains the remediated dependency graph (0 vulnerability entries, 1 Chrono maintenance warning). Prior releases remain preserved unchanged as historical checkpoints.
 
@@ -377,7 +377,7 @@ Supporting documents are linked to the inspected development checkpoint so they 
 
 Native computation · Durable evidence · Deliberate execution
 
-[Releases](https://github.com/ShamelesAbyss/Hydra/releases) · [Main](https://github.com/ShamelesAbyss/Hydra/tree/main) · [Issues](https://github.com/ShamelesAbyss/Hydra/issues)
+[Main](https://github.com/ShamelesAbyss/Hydra/tree/main) · [Issues](https://github.com/ShamelesAbyss/Hydra/issues)
 
 </div>
 
@@ -391,4 +391,4 @@ For the beautiful woman who listened to my passions, believed in me, and made my
 
 Every creation, every discovery, and every milestone reached carries a piece of my heart dedicated to you.
 
-**Forever loved. Forever missed. Forever remembered.** 💜
+**Forever loved. Forever missed. Forever remem
