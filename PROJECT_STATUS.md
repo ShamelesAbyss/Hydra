@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.24** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.24^{commit}`.
-- Previous recovery: v1.7.0-alpha.23 (`5ef23b4d2ed1e46da4e4f9d3fe37fdd5a9323fbc`).
+- Version and current recovery tag: **v1.7.0-alpha.25** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.25^{commit}`.
+- Previous recovery: v1.7.0-alpha.24 (`5297238f74d217e2ef945aa17b5f325a8cbf73c3`).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: balanced seven-head progression; HUNTER Radar/native cockpit delivered, ORACLE held-out scenarios delivered; FANG/COGNITION/AEGIS research and GENESIS resumability delivered; next candidate OOS and shared-planner integration. MILESTONE_MATRIX.md tracks acceptance; financial settlement/recovery remain live-certification blockers.
+- Current phase: finish/publish alpha.25, then the owner-directed unified Leviathan visual campaign; handoff and explicit authorization required before returning to the normal queue.
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
@@ -521,3 +521,20 @@ settlement/deployment authority. See OPTIMIZATION.md and MILESTONE_MATRIX.md.
 Alpha.23 publication verified: all four tagged jobs passed in run 45740225803;
 all five asset digests and links match. Eleven extracted Windows smoke checks pass;
 Linux bytes/checksum/memorial match the verified tagged build.
+
+## Alpha.25 — frozen-frontier held-out assessment
+
+Completed matching-context training checkpoints can assess a bounded canonical
+frontier prefix against strictly later held-out history/test bars. Training and
+assessment share candidate configuration. Full simulated fold/cost reports are
+available through CLI/native UI; no held-out profitability ranking drives deployment.
+Checkpoint authenticity, unseen-data provenance and financial truth remain unverified.
+
+After publishing alpha.25, the owner's Project Manifestation directive suspends the
+normal queue for the unified native seven-headed Leviathan visual campaign. Follow
+VISUAL_CAMPAIGN.md, then provide its comprehensive completion handoff and pause for
+explicit authorization before normal engineering resumes. Preserve all safeguards.
+
+Alpha.24 publication verified: all four tagged jobs pass in run 45741660923;
+all five digests and links match. Twelve extracted Windows smoke checks pass;
+Linux bytes/checksum/exact memorial match the tagged build.

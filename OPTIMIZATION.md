@@ -59,3 +59,34 @@ Checkpointing occurs at explicit generation-step boundaries, not during a single
 candidate replay. Candidate out-of-sample assessment, full train/select/test
 walk-forward fitting, NSGA-II and GPU remain outstanding. The optimizer still uses
 Oracle's incomplete candle execution model; all outputs remain simulated proposals.
+
+## Frozen-frontier held-out assessment (alpha.25)
+
+```powershell
+.\hydra.exe --config config/strategies.toml assess-candidates --training training.json --held-out later-candles.json --options search.json --checkpoint completed-search.json --limit 4
+```
+
+In GENESIS enable **Assess frozen candidates / later held-out data**. The original
+Candles JSON input is training data; supply a completed matching-build checkpoint,
+later held-out candles and optional validation-options JSON. Use the same strategy
+config/search options that produced the checkpoint. Checkpoints remain build-specific;
+create the training checkpoint with the matching executable. Nothing is deployed.
+
+The completed training frontier is frozen and its canonical parameter-order prefix
+is chosen **before** any held-out evaluation. Reports state the number left unassessed.
+Every held-out history/test bar must be chronologically later than all training bars;
+reuse of warmup bars from training is deliberately refused. Parameters are fixed,
+strategy state/capital reset per fold and original explicit cost scenarios apply.
+No held-out outcome ranks or automatically selects a deployment candidate.
+
+At most 16 candidates, 64 combined candidate/fold/scenario calls, 100 million total
+history-work units and one million retained equity/trade entries. Candidate settings
+share the same momentum configuration helper as training. CLI/native reports retain
+full per-candidate fold/scenario reports, training context and chronology boundaries.
+
+Chronology/context checks cannot prove that an operator never inspected or tuned
+against the dataset. Checkpoint state is caller-supplied and unauthenticated; its
+training objectives are simulated research state, not certified financial evidence.
+Multiple comparisons/selection bias and all Oracle funding/queue/latency/partial-fill/
+liquidation/portfolio omissions remain. This is candidate assessment, not full
+train/select/test walk-forward fitting, significance certification or live readiness.

@@ -17,12 +17,18 @@ enum Completed {
     Oracle(ReplayReport),
     Validation(crate::oracle_validation::ValidationReport),
     Genesis(SearchReport),
+    Assessment(crate::genesis_oos::AssessmentReport),
     GenesisStep {
         progress: crate::genesis::SearchProgress,
         output: String,
     },
 }
 pub struct ResearchWorkspace {
+    assessment_mode: bool,
+    held_out_path: String,
+    assessment_options_path: String,
+    assessment_limit: usize,
+    assessment: Option<crate::genesis_oos::AssessmentReport>,
     checkpoint_mode: bool,
     checkpoint_input: String,
     checkpoint_output: String,
@@ -45,6 +51,11 @@ pub struct ResearchWorkspace {
 impl Default for ResearchWorkspace {
     fn default() -> Self {
         Self {
+            assessment_mode: false,
+            held_out_path: String::new(),
+            assessment_options_path: String::new(),
+            assessment_limit: 4,
+            assessment: None,
             checkpoint_mode: false,
             checkpoint_input: String::new(),
             checkpoint_output: String::new(),
@@ -71,7 +82,7 @@ impl ResearchWorkspace {
         self.oracle.is_some() || self.validation.is_some()
     }
     pub fn genesis_ready(&self) -> bool {
-        self.genesis.is_some()
+        self.genesis.is_some() || self.assessment.is_some()
     }
     /// Returns the subsystem that actually completed, for an event-backed pulse.
     pub fn poll(&mut self, ctx: &egui::Context) -> Option<usize> {
@@ -100,6 +111,10 @@ impl ResearchWorkspace {
                 self.genesis = Some(progress.report);
                 self.error = None;
             }
+            Ok(Completed::Assessment(report)) => {
+                self.assessment = Some(report);
+                self.error = None;
+            }
             Ok(Completed::Genesis(report)) => {
                 self.genesis = Some(report);
                 self.error = None;
@@ -125,7 +140,15 @@ impl ResearchWorkspace {
             path(ui, "Strategy TOML", &mut self.config_path);
             path(ui, "Candles JSON", &mut self.candles_path);
             if optimizer {
-                ui.checkbox(&mut self.checkpoint_mode, "Resumable generation steps");
+                if ui.checkbox(&mut self.checkpoint_mode, "Resumable generation steps").changed() && self.checkpoint_mode {self.assessment_mode=false;}
+                if ui.checkbox(&mut self.assessment_mode,"Assess frozen candidates / later held-out data").changed() && self.assessment_mode {self.checkpoint_mode=false;}
+                if self.assessment_mode {
+                    path(ui,"Completed training checkpoint",&mut self.checkpoint_input);
+                    path(ui,"Later held-out candles JSON",&mut self.held_out_path);
+                    path(ui,"Validation options JSON (optional)",&mut self.assessment_options_path);
+                    ui.horizontal(|ui|{ui.label("Training-frontier candidate limit");ui.add(egui::DragValue::new(&mut self.assessment_limit).range(1..=16));});
+                    ui.label("Candles JSON above is TRAINING data. All held-out history/test bars must be later.");
+                }
                 if self.checkpoint_mode {
                     path(
                         ui,
@@ -185,7 +208,7 @@ impl ResearchWorkspace {
                 }
             }
             let label = if optimizer {
-                if self.checkpoint_mode {
+                if self.assessment_mode {"Assess frozen training frontier"} else if self.checkpoint_mode {
                     "Run optimizer step / save checkpoint"
                 } else {
                     "Run bounded optimization"
@@ -223,7 +246,11 @@ impl ResearchWorkspace {
         ui.separator();
         if (self.receiver.is_some() || self.error.is_some())
             && (if optimizer {
-                self.genesis.is_some()
+                if self.assessment_mode {
+                    self.assessment.is_some()
+                } else {
+                    self.genesis.is_some()
+                }
             } else if self.validation_mode {
                 self.validation.is_some()
             } else {
@@ -241,7 +268,11 @@ impl ResearchWorkspace {
                 ui.label("Use this as the next input with a new output filename. Checksum is not authenticity or financial proof.");
                 copy_report(ui, "Copy last saved checkpoint JSON", checkpoint);
             }
-            if let Some(report) = &self.genesis {
+            if self.assessment_mode {
+                if let Some(report) = &self.assessment {
+                    assessment_report(ui, report);
+                }
+            } else if let Some(report) = &self.genesis {
                 genesis_report(ui, report);
             }
         } else if self.validation_mode {
@@ -266,6 +297,17 @@ impl ResearchWorkspace {
             );
             return;
         }
+        let assessment_mode = optimizer && self.assessment_mode;
+        if assessment_mode
+            && (self.checkpoint_input.trim().is_empty() || self.held_out_path.trim().is_empty())
+        {
+            self.error =
+                Some("Choose a completed training checkpoint and later held-out dataset".into());
+            return;
+        }
+        let held_out_path = self.held_out_path.clone();
+        let assessment_options_path = self.assessment_options_path.clone();
+        let assessment_limit = self.assessment_limit;
         let checkpoint_mode = optimizer && self.checkpoint_mode;
         let checkpoint_input = self.checkpoint_input.clone();
         let checkpoint_output = self.checkpoint_output.clone();
@@ -285,62 +327,84 @@ impl ResearchWorkspace {
         let result = std::thread::Builder::new()
             .name("hydra-offline-research".into())
             .spawn(move || {
-                let result = (|| -> anyhow::Result<Completed> {
-                    let cfg = AppConfig::load_research(&config, None)?;
-                    let candles: Vec<Candle> = research::read_json(Path::new(&candles))?;
-                    if validation {
-                        let options = if options.trim().is_empty() {
-                            crate::oracle_validation::ValidationOptions::default()
-                        } else {
-                            research::read_json(Path::new(&options))?
-                        };
-                        Ok(Completed::Validation(crate::oracle_validation::evaluate(
-                            &cfg, &candles, &options,
-                        )?))
-                    } else if optimizer {
-                        let options: SearchOptions = if options.trim().is_empty() {
-                            SearchOptions::default()
-                        } else {
-                            research::read_json(Path::new(&options))?
-                        };
-                        if checkpoint_mode {
-                            let checkpoint = if checkpoint_input.trim().is_empty() {
-                                None
+                let result =
+                    (|| -> anyhow::Result<Completed> {
+                        let cfg = AppConfig::load_research(&config, None)?;
+                        let candles: Vec<Candle> = research::read_json(Path::new(&candles))?;
+                        if validation {
+                            let options = if options.trim().is_empty() {
+                                crate::oracle_validation::ValidationOptions::default()
                             } else {
-                                Some(research::read_json::<crate::genesis::SearchCheckpoint>(
-                                    Path::new(&checkpoint_input),
-                                )?)
+                                research::read_json(Path::new(&options))?
                             };
-                            let progress = genesis::advance(
-                                &cfg,
-                                &candles,
-                                &options,
-                                checkpoint.as_ref(),
-                                generations_per_step,
-                            )?;
-                            crate::genesis_checkpoint::save_new(
-                                Path::new(&checkpoint_output),
-                                &progress.checkpoint,
-                            )?;
-                            Ok(Completed::GenesisStep {
-                                progress,
-                                output: checkpoint_output,
-                            })
-                        } else {
-                            Ok(Completed::Genesis(genesis::optimize(
+                            Ok(Completed::Validation(crate::oracle_validation::evaluate(
                                 &cfg, &candles, &options,
                             )?))
-                        }
-                    } else {
-                        let options: ReplayOptions = if options.trim().is_empty() {
-                            ReplayOptions::default()
+                        } else if optimizer {
+                            let options: SearchOptions = if options.trim().is_empty() {
+                                SearchOptions::default()
+                            } else {
+                                research::read_json(Path::new(&options))?
+                            };
+                            if assessment_mode {
+                                let checkpoint =
+                                    research::read_json::<crate::genesis::SearchCheckpoint>(
+                                        Path::new(&checkpoint_input),
+                                    )?;
+                                let held_out =
+                                    research::read_json::<Vec<Candle>>(Path::new(&held_out_path))?;
+                                let validation = if assessment_options_path.trim().is_empty() {
+                                    crate::oracle_validation::ValidationOptions::default()
+                                } else {
+                                    research::read_json(Path::new(&assessment_options_path))?
+                                };
+                                Ok(Completed::Assessment(crate::genesis_oos::evaluate(
+                                    &cfg,
+                                    &candles,
+                                    &held_out,
+                                    &options,
+                                    &checkpoint,
+                                    &validation,
+                                    assessment_limit,
+                                )?))
+                            } else if checkpoint_mode {
+                                let checkpoint = if checkpoint_input.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(research::read_json::<crate::genesis::SearchCheckpoint>(
+                                        Path::new(&checkpoint_input),
+                                    )?)
+                                };
+                                let progress = genesis::advance(
+                                    &cfg,
+                                    &candles,
+                                    &options,
+                                    checkpoint.as_ref(),
+                                    generations_per_step,
+                                )?;
+                                crate::genesis_checkpoint::save_new(
+                                    Path::new(&checkpoint_output),
+                                    &progress.checkpoint,
+                                )?;
+                                Ok(Completed::GenesisStep {
+                                    progress,
+                                    output: checkpoint_output,
+                                })
+                            } else {
+                                Ok(Completed::Genesis(genesis::optimize(
+                                    &cfg, &candles, &options,
+                                )?))
+                            }
                         } else {
-                            research::read_json(Path::new(&options))?
-                        };
-                        Ok(Completed::Oracle(oracle::replay(&cfg, &candles, &options)?))
-                    }
-                })()
-                .map_err(|error| telemetry::redact_diagnostic(&format!("{error:#}")));
+                            let options: ReplayOptions = if options.trim().is_empty() {
+                                ReplayOptions::default()
+                            } else {
+                                research::read_json(Path::new(&options))?
+                            };
+                            Ok(Completed::Oracle(oracle::replay(&cfg, &candles, &options)?))
+                        }
+                    })()
+                    .map_err(|error| telemetry::redact_diagnostic(&format!("{error:#}")));
                 let _ = tx.send(result);
                 context.request_repaint();
             });
@@ -692,5 +756,26 @@ fn validation_report(ui: &mut egui::Ui, report: &crate::oracle_validation::Valid
                 }
             });
         }
+    });
+}
+
+fn assessment_report(ui: &mut egui::Ui, report: &crate::genesis_oos::AssessmentReport) {
+    ui.heading("GENESIS / frozen frontier held-out assessment");
+    ui.label("SIMULATED · no automatic selection/deployment · caller state not authenticated");
+    ui.label(format!("Training ends {} ms / held-out {} to {} ms / {} assessed / {} frontier candidates unassessed",report.training_end_ms,report.held_out_start_ms,report.held_out_end_ms,report.assessments.len(),report.unassessed_frontier_candidates));
+    ui.label(&report.selection_basis);
+    copy_report(ui, "Copy held-out candidate report JSON", report);
+    ui.collapsing("Assessment limitations", |ui| {
+        for limitation in &report.limitations {
+            ui.label(limitation);
+        }
+    });
+    egui::ScrollArea::vertical().id_salt("candidate_assessment").show(ui,|ui| {
+        for candidate in &report.assessments {ui.push_id(&candidate.candidate_id,|ui| {
+            ui.collapsing(&candidate.candidate_id,|ui| {
+                ui.label(format!("Fixed parameters {:?}; training objectives are caller checkpoint research state, not financial evidence",candidate.parameters));
+                validation_report(ui,&candidate.held_out);
+            });
+        });}
     });
 }

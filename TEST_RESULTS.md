@@ -1,3 +1,24 @@
+# Release verification — 1.7.0-alpha.25
+
+All **418 offline desktop-feature all-target release-version tests pass**.
+Four frozen-frontier regressions cover repeatability, no deployment/evidence
+permission, chronology/context/completion refusal, selection independence from
+held-out prices and combined candidate/fold/scenario budgets. The real CLI test
+verifies input/checkpoint preservation and no engine storage/wallet even with an
+invalid key and live flag. Existing 413 regressions remain green.
+Formatting and Clippy complete with warnings. Fresh dependency audit exits 0:
+zero vulnerability entries and one existing Chrono maintenance warning, no ignores.
+Native Windows builds and extracted packages are verified before publication.
+No real-account requests, signed network calls, orders or transfers were used.
+
+Alpha.24 passed all four tagged jobs for source
+`5297238f74d217e2ef945aa17b5f325a8cbf73c3`:
+[Verified CI](https://github.com/ShamelesAbyss/Hydra/actions/runs/45741660923).
+All five asset digests/download links match. Extracted Windows packages pass twelve
+smoke checks; Linux bytes/checksum/memorial match the tagged job. Live GitHub checks
+exposed third-party static badge image failures; alpha.25 replaces static badges
+with repository-owned SVGs while retaining the actual dynamic CI badge.
+
 # Release verification — 1.7.0-alpha.24
 
 All **413 offline desktop-feature all-target release-version tests pass**.

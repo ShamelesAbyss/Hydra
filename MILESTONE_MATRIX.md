@@ -3,7 +3,7 @@
 This is the current acceptance ledger, not a release counter. Reviewed against the
 owner's original directive (sections 7–28 and strategic order in section 30), the
 seven major milestones in IMPLEMENTATION_PLAN.md, actual source and tests through
-alpha.24. **No original major milestone is fully certified complete.** Alpha.11–20
+alpha.25. **No original major milestone is fully certified complete.** Alpha.11–20
 were predominantly NEXUS evidence increments; further optional forensic refinement
 must not monopolize development while independent work remains.
 
@@ -36,7 +36,7 @@ must not monopolize development while independent work remains.
 | **M3 independent engine / desktop** — native Windows; headless/TUI; genuine telemetry; reconnect; secure IPC; responsive rendering | eframe/glow cockpit, background read-only SQLite snapshots, telemetry CLI, independent engine lifetime | Native executable smoke/captures; telemetry_cli; tui_smoke; read-only history tests | Authenticated control IPC, persistent layouts, richer portfolio/configuration workspaces, DPI/resize/fallback/performance qualification | Writable controls require authenticated ownership/authorization; **read-only workspaces do not** | Installer and optional renderer/effects | Research validation interfaces; secure IPC design |
 | **M4 shared planning / risk** — shared deterministic planner; Passivbot kernels; bounded grids/scaling; arbitration; independent Aegis | Pure offline arbitration/basic EMA Anchor; offline portfolio analysis; existing divergence/momentum/mean-reversion strategies; persistent Aegis reservations/drawdown; original-R context | strategy/indicator tests; aegis_integration; reservation_reconciliation; atomic_admission | Live/replay planner integration; adaptive EMA Anchor; grids/trailing state; net-position ownership/arbitration; protective exchange orders; liquidation/correlation models | Planner/ownership before live multi-strategy scaling; budget constraints before any grid | Optional strategy variants and acceleration | Integrate pure planning with live/replay consumers under unchanged risk gates; verify fixture parity |
 | **M5 discovery / cognition** — approved markets; liquidity/cost ranking; hysteresis; sample/recency confidence; attribution; shadow policies | Offline approved-market eligibility/ranking/hysteresis; strict prior-outcome shadow statistics and strategy/regime attribution; configured-symbol observations; legacy adaptive/regime components; durable context | 8 hunter core tests, hunter_cli isolation; learning_integration and existing indicator/regime tests; telemetry observations | Autonomous Hunter acquisition/live rotation; portfolio-aware discovery; calibrated live confidence and inferred regimes; verified-outcome adaptation | Approved metadata for live selection; verified outcomes for new live learning; **offline ranking/shadow work independent** | Bandits/neural methods without measured justification | Inferred/calibrated regime evaluation and portfolio-aware discovery |
-| **M6 Oracle / Genesis** — historical integrity/provenance; realistic costs; shared parity; walk-forward/OOS; resumable multiobjective search | Deterministic next-bar Oracle, fixed fees/slippage and conservative stops; seeded CPU Genesis/Pareto search with generation checkpoint/resume; fixed-parameter held-out cost scenarios | oracle_integration, oracle_validation, genesis_integration, checkpoint_tests, genesis_checkpoint_cli, research_cli; native research report rendering | Train/select/test walk-forward and candidate OOS, dataset manifests, funding/partial-fill/latency/portfolio models, NSGA-II | Shared planner for parity; trustworthy data for broader models; **walk-forward and checkpoints independent now** | GPU until CPU parity and benchmark justification | Bounded candidate assessment on chronologically later held-out data |
+| **M6 Oracle / Genesis** — historical integrity/provenance; realistic costs; shared parity; walk-forward/OOS; resumable multiobjective search | Deterministic next-bar Oracle, fixed fees/slippage and conservative stops; seeded CPU Genesis/Pareto search with generation checkpoint/resume; fixed-parameter held-out cost scenarios | oracle_integration, oracle_validation, genesis_integration, checkpoint_tests, genesis_checkpoint_cli, genesis_oos, genesis_oos_cli, research_cli; native research report rendering | Train/select/test walk-forward and independently sourced OOS certification, dataset manifests, funding/partial-fill/latency/portfolio models, NSGA-II | Shared planner for parity; trustworthy data for broader models; **walk-forward and checkpoints independent now** | GPU until CPU parity and benchmark justification | Visual campaign: measured optimization progress and integrated research views |
 | **M7 visual workspaces / distribution** — all seven functional workspaces; meaningful analytical geometry; true event animation; onboarding; original assets; packaging | Original SVG identity, seven-head topology, event-backed refresh pulses, Hunter Radar and liquidity map, FANG/COGNITION/AEGIS offline panels, Oracle/Genesis plots, searchable records, portable artifacts/checksums | Actual native captures; GUI smoke; dark/light README and asset checks; four CI jobs; package smoke | Richer charts/risk stress heatmap, settings/security, layout persistence, authenticated management, measured rendering | Genuine input services per workspace; authenticated IPC for commands; no fake activity or results | Decorative effects, installer/code signing until foundation qualifies | Research scenario/OOS panels, then risk/shadow panels |
 
 ## Head-by-head progression queue
@@ -49,7 +49,7 @@ must not monopolize development while independent work remains.
 | AEGIS | Persistent hard limits/reservations; offline portfolio concentration/correlation diagnostics | Stress scenarios and portfolio-aware research selection | Native protective orders, liquidation/margin/funding-aware gates and operational qualification |
 | NEXUS | Extensive conservative execution evidence | Prioritize complete settlement/recovery/credentials over additional report refinements | Unattended live certification remains blocked; no hold bypass |
 | ORACLE | Deterministic replay and fixed-parameter held-out cost scenarios with native comparison | Data integrity/provenance and richer execution models | Shared parity, funding/queue/partial/latency/portfolio models and reliable datasets |
-| GENESIS | Seeded CPU search/Pareto and immutable generation checkpoint/resume | Later held-out candidate assessment and richer generation visualization | NSGA-II, parallel scheduling and optional GPU only after CPU correctness/parity |
+| GENESIS | CPU search/Pareto, immutable checkpoint/resume and frozen-frontier later held-out assessment | Visual campaign: actual generation/Pareto development in the unified creature | NSGA-II, parallel scheduling and optional GPU only after CPU correctness/parity |
 
 ## Prioritized backlog and cycle policy
 
@@ -121,3 +121,17 @@ an M4 dependency; HUNTER autonomous acquisition and portfolio-aware selection,
 COGNITION inferred/calibrated regimes, AEGIS protective orders, NEXUS financial
 settlement/recovery/credentials and secure control IPC remain open. No major
 milestone is fully certified and no live financial safeguard is relaxed.
+
+### Alpha.25 / M6 reassessment and owner-directed sequence change
+
+All seven rows reviewed. The current engineering slice adds frozen-training-frontier
+assessment on strictly later held-out history/test data with combined resource caps,
+shared candidate configuration and native/CLI comparison. It does not certify unseen
+data, checkpoint authenticity, full walk-forward fitting or financial outcomes.
+
+**After alpha.25 publication the normal queue is temporarily suspended by the owner.**
+The next campaign is the unified, genuinely seven-headed native Leviathan described
+in VISUAL_CAMPAIGN.md. Normal engineering blockers/deferred work remain recorded
+above and are not discarded. After visual completion/publication, provide a full
+handoff and pause for explicit owner authorization before returning to that queue.
+No original major milestone is fully certified and no financial safeguard is waived.

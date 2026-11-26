@@ -112,6 +112,21 @@ pub enum Command {
         #[arg(long)]
         options: Option<std::path::PathBuf>,
     },
+    /// Assess a frozen training frontier on chronologically later held-out data.
+    AssessCandidates {
+        #[arg(long)]
+        training: std::path::PathBuf,
+        #[arg(long)]
+        held_out: std::path::PathBuf,
+        #[arg(long)]
+        checkpoint: std::path::PathBuf,
+        #[arg(long)]
+        options: Option<std::path::PathBuf>,
+        #[arg(long)]
+        validation_options: Option<std::path::PathBuf>,
+        #[arg(long, default_value_t = 4)]
+        limit: usize,
+    },
     /// Advance complete optimizer generations and publish an immutable checkpoint.
     OptimizeStep {
         #[arg(long)]
@@ -242,6 +257,44 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         );
         return Ok(());
     }
+    if let Command::AssessCandidates {
+        training,
+        held_out,
+        checkpoint,
+        options,
+        validation_options,
+        limit,
+    } = &cli.cmd
+    {
+        let cfg = AppConfig::load_research(&cli.config, cli.log_level.as_deref())?;
+        let training = crate::research::read_json::<Vec<crate::core::Candle>>(training)?;
+        let held_out = crate::research::read_json::<Vec<crate::core::Candle>>(held_out)?;
+        let checkpoint =
+            crate::research::read_json::<crate::genesis::SearchCheckpoint>(checkpoint)?;
+        let options = options
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::genesis::SearchOptions>(p))
+            .transpose()?
+            .unwrap_or_default();
+        let validation = validation_options
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::oracle_validation::ValidationOptions>(p))
+            .transpose()?
+            .unwrap_or_default();
+        println!(
+            "{}",
+            serde_json::to_string(&crate::genesis_oos::evaluate(
+                &cfg,
+                &training,
+                &held_out,
+                &options,
+                &checkpoint,
+                &validation,
+                *limit
+            )?)?
+        );
+        return Ok(());
+    }
     if let Command::OptimizeStep {
         candles,
         options,
@@ -329,7 +382,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::ValidateResearch { .. }
         | Command::Backtest { .. }
         | Command::Optimize { .. }
-        | Command::OptimizeStep { .. } => {
+        | Command::OptimizeStep { .. }
+        | Command::AssessCandidates { .. } => {
             unreachable!("offline research handled before engine storage setup")
         }
         Command::InitHistory { .. } => unreachable!("handled before configuration setup"),

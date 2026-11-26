@@ -267,14 +267,7 @@ pub fn advance(
         }
         let mut new_ids = Vec::new();
         for parameters in proposed.into_keys() {
-            let mut candidate_config = cfg.clone();
-            candidate_config.strategies.global.enabled_strategies = vec!["momentum".into()];
-            candidate_config.strategies.momentum.enabled = true;
-            candidate_config.strategies.momentum.fast_ema = parameters.fast_ema as usize;
-            candidate_config.strategies.momentum.slow_ema = parameters.slow_ema as usize;
-            candidate_config.strategies.momentum.atr_period = parameters.atr_period as usize;
-            candidate_config.strategies.momentum.min_atr_pct =
-                parameters.min_atr_milli_pct as f64 / 1000.0;
+            let candidate_config = configure_candidate(cfg, &parameters);
             let result = replay(&candidate_config, candles, &options.replay)?;
             let objectives = Objectives {
                 net_return: (result.final_equity - result.initial_equity) / result.initial_equity,
@@ -731,4 +724,15 @@ mod checkpoint_tests {
             .contains("must-not-be-serialized"));
         assert!(advance(&c, &b, &o, Some(&p.checkpoint), 1).is_ok());
     }
+}
+
+pub(crate) fn configure_candidate(cfg: &AppConfig, parameters: &Parameters) -> AppConfig {
+    let mut candidate_config = cfg.clone();
+    candidate_config.strategies.global.enabled_strategies = vec!["momentum".into()];
+    candidate_config.strategies.momentum.enabled = true;
+    candidate_config.strategies.momentum.fast_ema = parameters.fast_ema as usize;
+    candidate_config.strategies.momentum.slow_ema = parameters.slow_ema as usize;
+    candidate_config.strategies.momentum.atr_period = parameters.atr_period as usize;
+    candidate_config.strategies.momentum.min_atr_pct = parameters.min_atr_milli_pct as f64 / 1000.0;
+    candidate_config
 }

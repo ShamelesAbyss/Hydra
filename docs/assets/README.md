@@ -52,3 +52,11 @@ candles, optimizer results, account session or checkpoint file is supplied or sa
 `release-badge.svg` and `audit-badge.svg` are repository-owned point-in-time status
 badges, updated from the release version and checked dependency report. They avoid
 third-party badge-image failures; the CI badge remains the actual workflow badge.
+
+Static test/platform/language/license badges also use local SVGs after observed
+third-party image failures. Test/release/audit values must match checked release
+evidence; platform badges describe shipped targets, not performance certification.
+
+`genesis-held-out-workspace.png` is the actual alpha.25 native eframe/glow framebuffer
+with the held-out-assessment controls selected through application input. No dataset,
+checkpoint, account or results are supplied. This is not concept art or performance.

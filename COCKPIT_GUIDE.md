@@ -66,3 +66,11 @@ last successfully saved checkpoint, generation count and completion state are
 shown with JSON copy. Use that file as the next input with a new output path.
 Existing files are preserved, failed writes never appear as successful saves,
 and the normal full optimizer remains available. See OPTIMIZATION.md.
+
+## GENESIS frozen-frontier assessment (alpha.25)
+
+Select the held-out assessment option, training candles, a completed matching-build
+checkpoint, later held-out data and optional validation options. The background
+worker uses the fixed training frontier; expand each candidate for its actual
+simulated scenario/fold reports. No automatic deployment or unseen-data guarantee
+is implied. See OPTIMIZATION.md and the upcoming VISUAL_CAMPAIGN.md.

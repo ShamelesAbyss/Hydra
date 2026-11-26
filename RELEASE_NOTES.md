@@ -1,31 +1,32 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.24
+# HYDRA — Project Leviathan 1.7.0-alpha.25
 
-GENESIS resumable generation checkpoints and native step controls.
+GENESIS frozen-frontier later held-out assessment.
 Engineering prerelease on main; live-trading readiness remains incomplete.
 
 ## Implemented
 
-- Share full/stepped search with exact random state, candidates, parents and history.
-- Bind checkpoints to dataset, normalized strategy config, options and executable
-  version; exclude wallet/account/runtime paths. Add state corruption checksum,
-  structural/resource validation and JSON float-roundtrip fidelity.
-- Publish synced bytes by an atomic non-replacing hard link into a new destination.
-  Existing checkpoints are never overwritten; unsupported filesystems fail visibly.
-- Add offline `optimize-step` and native complete-generation step/input/output
-  controls with saved-state status and JSON copy. Normal full search remains.
-- Preserve every execution/financial hold and the exact final memorial dedication.
+- Require a completed matching-build/config/data/options training checkpoint.
+- Choose a bounded canonical prefix of its training Pareto frontier before held-out
+  evaluation; every held-out history/test bar must be later than training.
+- Share momentum candidate configuration between training and assessment.
+- Retain full independent scenario/fold reports, chronology and unassessed counts;
+  bound combined candidates/replays/history work/report memory before evaluation.
+- Add offline `assess-candidates` and native GENESIS assessment controls/results.
+- Preserve existing engine, research, financial safeguards and permanent memorial.
 
-Five targeted core tests cover serialized resume parity, completed-state stability,
-context/corruption/schema refusal, secret exclusion/map ordering and immutable file
-publication. Real CLI regression compares resumed/full results and preserves the
-prior checkpoint with an invalid key/live flag but no wallet or engine storage.
-Full test/audit/build/package checks precede publication; no signed requests or
-real-money trading were activated.
+Four core regressions cover repeatability, chronology/context/completion refusal,
+selection independence from held-out prices and combined resource limits. The real
+CLI isolation test verifies local-file-only behavior with invalid key/live flag,
+no checkpoint mutation, no engine storage and no deployment authority.
+Full test/audit/build/package checks precede publication.
 
-## Remaining limits
+## Limits / owner-directed next campaign
 
-Checkpoint hashes detect corruption, not authenticity or financial truth. State is
-build-specific and resumable only at generation boundaries. Hard-link support is
-required; power-loss directory durability depends on the filesystem. Candidate OOS,
-full train/select/test walk-forward, NSGA-II and GPU remain outstanding. All original
-Oracle model limitations remain. No major milestone is fully certified.
+Chronology/hashes do not prove unseen data or checkpoint authenticity. Multiple
+comparisons and all original Oracle model omissions apply. No automatic deployment,
+financial certification, signed requests or real-money trading occurred.
+
+After this release the normal queue is temporarily suspended for the owner's
+unified native seven-headed Leviathan visual campaign (VISUAL_CAMPAIGN.md). After
+that campaign is completed and published, provide the comprehensive handoff and
+pause for explicit authorization before resuming normal engineering.

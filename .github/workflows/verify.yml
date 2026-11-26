@@ -49,7 +49,7 @@ jobs:
           New-Item -ItemType Directory -Path "dist/$name" -Force | Out-Null
           $extension = if ($IsWindows) { '.exe' } else { '' }
           Copy-Item "target/release/hydra$extension" "dist/$name/"
-          Copy-Item README.md,LICENSE,AGENTS.md,MILESTONE_MATRIX.md,HUNTER.md,ANALYTICS.md,CONTRIBUTING.md,CONSOLIDATION.md,PROJECT_STATUS.md,TEST_RESULTS.md,ARCHITECTURE.md,RISK_MANAGEMENT.md,HYPERLIQUID_INTEGRATION.md,COCKPIT_GUIDE.md,BACKTESTING.md,OPTIMIZATION.md,DEPENDENCY_AUDIT.md,RELEASE_NOTES.md "dist/$name/"
+          Copy-Item README.md,LICENSE,AGENTS.md,MILESTONE_MATRIX.md,VISUAL_CAMPAIGN.md,HUNTER.md,ANALYTICS.md,CONTRIBUTING.md,CONSOLIDATION.md,PROJECT_STATUS.md,TEST_RESULTS.md,ARCHITECTURE.md,RISK_MANAGEMENT.md,HYPERLIQUID_INTEGRATION.md,COCKPIT_GUIDE.md,BACKTESTING.md,OPTIMIZATION.md,DEPENDENCY_AUDIT.md,RELEASE_NOTES.md "dist/$name/"
           Copy-Item config "dist/$name/config" -Recurse
           Copy-Item .cursor "dist/$name/.cursor" -Recurse -Force
           New-Item -ItemType Directory -Path "dist/$name/docs" -Force | Out-Null

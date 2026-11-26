@@ -32,3 +32,16 @@ major milestone completion. When successive checkpoints focus on one head, prefe
 independent acceptance work elsewhere over nonblocking refinements. Preserve every
 financial safeguard; defer live certification rather than blocking offline research
 or read-only cockpit work. Never put material after the README memorial.
+
+## Active owner sequence: Project Manifestation
+
+Finish alpha.25, then suspend the normal engineering backlog for the unified native
+seven-headed Leviathan visual campaign in VISUAL_CAMPAIGN.md. Preserve every financial
+safeguard and the memorial. After completing/publishing that visual campaign, provide
+its comprehensive handoff and pause for explicit owner authorization before returning
+to the normal engineering queue. Do not interpret earlier continuous-work guidance as
+permission to bypass this owner-requested post-campaign pause.
+
+Release documentation uses repository-owned SVG status badges. Update release,
+offline-test and dependency-audit values from verified evidence for each release;
+keep the CI badge dynamic. Do not let a static badge imply unverified success.

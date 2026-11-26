@@ -1,3 +1,10 @@
+## 1.7.0-alpha.25 — frozen-frontier held-out candidate assessment
+
+- Freeze a completed training frontier before later held-out evaluation.
+- Share candidate configuration and bound combined candidate/fold/scenario costs.
+- Add offline CLI/native comparisons without deployment or evidence certification.
+- Record the owner's next unified Leviathan visual campaign and post-campaign pause.
+
 ## 1.7.0-alpha.24 — GENESIS resumable generation checkpoints
 
 - Share full and stepped search kernels; retain RNG/candidates/parents/history.

@@ -64,3 +64,5 @@ pub mod diagnostics;
 pub mod diagnostics_ui;
 
 pub mod genesis_checkpoint;
+
+pub mod genesis_oos;
