@@ -732,7 +732,12 @@ impl Cockpit {
                 ui.monospace(&account.account);
                 ui.label(format!(
                     "{}{} active reservations",
-                    account.active_reservations.value, if account.active_reservations.capped {"+"} else {""}
+                    account.active_reservations.value,
+                    if account.active_reservations.capped {
+                        "+"
+                    } else {
+                        ""
+                    }
                 ));
                 ui.label(format!(
                     "Reserved notional: {}",
