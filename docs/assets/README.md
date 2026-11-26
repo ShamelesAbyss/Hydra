@@ -48,3 +48,7 @@ retained separately; all chart values are computed by the actual research kernel
 `genesis-checkpoint-workspace.png` is an actual alpha.24 native eframe/glow capture.
 Alt+7 opens GENESIS and application input enables generation-step controls. No
 candles, optimizer results, account session or checkpoint file is supplied or saved.
+
+`release-badge.svg` and `audit-badge.svg` are repository-owned point-in-time status
+badges, updated from the release version and checked dependency report. They avoid
+third-party badge-image failures; the CI badge remains the actual workflow badge.
