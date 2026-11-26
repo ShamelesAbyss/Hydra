@@ -74,3 +74,16 @@ checkpoint, later held-out data and optional validation options. The background
 worker uses the fixed training frontier; expand each candidate for its actual
 simulated scenario/fold reports. No automatic deployment or unseen-data guarantee
 is implied. See OPTIMIZATION.md and the upcoming VISUAL_CAMPAIGN.md.
+
+
+## Unified Leviathan cockpit (Alpha.26)
+
+Select a dragon head or use Alt+1 through Alt+7. Its workspace opens in the lower
+panel while the creature stays visible. Drag the top edge of the lower panel
+to resize it. Use Source to open existing local history. The Graphics controls
+offer quality, reduced motion, event energy, cadence and window framing.
+
+The Windows desktop build uses WGPU with Glow available as a compatibility
+renderer. Run with `--renderer glow` to select it explicitly. F11 toggles fullscreen.
+The Graphics panel reports the observed renderer and UI update cadence separately
+from CPU time spent building the UI. GPU execution timing is unavailable.

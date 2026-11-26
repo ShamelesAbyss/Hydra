@@ -14,8 +14,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked --features desktop --all-targets
-      - run: cargo build --locked --release --features desktop --bin hydra-cockpit
+      - run: cargo test --locked --features desktop-wgpu --all-targets
+      - run: cargo build --locked --release --features desktop-wgpu --bin hydra-cockpit
   build:
     strategy:
       fail-fast: false

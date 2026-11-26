@@ -1,32 +1,15 @@
-# HYDRA — Project Leviathan 1.7.0-alpha.25
+# HYDRA Project Leviathan 1.7.0-alpha.26
 
-GENESIS frozen-frontier later held-out assessment.
-Engineering prerelease on main; live-trading readiness remains incomplete.
+The first unified cockpit milestone places an original procedural seven-headed
+dragon and amethyst heart at the center of the native command center. Select a
+head by clicking it or pressing Alt+1 through Alt+7. The selected workspace opens
+below the creature. The detail area is resizable.
 
-## Implemented
+The Windows desktop build offers WGPU and a Glow compatibility renderer.
+Graphics settings control scene detail, motion and update cadence. Colored
+energy follows local research. Silver pips reflect recorded database changes.
+Local history cannot establish current exchange connectivity or settlement.
 
-- Require a completed matching-build/config/data/options training checkpoint.
-- Choose a bounded canonical prefix of its training Pareto frontier before held-out
-  evaluation; every held-out history/test bar must be later than training.
-- Share momentum candidate configuration between training and assessment.
-- Retain full independent scenario/fold reports, chronology and unassessed counts;
-  bound combined candidates/replays/history work/report memory before evaluation.
-- Add offline `assess-candidates` and native GENESIS assessment controls/results.
-- Preserve existing engine, research, financial safeguards and permanent memorial.
-
-Four core regressions cover repeatability, chronology/context/completion refusal,
-selection independence from held-out prices and combined resource limits. The real
-CLI isolation test verifies local-file-only behavior with invalid key/live flag,
-no checkpoint mutation, no engine storage and no deployment authority.
-Full test/audit/build/package checks precede publication.
-
-## Limits / owner-directed next campaign
-
-Chronology/hashes do not prove unseen data or checkpoint authenticity. Multiple
-comparisons and all original Oracle model omissions apply. No automatic deployment,
-financial certification, signed requests or real-money trading occurred.
-
-After this release the normal queue is temporarily suspended for the owner's
-unified native seven-headed Leviathan visual campaign (VISUAL_CAMPAIGN.md). After
-that campaign is completed and published, provide the comprehensive handoff and
-pause for explicit authorization before resuming normal engineering.
+Ashlan's inscription is beneath the heart. The permanent README dedication
+and automated distribution checks continue to apply. The normal engineering
+queue remains suspended while the visual campaign progresses.

@@ -10,16 +10,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-const BG: Color32 = Color32::from_rgb(6, 10, 15);
-const PANEL: Color32 = Color32::from_rgb(12, 19, 27);
+const BG: Color32 = Color32::from_rgb(5, 7, 13);
+const PANEL: Color32 = Color32::from_rgb(10, 12, 22);
 const TEXT: Color32 = Color32::from_rgb(219, 234, 241);
-const MUTED: Color32 = Color32::from_rgb(119, 144, 157);
+const MUTED: Color32 = Color32::from_rgb(139, 145, 169);
 const EMERALD: Color32 = Color32::from_rgb(58, 232, 165);
 const CYAN: Color32 = Color32::from_rgb(54, 205, 245);
 const AMBER: Color32 = Color32::from_rgb(246, 188, 83);
 const HEADS: [(&str, &str, Color32); 7] = [
     ("HUNTER", "Market eligibility & ranking", CYAN),
-    ("FANG", "Planning & strategy evidence", AMBER),
+    (
+        "FANG",
+        "Planning & strategy evidence",
+        Color32::from_rgb(247, 95, 105),
+    ),
     (
         "COGNITION",
         "Confidence & shadow policies",
@@ -34,12 +38,12 @@ const HEADS: [(&str, &str, Color32); 7] = [
     (
         "ORACLE",
         "Historical research status",
-        Color32::from_rgb(237, 129, 189),
+        Color32::from_rgb(208, 199, 247),
     ),
     (
         "GENESIS",
         "Optimization status",
-        Color32::from_rgb(207, 119, 248),
+        Color32::from_rgb(244, 127, 224),
     ),
 ];
 
@@ -54,6 +58,19 @@ enum Workspace {
 type SnapshotResponse = (PathBuf, Result<TelemetrySnapshot, String>);
 
 pub struct Cockpit {
+    started: Instant,
+    last_frame: Option<Instant>,
+    last_frame_number: Option<u64>,
+    frame_stats: crate::leviathan_state::FrameStats,
+    quality: crate::leviathan_scene::SceneQuality,
+    reduced_motion: bool,
+    frame_limit: u32,
+    details_height: f32,
+    show_graphics: bool,
+    borderless: bool,
+    renderer: String,
+    research_changed_at: [Option<Instant>; 7],
+
     research: crate::research_ui::ResearchWorkspace,
     hunter: crate::hunter_ui::HunterWorkspace,
     diagnostics: crate::diagnostics_ui::DiagnosticWorkspace,
@@ -75,6 +92,24 @@ pub struct Cockpit {
 }
 
 impl Cockpit {
+    pub fn configure_presentation(
+        &mut self,
+        quality: crate::leviathan_scene::SceneQuality,
+        reduced_motion: bool,
+        frame_limit: u32,
+    ) {
+        self.quality = quality;
+        self.reduced_motion = reduced_motion;
+        self.frame_limit = frame_limit.clamp(15, 144);
+        self.frame_stats.clear();
+    }
+    pub fn measured_frames(&self) -> Option<crate::leviathan_state::FrameSummary> {
+        self.frame_stats.summary()
+    }
+    pub fn renderer_info(&self) -> &str {
+        &self.renderer
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>, path: PathBuf) -> Self {
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = BG;
@@ -83,7 +118,26 @@ impl Cockpit {
         visuals.selection.bg_fill = Color32::from_rgb(18, 69, 63);
         visuals.widgets.noninteractive.bg_fill = PANEL;
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(31, 49, 62));
+        visuals.selection.bg_fill = Color32::from_rgb(61, 35, 87);
         cc.egui_ctx.set_visuals(visuals);
+        let mut style = cc.egui_ctx.style_of(egui::Theme::Dark).as_ref().clone();
+        style.spacing.item_spacing = Vec2::new(8.0, 6.0);
+        style.spacing.button_padding = Vec2::new(10.0, 4.0);
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, FontId::proportional(13.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, FontId::proportional(13.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Heading, FontId::proportional(21.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Monospace, FontId::monospace(12.0));
+        cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
+        cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
+
         let (requests, rx) = mpsc::sync_channel::<PathBuf>(1);
         let (tx, responses) = mpsc::sync_channel::<SnapshotResponse>(1);
         let ctx = cc.egui_ctx.clone();
@@ -102,6 +156,19 @@ impl Cockpit {
             })
             .expect("create read-only telemetry worker");
         let mut app = Self {
+            started: Instant::now(),
+            last_frame: None,
+            last_frame_number: None,
+            frame_stats: crate::leviathan_state::FrameStats::default(),
+            quality: crate::leviathan_scene::SceneQuality::High,
+            reduced_motion: false,
+            frame_limit: 60,
+            details_height: 280.0,
+            show_graphics: false,
+            borderless: true,
+            renderer: crate::desktop_renderer::renderer_description(cc),
+            research_changed_at: [None; 7],
+
             research: crate::research_ui::ResearchWorkspace::default(),
             hunter: crate::hunter_ui::HunterWorkspace::default(),
             diagnostics: crate::diagnostics_ui::DiagnosticWorkspace::default(),
@@ -156,19 +223,7 @@ impl Cockpit {
             }
         }
     }
-    fn header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("HYDRA").size(29.0).strong().color(EMERALD));
-            ui.label(RichText::new("PROJECT LEVIATHAN").size(15.0).color(TEXT));
-            ui.separator();
-            ui.label(
-                RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                    .monospace()
-                    .color(MUTED),
-            );
-            ui.label(RichText::new("READ ONLY").strong().color(CYAN));
-            ui.label(RichText::new("No wallet access · no exchange writes").color(MUTED));
-        });
+    fn source_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("SQLite source");
             ui.add(egui::TextEdit::singleline(&mut self.database_input).desired_width(420.0));
@@ -201,56 +256,13 @@ impl Cockpit {
             );
         }
     }
-    fn navigation(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(8.0);
-        nav(
-            ui,
-            &mut self.workspace,
-            Workspace::Overview,
-            "COMMAND CENTER",
-            EMERALD,
-        );
-        ui.add_space(10.0);
-        ui.label(RichText::new("SEVEN HEADS").small().color(MUTED));
-        for (i, (name, description, color)) in HEADS.iter().enumerate() {
-            if ui
-                .selectable_label(
-                    self.workspace == Workspace::Head(i),
-                    RichText::new(*name).color(*color).strong(),
-                )
-                .clicked()
-            {
-                self.workspace = Workspace::Head(i);
-            }
-            ui.label(RichText::new(*description).small().color(MUTED));
-            ui.add_space(8.0);
-        }
-        ui.separator();
-        nav(
-            ui,
-            &mut self.workspace,
-            Workspace::Positions,
-            "PORTFOLIO / POSITIONS",
-            TEXT,
-        );
-        nav(
-            ui,
-            &mut self.workspace,
-            Workspace::BlackBox,
-            "BLACK BOX",
-            TEXT,
-        );
-        nav(
-            ui,
-            &mut self.workspace,
-            Workspace::Source,
-            "SOURCE / SCHEMA",
-            TEXT,
-        );
-        ui.add_space(16.0);
-        ui.label(RichText::new("Viewer lifecycle is independent of the engine. Closing this window sends no stop or trading command.").small().color(MUTED));
-    }
     fn body(&mut self, ui: &mut egui::Ui) {
+        if self.workspace == Workspace::Source
+            || (self.workspace == Workspace::Overview && self.snapshot.is_none())
+        {
+            self.source_controls(ui);
+        }
+
         if let Workspace::Head(index @ (1..=3)) = self.workspace {
             ui.heading(RichText::new(HEADS[index].0).color(HEADS[index].2));
             self.diagnostics.show(ui, index);
@@ -285,7 +297,7 @@ impl Cockpit {
             return;
         }
         let Some(data) = self.snapshot.clone() else {
-            ui.add_space(50.0);
+            ui.add_space(6.0);
             ui.heading("Connect to your local engine history");
             ui.label(
                 "Enter the path to an existing Hydra SQLite database and select Open read-only.",
@@ -310,7 +322,7 @@ impl Cockpit {
                 }
             }
             ui.add_space(20.0);
-            self.hydra(ui, None);
+
             return;
         };
         if self.error.is_some() {
@@ -421,7 +433,7 @@ impl Cockpit {
                 HEADS[2].2,
             );
         });
-        self.hydra(ui, Some(data));
+
         if let Some(session) = &data.latest_session {
             ui.label(
                 RichText::new(format!(
@@ -453,143 +465,414 @@ impl Cockpit {
         ui.heading("Latest persisted decisions");
         signals(ui, data, "");
     }
-    fn hydra(&mut self, ui: &mut egui::Ui, data: Option<&TelemetrySnapshot>) {
-        let width = ui.available_width().max(400.0);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 260.0), Sense::hover());
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 10, PANEL);
-        for i in 0..=20 {
-            let x = rect.left() + rect.width() * i as f32 / 20.0;
-            painter.line_segment(
-                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                Stroke::new(0.5, Color32::from_rgb(17, 35, 43)),
-            );
+    fn head_states(&self) -> [crate::leviathan_state::HeadState; 7] {
+        use crate::leviathan_state::{HeadInputs, HeadState};
+        let mut evidence: [HeadInputs; 7] = std::array::from_fn(|_| HeadInputs {
+            source_available: self.snapshot.is_some(),
+            waiting_for_data: true,
+            ..Default::default()
+        });
+        if let Some(data) = &self.snapshot {
+            evidence[0].observations_available = !data.signals.is_empty();
+            evidence[1].observations_available = !data.signals.is_empty();
+            evidence[2].observations_available =
+                data.count("trade_context").is_some_and(|v| v.value > 0);
+            evidence[3].observations_available = !data.risk_accounts.is_empty();
+            evidence[3].blocked = data
+                .risk_accounts
+                .iter()
+                .any(|v| v.breaker_reason.is_some());
+            evidence[4].observations_available = !data.intents.is_empty() || !data.fills.is_empty();
+            evidence[4].warning = data.intents.iter().any(|v| {
+                matches!(
+                    v.state.as_str(),
+                    "submitted" | "unresolved" | "unknown" | "ambiguous"
+                )
+            });
         }
-        let anchor = Pos2::new(rect.center().x, rect.bottom() - 38.0);
-        for (i, (name, _, color)) in HEADS.iter().enumerate() {
-            let offset = i as f32 - 3.0;
-            let target = Pos2::new(
-                rect.center().x + offset * rect.width() * 0.13,
-                rect.top() + 58.0 + offset.abs() * 13.0,
+        evidence[4].faulted = self.error.is_some();
+        evidence[0].job_running = self.hunter.running();
+        evidence[0].research_result_available = self.hunter.report().is_some();
+        evidence[0].faulted = self.hunter.error().is_some();
+        if let Some(head) = self.diagnostics.running_head() {
+            evidence[head].job_running = true;
+        }
+        if let Some(head) = self.diagnostics.report_head() {
+            evidence[head].research_result_available = true;
+        }
+        if let Some(head) = self.diagnostics.error_head() {
+            evidence[head].faulted = true;
+        }
+        if let Some(crate::diagnostics::DiagnosticReport::Aegis(r)) = self.diagnostics.report() {
+            evidence[3].warning = !r.breaches.is_empty() || !r.unknowns.is_empty();
+        }
+        if let Some(head) = self.research.running_head() {
+            evidence[head].job_running = true;
+        }
+        if let Some(head) = self.research.error_head() {
+            evidence[head].faulted = true;
+        }
+        evidence[5].last_result_simulated = self.research.oracle_ready();
+        evidence[6].last_result_simulated = self.research.genesis_ready();
+        evidence.map(HeadState::classify)
+    }
+    fn active_jobs(&self) -> usize {
+        usize::from(self.hunter.running())
+            + usize::from(self.diagnostics.running_head().is_some())
+            + usize::from(self.research.running_head().is_some())
+    }
+    fn command_bar(&mut self, ui: &mut egui::Ui, states: &[crate::leviathan_state::HeadState; 7]) {
+        let drag = ui.interact(
+            ui.max_rect(),
+            ui.id().with("native-title-drag"),
+            Sense::click_and_drag(),
+        );
+        if drag.drag_started() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+        if drag.double_clicked() {
+            let maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        }
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("HYDRA")
+                    .size(28.0)
+                    .strong()
+                    .color(Color32::from_rgb(206, 174, 255)),
             );
-            let pulse = if self.animate_updates {
-                self.changed_at[i]
-                    .map(|at| 1.0 - (at.elapsed().as_secs_f32() / 3.0).min(1.0))
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            };
-            let available = match i {
-                5 => self.research.oracle_ready(),
-                6 => self.research.genesis_ready(),
-                _ => data.is_some_and(|d| match i {
-                    0 | 1 => d.has_table("signals"),
-                    2 => d.has_table("trade_context"),
-                    3 => d.has_table("aegis_accounts"),
-                    4 => d.has_table("execution_intents"),
-                    _ => false,
-                }),
-            };
-            let active_color = if available {
-                *color
-            } else {
-                Color32::from_rgb(66, 76, 94)
-            };
-            let mut points = Vec::new();
-            for j in 0..=24 {
-                let t = j as f32 / 24.0;
-                let bend = (t * std::f32::consts::PI).sin() * offset * 12.0;
-                points.push(Pos2::new(
-                    anchor.x + (target.x - anchor.x) * t + bend,
-                    anchor.y + (target.y - anchor.y) * t,
-                ));
-            }
-            painter.add(egui::Shape::line(
-                points.clone(),
-                Stroke::new(7.0, active_color.gamma_multiply(0.10 + pulse * 0.10)),
-            ));
-            painter.add(egui::Shape::line(
-                points.clone(),
-                Stroke::new(1.5, active_color.gamma_multiply(0.7)),
-            ));
-            if pulse > 0.0 {
-                let index = ((1.0 - pulse) * 24.0) as usize;
-                painter.circle_filled(points[index.min(24)], 3.0, active_color);
-                ui.ctx().request_repaint_after(Duration::from_millis(33));
-            }
-            let head = vec![
-                target + Vec2::new(0.0, -21.0),
-                target + Vec2::new(20.0, -6.0),
-                target + Vec2::new(13.0, 16.0),
-                target + Vec2::new(0.0, 23.0),
-                target + Vec2::new(-13.0, 16.0),
-                target + Vec2::new(-20.0, -6.0),
-            ];
-            painter.add(egui::Shape::convex_polygon(
-                head,
-                Color32::from_rgb(10, 23, 29),
-                Stroke::new(
-                    if self.workspace == Workspace::Head(i) {
-                        2.5
+            ui.label(
+                RichText::new("PROJECT  /  LEVIATHAN")
+                    .size(16.0)
+                    .color(TEXT),
+            );
+            ui.label(
+                RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                    .small()
+                    .color(MUTED),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button("×")
+                    .on_hover_text("Close cockpit; the independent engine receives no stop command")
+                    .clicked()
+                {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                if ui.button("□").on_hover_text("Maximize / restore").clicked() {
+                    let value = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Maximized(!value));
+                }
+                if ui.button("—").on_hover_text("Minimize cockpit").clicked() {
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
+                if ui.button("Graphics").clicked() {
+                    self.show_graphics = !self.show_graphics;
+                }
+                if ui
+                    .button(if self.fullscreen {
+                        "Windowed"
                     } else {
-                        1.0
-                    },
-                    active_color,
-                ),
-            ));
-            painter.line_segment(
-                [
-                    target + Vec2::new(-12.0, -4.0),
-                    target + Vec2::new(-4.0, 0.0),
-                ],
-                Stroke::new(2.0, active_color),
-            );
-            painter.line_segment(
-                [target + Vec2::new(12.0, -4.0), target + Vec2::new(4.0, 0.0)],
-                Stroke::new(2.0, active_color),
-            );
-            painter.text(
-                target + Vec2::new(0.0, -35.0),
-                egui::Align2::CENTER_CENTER,
-                *name,
-                FontId::monospace(11.0),
-                active_color,
-            );
-            let hit = egui::Rect::from_center_size(target, Vec2::new(65.0, 95.0));
+                        "Fullscreen"
+                    })
+                    .clicked()
+                {
+                    self.fullscreen = !self.fullscreen;
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+                }
+                ui.label(
+                    RichText::new(chrono::Local::now().format("%H:%M:%S").to_string())
+                        .monospace()
+                        .color(MUTED),
+                );
+            });
+        });
+        ui.horizontal_wrapped(|ui| {
+            pill(ui,"READ ONLY / LOCAL RESEARCH",CYAN);
+            pill(ui,"ENGINE LINK UNVERIFIED",AMBER);
+            if self.loading {pill(ui,"READING LOCAL HISTORY",MUTED);} else if self.snapshot.is_some() {pill(ui,"HISTORY AVAILABLE",EMERALD);} else {pill(ui,"NO LOCAL HISTORY",MUTED);}
+            if self.active_jobs()>0 {pill(ui,&format!("{} LOCAL JOBS",self.active_jobs()),Color32::from_rgb(193,151,255));}
+            let alerts=states.iter().filter(|s|s.is_alert()).count();if alerts>0 {pill(ui,&format!("{alerts} HEAD ALERTS"),AMBER);}
+            if let Some(frame)=self.frame_stats.summary() {ui.label(RichText::new(format!("UI {:.1}/s  •  build {:.2} ms",frame.median_updates_per_second,frame.ui_build_p50_ms)).small().color(MUTED)).on_hover_text("Observed UI cadence and UI-build CPU duration; not GPU execution timing or a trading benchmark.");}
+        });
+        if ui.available_width() < 1800.0 {
+            ui.horizontal_wrapped(|ui| {
+                for (index, (name, _, color)) in HEADS.iter().enumerate() {
+                    if ui
+                        .selectable_label(
+                            self.workspace == Workspace::Head(index),
+                            RichText::new(*name).small().color(*color),
+                        )
+                        .clicked()
+                    {
+                        self.workspace = Workspace::Head(index);
+                    }
+                }
+            });
+        }
+    }
+    fn intelligence_region(
+        &mut self,
+        ui: &mut egui::Ui,
+        states: &[crate::leviathan_state::HeadState; 7],
+    ) {
+        section_title(ui, "INTELLIGENCE", Color32::from_rgb(163, 138, 216));
+        ui.label(
+            RichText::new("SEVEN HEADS / ONE ORGANISM")
+                .small()
+                .color(MUTED),
+        );
+        for (index, (name, description, color)) in HEADS.iter().enumerate() {
+            ui.add_space(6.0);
             if ui
-                .interact(hit, ui.id().with(("head", i)), Sense::click())
-                .on_hover_text(HEADS[i].1)
+                .selectable_label(
+                    self.workspace == Workspace::Head(index),
+                    RichText::new(*name).strong().color(*color),
+                )
                 .clicked()
             {
-                self.workspace = Workspace::Head(i);
+                self.workspace = Workspace::Head(index);
+            }
+            ui.label(
+                RichText::new(states[index].label())
+                    .monospace()
+                    .small()
+                    .color(if states[index].is_alert() {
+                        AMBER
+                    } else {
+                        MUTED
+                    }),
+            )
+            .on_hover_text(states[index].detail());
+            ui.label(
+                RichText::new(*description)
+                    .small()
+                    .color(Color32::from_rgb(101, 111, 139)),
+            );
+        }
+        ui.separator();
+        if let Some(r) = self.hunter.report() {
+            ui.label(RichText::new("RESEARCH WATCHLIST").small().color(CYAN));
+            ui.label(if r.watchlist.is_empty() {
+                "No assets selected".into()
+            } else {
+                r.watchlist.join(" · ")
+            });
+            ui.label(
+                RichText::new(format!("{} supplied observations", r.ranked.len()))
+                    .small()
+                    .color(MUTED),
+            );
+        } else {
+            ui.label(
+                RichText::new("Market snapshot not loaded")
+                    .small()
+                    .color(MUTED),
+            );
+        }
+        if let Some(crate::diagnostics::DiagnosticReport::Cognition(r)) = self.diagnostics.report()
+        {
+            ui.label(
+                RichText::new(format!(
+                    "Shadow research: {} supplied samples",
+                    r.supplied_samples
+                ))
+                .small()
+                .color(HEADS[2].2),
+            );
+        }
+        ui.add_space(8.0);
+        nav(
+            ui,
+            &mut self.workspace,
+            Workspace::Overview,
+            "COMMAND OVERVIEW",
+            TEXT,
+        );
+        nav(
+            ui,
+            &mut self.workspace,
+            Workspace::BlackBox,
+            "EVENT TIMELINE",
+            TEXT,
+        );
+        nav(
+            ui,
+            &mut self.workspace,
+            Workspace::Source,
+            "SOURCE / CONNECTION",
+            TEXT,
+        );
+    }
+    fn protection_region(&mut self, ui: &mut egui::Ui) {
+        section_title(ui, "PROTECTION / EXECUTION", EMERALD);
+        ui.label(
+            RichText::new("READINESS NOT CERTIFIED")
+                .strong()
+                .color(AMBER),
+        );
+        ui.label(
+            RichText::new("No wallet access. No order or risk-release controls.")
+                .small()
+                .color(MUTED),
+        );
+        ui.add_space(12.0);
+        section_title(ui, "OBSERVED LOCAL EVIDENCE", HEADS[4].2);
+        if let Some(data) = &self.snapshot {
+            ui.label(format!("{} position rows", data.positions.len()));
+            ui.label(format!("{} retained intent rows", data.intents.len()));
+            ui.label(format!("{} ledger fills", count_text(data, "ledger_fills")));
+            for account in data.risk_accounts.iter().take(3) {
+                ui.separator();
+                ui.label(RichText::new("RECORDED ACCOUNT SCOPE").small().color(MUTED));
+                ui.monospace(&account.account);
+                ui.label(format!(
+                    "{}{} active reservations",
+                    account.active_reservations.value, if account.active_reservations.capped {"+"} else {""}
+                ));
+                ui.label(format!(
+                    "Reserved notional: {}",
+                    account.reserved_notional.as_deref().unwrap_or("unknown")
+                ));
+                if let Some(reason) = &account.breaker_reason {
+                    ui.colored_label(AMBER, format!("BREAKER: {reason}"));
+                }
+            }
+            if data.risk_accounts.is_empty() {
+                ui.label(
+                    RichText::new("Account scope unavailable")
+                        .small()
+                        .color(MUTED),
+                );
+            }
+            for intent in data.intents.iter().take(4) {
+                let state =
+                    crate::leviathan_state::LifecycleEvidence::from_recorded_status(&intent.state);
+                ui.separator();
+                ui.label(format!("{} / {}", intent.symbol, intent.state));
+                ui.label(RichText::new(state.label()).small().color(MUTED));
+            }
+        } else {
+            ui.label(
+                RichText::new("Portfolio, reservations and execution evidence unavailable.")
+                    .color(MUTED),
+            );
+        }
+        ui.add_space(10.0);
+        if ui.button("Portfolio / positions").clicked() {
+            self.workspace = Workspace::Positions;
+        }
+        if ui.button("Risk diagnostics").clicked() {
+            self.workspace = Workspace::Head(3);
+        }
+        ui.separator();
+        section_title(ui, "SOURCE FRESHNESS", Color32::from_rgb(180, 163, 211));
+        if let Some(last) = self.last_received {
+            ui.label(format!(
+                "Local read {:.1}s ago",
+                last.elapsed().as_secs_f32()
+            ));
+        } else {
+            ui.label("No successful local read");
+        }
+        ui.label(
+            RichText::new("A database read is not an engine heartbeat or current exchange state.")
+                .small()
+                .color(MUTED),
+        );
+        if self.error.is_some() {
+            ui.colored_label(AMBER, "Local source unavailable / read failed");
+            if ui.button("Inspect source details").clicked() {
+                self.workspace = Workspace::Source;
             }
         }
-        painter.circle_filled(anchor, 15.0, Color32::from_rgb(15, 45, 41));
-        painter.circle_stroke(anchor, 15.0, Stroke::new(1.5, EMERALD));
-        painter.text(
-            Pos2::new(rect.left() + 14.0, rect.bottom() - 15.0),
-            egui::Align2::LEFT_CENTER,
-            "SEVEN HEADS / ONE ENGINE",
-            FontId::monospace(11.0),
-            EMERALD,
-        );
-        painter.text(
-            Pos2::new(rect.right() - 14.0, rect.bottom() - 15.0),
-            egui::Align2::RIGHT_CENTER,
-            "PULSES = OBSERVED DATA / COMPLETED RESEARCH",
-            FontId::monospace(10.0),
-            MUTED,
-        );
+        for head in [5, 6] {
+            if let Some(brief) = self.research.brief(head) {
+                ui.separator();
+                ui.label(RichText::new(HEADS[head].0).color(HEADS[head].2));
+                ui.label(RichText::new(brief).small().color(MUTED));
+            }
+        }
+    }
+    fn graphics_controls(&mut self, ui: &mut egui::Ui) {
+        use crate::leviathan_scene::SceneQuality;
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("PRESENTATION");
+            egui::ComboBox::from_id_salt("scene-quality")
+                .selected_text(format!("{:?}", self.quality))
+                .show_ui(ui, |ui| {
+                    for q in [SceneQuality::Low, SceneQuality::Medium, SceneQuality::High] {
+                        ui.selectable_value(&mut self.quality, q, format!("{q:?}"));
+                    }
+                });
+            ui.checkbox(&mut self.reduced_motion, "Reduced motion");
+            ui.checkbox(&mut self.animate_updates, "Event energy");
+            egui::ComboBox::from_id_salt("frame-cadence")
+                .selected_text(format!("{} updates/s target", self.frame_limit))
+                .show_ui(ui, |ui| {
+                    for fps in [15, 30, 60, 120, 144] {
+                        if ui
+                            .selectable_value(
+                                &mut self.frame_limit,
+                                fps,
+                                format!("{fps} updates/s"),
+                            )
+                            .clicked()
+                        {
+                            self.frame_stats.clear();
+                        }
+                    }
+                });
+            if ui
+                .button(if self.borderless {
+                    "Use window frame"
+                } else {
+                    "Use borderless window"
+                })
+                .clicked()
+            {
+                self.borderless = !self.borderless;
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Decorations(!self.borderless));
+            }
+            if ui.button("Close graphics options").clicked() {
+                self.show_graphics = false;
+            }
+        });
+        ui.label(RichText::new(&self.renderer).small().color(MUTED));
+        ui.label(RichText::new("Idle breathing/atmosphere are decorative. Colored energy = actual local research; silver pips = recorded-history changes. Neither proves a live engine link.").small().color(MUTED));
+        if let Some(s) = self.frame_stats.summary() {
+            ui.label(format!("Observed {} UI samples · cadence p50 {:.2} / p95 {:.2} ms · UI-build CPU p50 {:.2} / p95 {:.2} ms · GPU timing unavailable",s.samples,s.cadence_p50_ms,s.cadence_p95_ms,s.ui_build_p50_ms,s.ui_build_p95_ms));
+        }
+        ui.separator();
     }
 }
 
 impl eframe::App for Cockpit {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let frame_start = Instant::now();
+        let frame_number = ui.ctx().cumulative_frame_nr();
+        let new_frame = self.last_frame_number != Some(frame_number);
+        let cadence = if new_frame {
+            self.last_frame_number = Some(frame_number);
+            self.last_frame
+                .replace(frame_start)
+                .map(|last| frame_start.saturating_duration_since(last))
+        } else {
+            None
+        };
         if let Some(index) = self.diagnostics.poll(ui.ctx()) {
-            self.changed_at[index] = Some(Instant::now());
+            self.research_changed_at[index] = Some(frame_start);
         }
         if self.hunter.poll(ui.ctx()) {
-            self.changed_at[0] = Some(Instant::now());
+            self.research_changed_at[0] = Some(frame_start);
+        }
+        if let Some(index) = self.research.poll(ui.ctx()) {
+            self.research_changed_at[index] = Some(frame_start);
         }
         for (index, key) in [
             egui::Key::Num1,
@@ -603,15 +886,9 @@ impl eframe::App for Cockpit {
         .iter()
         .enumerate()
         {
-            if ui
-                .ctx()
-                .input(|input| input.modifiers.alt && input.key_pressed(*key))
-            {
+            if ui.ctx().input(|i| i.modifiers.alt && i.key_pressed(*key)) {
                 self.workspace = Workspace::Head(index);
             }
-        }
-        if let Some(index) = self.research.poll(ui.ctx()) {
-            self.changed_at[index] = Some(Instant::now());
         }
         self.receive();
         if !self.paused && !self.loading && self.last_request.elapsed() >= Duration::from_secs(1) {
@@ -622,64 +899,162 @@ impl eframe::App for Cockpit {
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
         }
-        ui.ctx().request_repaint_after(Duration::from_secs(1));
-        egui::Panel::top("header").show(ui, |ui| self.header(ui));
-        egui::Panel::bottom("footer").show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new(if self.paused {
-                        "VIEWER PAUSED"
-                    } else if self.loading {
-                        "READING LOCAL SNAPSHOT"
-                    } else {
-                        "LOCAL READ-ONLY SNAPSHOT"
-                    })
-                    .monospace()
-                    .color(CYAN),
-                );
-                if let Some(last) = self.last_received {
-                    ui.label(
-                        RichText::new(format!("received {:.1}s ago", last.elapsed().as_secs_f32()))
-                            .small()
-                            .color(MUTED),
-                    );
-                }
-                ui.label(
-                    RichText::new("F11 full screen · refresh ≤1 Hz · no wallet signing")
-                        .small()
-                        .color(MUTED),
-                );
-            });
-        });
-        egui::Panel::left("navigation")
-            .resizable(true)
-            .size_range(205.0..=330.0)
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| self.navigation(ui));
-            });
-        egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    self.body(ui);
+        let states = self.head_states();
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(BG).inner_margin(8)).show(ui,|ui| {
+            let plan=crate::leviathan_layout::UnifiedLayout::for_rect(ui.max_rect(),self.details_height);
+            region(ui,plan.command,"command",false,|ui|self.command_bar(ui,&states));
+            if let Some(rect)=plan.left {region(ui,rect,"intelligence",true,|ui| {egui::ScrollArea::vertical().id_salt("intelligence-scroll").show(ui,|ui|self.intelligence_region(ui,&states));});}
+            if let Some(rect)=plan.right {region(ui,rect,"protection",true,|ui| {egui::ScrollArea::vertical().id_salt("protection-scroll").show(ui,|ui|self.protection_region(ui));});}
+            region(ui,plan.canvas,"leviathan",false,|ui| {
+                let heads=std::array::from_fn(|index| {
+                    let running=if index==0 {self.hunter.running()} else {self.diagnostics.running_head()==Some(index)||self.research.running_head()==Some(index)};
+                    let age=self.research_changed_at[index].map(|at|frame_start.saturating_duration_since(at));
+                    let pulse=if self.animate_updates {crate::leviathan_state::event_pulse(age,self.reduced_motion)} else {0.0};
+                    crate::leviathan_scene::HeadPresentation {name:HEADS[index].0,status:states[index].label(),accent:if states[index]==crate::leviathan_state::HeadState::Faulted {Color32::from_rgb(255,90,119)} else {HEADS[index].2},observation:if self.animate_updates {crate::leviathan_state::event_pulse(self.changed_at[index].map(|at|frame_start.saturating_duration_since(at)),self.reduced_motion)} else {0.0},activity:if self.reduced_motion || !self.animate_updates {0.0} else {pulse.max(if running {0.65}else{0.0})},warning:states[index].is_alert()}
                 });
+                let heart=if self.active_jobs()>0 {"LOCAL RESEARCH / ENGINE LINK UNVERIFIED"} else if self.snapshot.is_some() {"LOCAL HISTORY / EXECUTION READINESS UNVERIFIED"} else {"WAITING FOR DATA / ENGINE LINK UNVERIFIED"};
+                let input=crate::leviathan_scene::SceneInput {heads:&heads,selected:match self.workspace {Workspace::Head(i)=>Some(i),_=>None},time:self.started.elapsed().as_secs_f32(),motion:!self.reduced_motion,quality:self.quality,heart_status:heart};
+                if let Some(index)=crate::leviathan_scene::show(ui,&input) {self.workspace=Workspace::Head(index);}
+            });
+            let handle=egui::Rect::from_min_max(egui::pos2(plan.details.left(),plan.details.top()-5.0),egui::pos2(plan.details.right(),plan.details.top()+3.0));
+            let response=ui.interact(handle,ui.id().with("analysis-resize"),Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeVertical);
+            if response.dragged() {self.details_height=(self.details_height-response.drag_delta().y).clamp(100.0,900.0);}
+            region(ui,plan.details,"details",true,|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    section_title(ui,match self.workspace {Workspace::Overview=>"COMMAND OVERVIEW",Workspace::Head(i)=>HEADS[i].0,Workspace::Positions=>"PORTFOLIO / POSITIONS",Workspace::BlackBox=>"EVENT TIMELINE",Workspace::Source=>"SOURCE / CONNECTION"},Color32::from_rgb(193,163,236));
+                    ui.label(RichText::new("INLINE WORKSPACE / DRAG TOP EDGE TO RESIZE").small().color(MUTED));
+                    if ui.small_button("Overview").clicked() {self.workspace=Workspace::Overview;}
+                    if ui.small_button("Source").clicked() {self.workspace=Workspace::Source;}
+                    if ui.small_button("Timeline").clicked() {self.workspace=Workspace::BlackBox;}
+                    if ui.small_button("Positions").clicked() {self.workspace=Workspace::Positions;}
+                });
+                egui::ScrollArea::both().id_salt("integrated-workspace").auto_shrink([false,false]).show(ui,|ui| {if self.show_graphics {self.graphics_controls(ui);}self.body(ui);});
+            });
+            region(ui,plan.footer,"footer",false,|ui| {ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("SEVEN HEADS. ONE HEART. ONE LEVIATHAN.").small().color(Color32::from_rgb(184,157,225)));
+                ui.label(RichText::new("Alt+1…7 heads · F11 fullscreen · idle motion decorative · colored research / silver history").small().color(MUTED));
+                if self.paused {ui.colored_label(AMBER,"HISTORY VIEW PAUSED");}
+            });});
         });
+        let build = frame_start.elapsed();
+        if let Some(cadence) = cadence {
+            self.frame_stats.record(cadence, build);
+        }
+        let period = if self.reduced_motion {
+            Duration::from_secs(1)
+        } else {
+            Duration::from_secs_f64(1.0 / self.frame_limit.clamp(15, 144) as f64)
+        };
+        ui.ctx()
+            .request_repaint_after(period.saturating_sub(frame_start.elapsed()));
     }
 }
-
 pub fn run(path: PathBuf) -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1440.0, 940.0])
-            .with_min_inner_size([980.0, 680.0]),
-        renderer: eframe::Renderer::Glow,
-        ..Default::default()
-    };
-    eframe::run_native(
-        "HYDRA — PROJECT LEVIATHAN",
-        options,
-        Box::new(move |cc| Ok(Box::new(Cockpit::new(cc, path)))),
+    run_with_options(path, crate::desktop_renderer::Backend::Auto, false, true)
+}
+pub fn run_with_options(
+    path: PathBuf,
+    backend: crate::desktop_renderer::Backend,
+    fullscreen: bool,
+    borderless: bool,
+) -> eframe::Result {
+    run_configured(
+        path,
+        backend,
+        fullscreen,
+        borderless,
+        crate::leviathan_scene::SceneQuality::High,
+        false,
+        60,
     )
+}
+pub fn run_configured(
+    path: PathBuf,
+    backend: crate::desktop_renderer::Backend,
+    fullscreen: bool,
+    borderless: bool,
+    quality: crate::leviathan_scene::SceneQuality,
+    reduced_motion: bool,
+    frame_limit: u32,
+) -> eframe::Result {
+    let attempts = crate::desktop_renderer::attempts(backend)
+        .map_err(|error| eframe::Error::AppCreation(error.into()))?;
+    let mut failure = None;
+    for backend in attempts {
+        let options = crate::desktop_renderer::native_options(backend, fullscreen, borderless)
+            .map_err(|error| eframe::Error::AppCreation(error.into()))?;
+        let database = path.clone();
+        match eframe::run_native(
+            "HYDRA — PROJECT LEVIATHAN",
+            options,
+            Box::new(move |cc| {
+                let mut app = Cockpit::new(cc, database);
+                app.fullscreen = fullscreen;
+                app.borderless = borderless;
+                app.configure_presentation(quality, reduced_motion, frame_limit);
+                Ok(Box::new(app))
+            }),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                eprintln!("Native {} startup failed: {}", backend.name(), error);
+                failure = Some(error);
+            }
+        }
+    }
+    Err(failure.unwrap_or_else(|| {
+        eframe::Error::AppCreation("No native renderer attempt was available".into())
+    }))
+}
+fn region(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    id: &str,
+    framed: bool,
+    contents: impl FnOnce(&mut egui::Ui),
+) {
+    if rect.width() < 1.0 || rect.height() < 1.0 {
+        return;
+    }
+    if framed {
+        ui.painter().rect_filled(rect, 6.0, PANEL);
+        ui.painter().rect_stroke(
+            rect,
+            6.0,
+            Stroke::new(1.0, Color32::from_rgb(43, 33, 65)),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let inner = rect.shrink(if framed { 12.0 } else { 2.0 });
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .id_salt(id)
+            .max_rect(inner)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            ui.set_clip_rect(rect);
+            contents(ui);
+        },
+    );
+}
+fn section_title(ui: &mut egui::Ui, text: &str, color: Color32) {
+    ui.label(
+        RichText::new(text)
+            .monospace()
+            .size(12.0)
+            .strong()
+            .color(color),
+    );
+}
+fn pill(ui: &mut egui::Ui, text: &str, color: Color32) {
+    egui::Frame::new()
+        .fill(Color32::from_rgb(16, 17, 29))
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.35)))
+        .corner_radius(3)
+        .inner_margin(egui::Margin::symmetric(7, 3))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).monospace().size(10.0).color(color));
+        });
 }
 
 fn nav(ui: &mut egui::Ui, current: &mut Workspace, target: Workspace, label: &str, color: Color32) {

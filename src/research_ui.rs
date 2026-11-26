@@ -29,6 +29,7 @@ pub struct ResearchWorkspace {
     assessment_options_path: String,
     assessment_limit: usize,
     assessment: Option<crate::genesis_oos::AssessmentReport>,
+    last_head: Option<usize>,
     checkpoint_mode: bool,
     checkpoint_input: String,
     checkpoint_output: String,
@@ -56,6 +57,7 @@ impl Default for ResearchWorkspace {
             assessment_options_path: String::new(),
             assessment_limit: 4,
             assessment: None,
+            last_head: None,
             checkpoint_mode: false,
             checkpoint_input: String::new(),
             checkpoint_output: String::new(),
@@ -78,6 +80,42 @@ impl Default for ResearchWorkspace {
     }
 }
 impl ResearchWorkspace {
+    pub fn running_head(&self) -> Option<usize> {
+        self.running_head
+    }
+    pub fn error_head(&self) -> Option<usize> {
+        if self.error.is_some() {
+            self.last_head
+        } else {
+            None
+        }
+    }
+    pub fn brief(&self, head: usize) -> Option<String> {
+        if head == 5 {
+            if self.validation_mode {
+                self.validation
+                    .as_ref()
+                    .map(|r| format!("{} cost scenarios / held-out folds", r.scenarios.len()))
+            } else {
+                self.oracle
+                    .as_ref()
+                    .map(|r| format!("{} bars / {} simulated trades", r.bar_count, r.trades.len()))
+            }
+        } else if self.assessment_mode {
+            self.assessment
+                .as_ref()
+                .map(|r| format!("{} held-out candidates", r.assessments.len()))
+        } else {
+            self.genesis.as_ref().map(|r| {
+                format!(
+                    "{} generations / {} candidates",
+                    r.generations.len(),
+                    r.candidates.len()
+                )
+            })
+        }
+    }
+
     pub fn oracle_ready(&self) -> bool {
         self.oracle.is_some() || self.validation.is_some()
     }
@@ -287,6 +325,7 @@ impl ResearchWorkspace {
         if self.receiver.is_some() {
             return;
         }
+        self.last_head = Some(if optimizer { 6 } else { 5 });
         if self.candles_path.trim().is_empty() || self.config_path.trim().is_empty() {
             self.error = Some("Select both strategy configuration and candle dataset paths".into());
             return;

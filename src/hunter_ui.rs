@@ -20,6 +20,16 @@ pub struct HunterWorkspace {
     error: Option<String>,
 }
 impl HunterWorkspace {
+    pub fn running(&self) -> bool {
+        self.receiver.is_some()
+    }
+    pub fn report(&self) -> Option<&HunterReport> {
+        self.report.as_ref()
+    }
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
     pub fn poll(&mut self, ctx: &egui::Context) -> bool {
         let result = self.receiver.as_ref().and_then(|rx| match rx.try_recv() {
             Ok(value) => Some(value),

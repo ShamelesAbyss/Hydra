@@ -12,6 +12,7 @@ use std::{
 
 #[derive(Default)]
 pub struct DiagnosticWorkspace {
+    last_head: Option<usize>,
     path: String,
     anchor: bool,
     receiver: Option<Receiver<Result<DiagnosticReport, String>>>,
@@ -20,6 +21,27 @@ pub struct DiagnosticWorkspace {
     error: Option<String>,
 }
 impl DiagnosticWorkspace {
+    pub fn running_head(&self) -> Option<usize> {
+        self.running_head
+    }
+    pub fn report(&self) -> Option<&DiagnosticReport> {
+        self.report.as_ref()
+    }
+    pub fn report_head(&self) -> Option<usize> {
+        self.report.as_ref().map(|r| match r {
+            DiagnosticReport::Fang(_) | DiagnosticReport::EmaAnchor(_) => 1,
+            DiagnosticReport::Cognition(_) => 2,
+            DiagnosticReport::Aegis(_) => 3,
+        })
+    }
+    pub fn error_head(&self) -> Option<usize> {
+        if self.error.is_some() {
+            self.last_head
+        } else {
+            None
+        }
+    }
+
     pub fn poll(&mut self, ctx: &egui::Context) -> Option<usize> {
         let result = self.receiver.as_ref().and_then(|rx| match rx.try_recv() {
             Ok(r) => Some(r),
@@ -64,6 +86,7 @@ impl DiagnosticWorkspace {
                 ui.label("Snapshot JSON");
                 ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(430.0));
                 if ui.button("Evaluate diagnostics").clicked() {
+                    self.last_head = Some(head);
                     let path = self.path.clone();
                     let context = ui.ctx().clone();
                     let (tx, rx) = mpsc::sync_channel(1);

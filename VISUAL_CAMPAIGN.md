@@ -49,3 +49,22 @@ commit/push main, publish verified executables/checksums, verify exact tagged CI
 Do not call the visual campaign complete until its acceptance is supported by
 implemented behavior and evidence. Unmet target-hardware/performance limits must
 remain explicit; screenshots/concept art are not performance certification.
+
+
+## Alpha.26 first visual checkpoint
+
+The native cockpit now puts the procedural seven-headed creature at the center of
+one window. Clicking a head or pressing Alt+1 through Alt+7 focuses its existing
+workspace below the creature. The detail divider is draggable. Wide layouts show
+intelligence and protection panels, and compact layouts retain head navigation.
+
+Colored energy indicates local research activity. Silver pips indicate changes
+between recorded history snapshots. Neither is a live connection indicator.
+Warnings remain visible with reduced motion. Ashlan's inscription sits below
+the amethyst heart.
+
+The first 2560 × 1440 native capture used the development Glow build and an empty
+local history database. Release WGPU and Glow measurements are still pending.
+The first checkpoint uses a common procedural mesh path on both renderers.
+Shader effects, more distinct facial anatomy, and richer operational visualizations
+remain open. The normal engineering queue stays suspended during this campaign.

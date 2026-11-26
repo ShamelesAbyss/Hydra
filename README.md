@@ -56,6 +56,12 @@ The obsidian interface uses cyan, amber, violet, emerald, blue, rose and orchid 
 
 The cockpit runs independently of the trading engine. Closing its window sends no trading or stop command. First-launch history initialization is an explicit local action that preserves existing files. [Cockpit guide](https://github.com/ShamelesAbyss/Hydra/blob/v1.7.0-alpha.25/COCKPIT_GUIDE.md).
 
+## The unified Leviathan cockpit
+
+<img src="docs/assets/leviathan-first-native.png" width="100%" alt="Actual native Alpha.26 development render of the seven-headed Leviathan cockpit" />
+
+*Alpha.26 development preview captured at 2560 × 1440 with Glow and an empty local history database. Published executables and checksums are listed above.*
+
 <a id="seven-heads"></a>
 ## Seven heads. Distinct responsibilities.
 

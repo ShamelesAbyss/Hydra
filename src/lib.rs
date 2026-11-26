@@ -66,3 +66,13 @@ pub mod diagnostics_ui;
 pub mod genesis_checkpoint;
 
 pub mod genesis_oos;
+
+#[cfg(feature = "desktop")]
+pub mod desktop_renderer;
+
+#[cfg(feature = "desktop")]
+pub mod leviathan_layout;
+#[cfg(feature = "desktop")]
+pub mod leviathan_scene;
+#[cfg(feature = "desktop")]
+pub mod leviathan_state;

@@ -1,6 +1,6 @@
 [package]
 name = "hydra"
-version = "1.7.0-alpha.25"
+version = "1.7.0-alpha.26"
 edition = "2021"
 authors = ["Emergent Labs"]
 description = "HYDRA — Project Leviathan: native Hyperliquid trading engine"
@@ -21,6 +21,7 @@ required-features = ["desktop"]
 
 [features]
 desktop = ["dep:eframe"]
+desktop-wgpu = ["desktop", "eframe/wgpu"]
 
 [profile.release]
 opt-level = 3
