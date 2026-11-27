@@ -79,6 +79,13 @@ impl fmt::Debug for SecretString {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum SigningAccessScope {
+    EngineExclusive,
+    UiReadOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ProtectionBackend {
     /// Windows DPAPI (`CryptProtectData`, current OS user scope).
     WindowsDpapiCurrentUser,
@@ -437,6 +444,61 @@ impl TreasuryStore {
         let s = String::from_utf8(plain)
             .map_err(|_| anyhow!("decrypted credential is invalid UTF-8; key material omitted"))?;
         Ok(SecretString::new(s))
+    }
+
+    /// Requires encrypted-at-rest OS credential backend before granting live signing access.
+    pub fn require_encrypted_credential_backend(&self) -> Result<ProtectionBackend> {
+        let backend = ProtectionBackend::current();
+        ensure!(
+            backend.is_encrypted_at_rest(),
+            "credential backend '{}' does not encrypt signing keys at rest; live authorization denied",
+            backend.label()
+        );
+        Ok(backend)
+    }
+
+    /// Enforces `EngineExclusive` access control for decryption; GUI/research/external callers must use `UiReadOnly`.
+    pub fn load_secret_with_scope(&self, scope: SigningAccessScope) -> Result<SecretString> {
+        ensure!(
+            scope == SigningAccessScope::EngineExclusive,
+            "signing key decryption denied for non-engine scope {:?}; private key omitted",
+            scope
+        );
+        self.require_encrypted_credential_backend()?;
+        self.load_secret_for_local_signer()
+    }
+
+    /// Explicitly revokes live wallet authorization while preserving auditability & stored address identity.
+    pub fn revoke_live_authorization(&self, reason: &str) -> Result<TreasuryProfile> {
+        ensure!(
+            !reason.trim().is_empty(),
+            "revocation reason cannot be empty"
+        );
+        let mut profile = self
+            .load_profile()?
+            .ok_or_else(|| anyhow!("no treasury profile configured"))?;
+        profile.wallet_authorized = false;
+        profile.emergency_suspension_reason = Some(format!("REVOKED: {}", reason.trim()));
+        profile.updated_at = Utc::now().to_rfc3339();
+        self.write_profile(&profile)?;
+        Ok(profile)
+    }
+
+    /// Replaces the local protected signing key and validates wallet ownership without exposing key material.
+    pub fn replace_signing_key_audited(
+        &self,
+        wallet_address: &str,
+        new_private_key: &str,
+    ) -> Result<TreasuryProfile> {
+        let existing = self
+            .load_profile()?
+            .ok_or_else(|| anyhow!("no treasury profile configured to replace"))?;
+        self.save_offering(
+            wallet_address,
+            new_private_key,
+            existing.risk_acknowledged,
+            false, // Always requires fresh re-authorization after key rotation
+        )
     }
 
     /// Securely overwrite and remove stored credentials and profile metadata.
@@ -1675,5 +1737,44 @@ mod tests {
             .find(|m| m.label == "Deposits / Withdrawals")
             .unwrap();
         assert!(deposits.note.contains("never counted as trading profit"));
+    }
+
+    #[test]
+    fn signing_access_scope_and_authorization_revocation_isolate_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = TreasuryStore::new(dir.path().to_path_buf());
+        let derived = derive_address(TEST_KEY).unwrap();
+        let p = store.save_offering(&derived, TEST_KEY, true, true).unwrap();
+        assert!(p.wallet_authorized);
+
+        // UiReadOnly callers are refused decryption cleanly
+        let ui_err = store
+            .load_secret_with_scope(SigningAccessScope::UiReadOnly)
+            .unwrap_err()
+            .to_string();
+        assert!(ui_err.contains("SigningAccessScope") || ui_err.contains("denied"));
+        assert!(!ui_err.contains(&TEST_KEY[2..]));
+
+        // Revocation disables authorization without deleting identity
+        let revoked = store.revoke_live_authorization("operator audit").unwrap();
+        assert!(!revoked.wallet_authorized);
+        assert!(revoked
+            .emergency_suspension_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("REVOKED"));
+
+        // Key rotation resets authorization to false until explicit operator re-approval
+        let rotated = store
+            .replace_signing_key_audited(&derived, TEST_KEY)
+            .unwrap();
+        assert!(!rotated.wallet_authorized);
+
+        if cfg!(windows) {
+            let sec = store
+                .load_secret_with_scope(SigningAccessScope::EngineExclusive)
+                .unwrap();
+            assert_eq!(format!("{sec:?}"), "[REDACTED]");
+        }
     }
 }

@@ -11,12 +11,11 @@
 ### `v1.13.0` — Sovereign Trilogy Milestone I (`PROJECT OMNISCIENCE — COMPLETED`)
 - **Delivered:** Unified `FangUnifiedPlanner` (`fang-registry-v1`, 7 strategies) with verified `tests/fang_parity.rs` across Engine, ORACLE, and Synapse Paper; `hunter_microstructure.rs` (L2 imbalance, Kyle impact, flow imbalance, OI delta, adverse selection, Pearson correlation, liquid empty-watchlist bootstrap); `cognition_stats.rs` (Bayesian R shrinkage, empirical calibration, cost-adjusted EV bps, Page-Hinkley drift detection); `oracle_research.rs` & `genesis_nsga2.rs`; Omniscience UI panels & offline CLI subcommands; and `v1.12.0` audit fixes.
 
-### `v1.14.0` — Sovereign Trilogy Milestone II (`PROJECT IMMORTALITY — NEXT`)
-- **NEXUS Financial Truth & Recovery (M1/M2 Gate):** Complete round-trip entry/exit fee, rebate, funding, and external cash-flow attribution; partial-fill & ambiguous-submission recovery; WebSocket/REST consistency reconciliation; exchange-native protective reduce-only stop-loss architecture (offline/mock transports).
-- **Authenticated Live Engine IPC & Watchdog (M3 Gate):** Extend OS-scoped authenticated control IPC to the main engine (`hydra run`) and wire complete AEGIS liquidation-distance / concentration / stale-mark enforcement.
+### `v1.14.0` — Sovereign Trilogy Milestone II (`PROJECT IMMORTALITY — COMPLETED`)
+- **Delivered:** Authoritative FIFO `Decimal` settlement (`src/settlement.rs`), REST/WS execution recovery (`src/execution_recovery.rs`), exchange-native `reduce_only` protective stops authorized even when entries are blocked (`src/protective_orders.rs`), fail-closed AEGIS sovereign risk (`src/aegis_sovereign.rs`), `SigningAccessScope` Treasury isolation (`src/treasury.rs`), authenticated main-engine IPC (`src/engine_ipc.rs`), 5-pillar `PendingCertification` readiness evaluation (`src/live_gate.rs`, `hydra certification-status`), and `tests/immortality_suite.rs`.
 
-### `v1.15.0+` — Sovereign Trilogy Milestone III (`PROJECT SOVEREIGNTY & `v2.0.0` GATE`)
-- **Extended Paper-Trading Qualification & Distribution Security:** Run multi-day/multi-week continuous public-market `paper-service` qualification campaigns recording uptime, costs, funding, drawdown, and fault recovery; configure dedicated offline/CI `secp256k1` release-signing keys for LEVIATHAN EVOLUTION; audit `v2.0.0` acceptance gates strictly on verified evidence.
+### `v1.15.0` — Sovereign Trilogy Milestone III (`PROJECT SOVEREIGNTY — NEXT` & `v2.0.0` GATE)
+- **External Watchdog, Fault Injection & Qualification:** Implement external OS-locked watchdog supervision with post-restart revalidation (`src/watchdog.rs`), 10-scenario fault-injection campaign, honest-elapsed qualification reporting, scientific strategy acceptance gating, priority worker resource isolation (`src/qualification.rs`), formal `READINESS_V2.md` readiness audit, and owner setup contract for `secp256k1` release signing.
 
 ---
 

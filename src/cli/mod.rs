@@ -256,6 +256,16 @@ pub enum Command {
         #[arg(long, default_value_t = 7)]
         seed: u64,
     },
+    /// Inspect Project Immortality certification pillar readiness (always fails closed while PendingCertification).
+    CertificationStatus {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Audit a local settlement fixture (fills, fees/rebates, funding coverage, deposits/withdrawals).
+    SettlementAudit {
+        #[arg(long)]
+        fixture: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -599,6 +609,30 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&rep)?);
         return Ok(());
     }
+    if let Command::CertificationStatus { json } = &cli.cmd {
+        let checklist = crate::live_gate::evaluate_certification_readiness();
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&checklist)?);
+        } else {
+            println!(
+                "HYDRA LIVE CERTIFICATION: {} (live_trading_authorized={})",
+                checklist.overall_status, checklist.live_trading_authorized
+            );
+            for p in &checklist.pillars {
+                println!(
+                    "  [Pillar {}] {:?} — {} ({})",
+                    p.index, p.status, p.pillar, p.evidence
+                );
+            }
+        }
+        return Ok(());
+    }
+    if let Command::SettlementAudit { fixture } = &cli.cmd {
+        let fix = crate::research::read_json::<crate::settlement::SettlementFixture>(fixture)?;
+        let rep = crate::settlement::audit_settlement_fixture(fix)?;
+        println!("{}", serde_json::to_string_pretty(&rep)?);
+        return Ok(());
+    }
     if let Command::BindHistory {
         db,
         account,
@@ -901,7 +935,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::FangRegistry { .. }
         | Command::CognitionStats { .. }
         | Command::OraclePortfolio { .. }
-        | Command::GenesisNsga2 { .. } => {
+        | Command::GenesisNsga2 { .. }
+        | Command::CertificationStatus { .. }
+        | Command::SettlementAudit { .. } => {
             unreachable!("handled above")
         }
     }

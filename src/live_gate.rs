@@ -172,6 +172,70 @@ pub fn certification_summary() -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PillarStatus {
+    OfflineFixtureVerified,
+    PendingExternalValidation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PillarAssessment {
+    pub index: u8,
+    pub pillar: &'static str,
+    pub status: PillarStatus,
+    pub evidence: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CertificationChecklist {
+    pub live_trading_authorized: bool,
+    pub overall_status: &'static str,
+    pub pillars: Vec<PillarAssessment>,
+}
+
+/// Evaluates current evidence-backed status across all 5 certification pillars.
+/// Real-money execution stays strictly locked (`live_trading_authorized: false`) until
+/// Pillar 5 external watchdog supervision and multi-day qualification finish & certify.
+pub fn evaluate_certification_readiness() -> CertificationChecklist {
+    CertificationChecklist {
+        live_trading_authorized: false,
+        overall_status: "PendingCertification",
+        pillars: vec![
+            PillarAssessment {
+                index: 1,
+                pillar: "Authoritative net financial settlement",
+                status: PillarStatus::OfflineFixtureVerified,
+                evidence: "src/settlement.rs (FIFO partial fills, fees/rebates, position funding, external cash flow separation, exactly-once learning)",
+            },
+            PillarAssessment {
+                index: 2,
+                pillar: "Exchange and restart order recovery",
+                status: PillarStatus::OfflineFixtureVerified,
+                evidence: "src/execution_recovery.rs (RestWsConsistency, partial fills, cloid dedup, blind-retry prohibition, ownership reconciliation)",
+            },
+            PillarAssessment {
+                index: 3,
+                pillar: "Native protective orders and sovereign risk",
+                status: PillarStatus::OfflineFixtureVerified,
+                evidence: "src/protective_orders.rs & src/aegis_sovereign.rs (reduce-only stops under blocked entries, fail-closed sovereign risk)",
+            },
+            PillarAssessment {
+                index: 4,
+                pillar: "Authenticated engine IPC and credential isolation",
+                status: PillarStatus::OfflineFixtureVerified,
+                evidence: "src/engine_ipc.rs & src/treasury.rs (token/nonce/freshness IPC, DPAPI encryption requirement, UiReadOnly scope denial)",
+            },
+            PillarAssessment {
+                index: 5,
+                pillar: "External watchdog supervision and extended paper qualification",
+                status: PillarStatus::PendingExternalValidation,
+                evidence: "Project Sovereignty (v1.15.0): external watchdog process & multi-day public paper qualification pending",
+            },
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,3 +1,12 @@
+## 1.14.0 — v1.14.0 | PROJECT IMMORTALITY — FINANCIAL TRUTH & SOVEREIGN PROTECTION
+
+- **NEXUS Authoritative Financial Settlement (`src/settlement.rs`, `src/cli/mod.rs`):**
+  Added exact `Decimal` FIFO partial-fill round-trip settlement attributing entry fees, exit fees, maker rebates, and hourly funding windows (`FundingCoverageWindow`), retaining explicit `SettlementHoldReason`s rather than inferring zeros, reconciling external deposits/withdrawals cleanly, enforcing at-most-once `emit_eligible_learning_outcomes`, and exposing `hydra settlement-audit`.
+- **NEXUS Execution Recovery & Exchange-Native Protective Orders (`src/execution_recovery.rs`, `src/protective_orders.rs`):**
+  Added full `OrderLifecycleState` separation, `InstrumentOrderConstraints` tick/lot rounding, duplicate-`cloid` blocking, `check_rest_ws_consistency`, blind-retry refusal on ambiguous submissions, startup ownership recovery, and `ProtectiveOrderManager::reconcile_positions_and_stops` managing `reduce_only: true` stops even when new entries are blocked.
+- **AEGIS Sovereign Risk, Treasury Isolation & Authenticated Engine IPC (`src/aegis_sovereign.rs`, `src/treasury.rs`, `src/engine_ipc.rs`, `src/live_gate.rs`, `tests/immortality_suite.rs`):**
+  Added fail-closed `evaluate_sovereign_admission` (post-fee exposure, correlated clusters, liquidation buffer, funding drag, daily/weekly loss breakers), `SigningAccessScope` (`EngineExclusive` vs `UiReadOnly`) + encrypted-backend guard + `revoke_live_authorization`, OS-scoped replay/nonce/token-protected `EngineIpcServer`, and 5-pillar `evaluate_certification_readiness` (`hydra certification-status`), verified across **527** desktop-wgpu / **481** headless tests while keeping `MODE: DORMANT`, Glow fallback, GitHub compliance, and Ashlan's permanent memorial unchanged.
+
 ## 1.13.0 — v1.13.0 | PROJECT OMNISCIENCE — UNIFIED QUANTITATIVE INTELLIGENCE
 
 - **HUNTER Microstructure & Cross-Market Correlation (`src/hunter_microstructure.rs`, `src/hunter_stream.rs`, `src/hunter_ui.rs`):**
