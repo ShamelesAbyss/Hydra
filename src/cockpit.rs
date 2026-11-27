@@ -20,31 +20,31 @@ const EMERALD: Color32 = Color32::from_rgb(58, 232, 165);
 const CYAN: Color32 = Color32::from_rgb(54, 205, 245);
 const AMBER: Color32 = Color32::from_rgb(246, 188, 83);
 const HEADS: [(&str, &str, Color32); 7] = [
-    ("HUNTER", "Market scanning & ranking", CYAN),
+    ("HUNTER", "Market surveillance & radar", CYAN),
     (
         "FANG",
-        "Strategy planning & intent",
+        "Strategy planning & grids",
         Color32::from_rgb(247, 95, 105),
     ),
     (
         "COGNITION",
-        "Shadow learning & context",
+        "Regime inference & shadow",
         Color32::from_rgb(173, 133, 255),
     ),
-    ("AEGIS", "Risk protection & shields", EMERALD),
+    ("AEGIS", "Risk authority & shields", EMERALD),
     (
         "NEXUS",
-        "Execution & ledger evidence",
+        "Execution & ledger proof",
         Color32::from_rgb(73, 151, 255),
     ),
     (
         "ORACLE",
-        "Backtesting & validation",
+        "Backtesting & data audit",
         Color32::from_rgb(208, 199, 247),
     ),
     (
         "GENESIS",
-        "Optimization & evolution",
+        "Strategy evolution & Pareto",
         Color32::from_rgb(244, 127, 224),
     ),
 ];
@@ -67,6 +67,8 @@ pub struct Cockpit {
     last_frame_number: Option<u64>,
     frame_stats: crate::leviathan_state::FrameStats,
     quality: crate::leviathan_scene::SceneQuality,
+    effective_quality: crate::leviathan_scene::SceneQuality,
+    adaptive_lod: bool,
     reduced_motion: bool,
     frame_limit: u32,
     details_height: f32,
@@ -109,6 +111,7 @@ impl Cockpit {
         frame_limit: u32,
     ) {
         self.quality = quality;
+        self.effective_quality = quality;
         self.reduced_motion = reduced_motion;
         self.frame_limit = frame_limit.clamp(15, 144);
         self.frame_stats.clear();
@@ -185,6 +188,8 @@ impl Cockpit {
             last_frame_number: None,
             frame_stats: crate::leviathan_state::FrameStats::default(),
             quality: crate::leviathan_scene::SceneQuality::High,
+            effective_quality: crate::leviathan_scene::SceneQuality::High,
+            adaptive_lod: true,
             reduced_motion: false,
             frame_limit: 60,
             details_height: 270.0,
@@ -1317,10 +1322,21 @@ impl Cockpit {
             egui::ComboBox::from_id_salt("scene-quality")
                 .selected_text(format!("{:?}", self.quality))
                 .show_ui(ui, |ui| {
-                    for q in [SceneQuality::Low, SceneQuality::Medium, SceneQuality::High] {
-                        ui.selectable_value(&mut self.quality, q, format!("{q:?}"));
+                    for q in [
+                        SceneQuality::Low,
+                        SceneQuality::Medium,
+                        SceneQuality::High,
+                        SceneQuality::Ultra,
+                    ] {
+                        if ui
+                            .selectable_value(&mut self.quality, q, format!("{q:?}"))
+                            .clicked()
+                        {
+                            self.effective_quality = q;
+                        }
                     }
                 });
+            ui.checkbox(&mut self.adaptive_lod, "Adaptive LOD");
             ui.checkbox(&mut self.reduced_motion, "Reduced motion");
             ui.checkbox(&mut self.animate_updates, "Event energy");
             egui::ComboBox::from_id_salt("frame-cadence")
@@ -1358,7 +1374,16 @@ impl Cockpit {
         ui.label(RichText::new(&self.renderer).small().color(MUTED));
         ui.label(RichText::new("Idle breathing/atmosphere are decorative. Colored energy = actual local research; silver pips = recorded-history changes. Neither proves a live engine link.").small().color(MUTED));
         if let Some(s) = self.frame_stats.summary() {
-            ui.label(format!("Observed {} UI samples · cadence p50 {:.2} / p95 {:.2} ms · UI-build CPU p50 {:.2} / p95 {:.2} ms · GPU timing unavailable",s.samples,s.cadence_p50_ms,s.cadence_p95_ms,s.ui_build_p50_ms,s.ui_build_p95_ms));
+            ui.label(format!(
+                "Observed {} UI samples · cadence p50 {:.2} / p95 {:.2} ms · UI-build CPU p50 {:.2} / p95 {:.2} ms · Effective LOD: {:?} ({}) · GPU timing unavailable",
+                s.samples,
+                s.cadence_p50_ms,
+                s.cadence_p95_ms,
+                s.ui_build_p50_ms,
+                s.ui_build_p95_ms,
+                self.effective_quality,
+                if self.adaptive_lod { "adaptive" } else { "locked" }
+            ));
         }
         ui.separator();
     }
@@ -1565,7 +1590,11 @@ impl eframe::App for Cockpit {
                         hovered: self.hovered_head,
                         time: self.started.elapsed().as_secs_f32(),
                         motion: !self.reduced_motion,
-                        quality: self.quality,
+                        quality: if self.adaptive_lod {
+                            self.effective_quality
+                        } else {
+                            self.quality
+                        },
                         heart_status: heart,
                         wgpu_atmosphere: self.wgpu_atmosphere,
                         offering_glow,
@@ -1735,6 +1764,20 @@ impl eframe::App for Cockpit {
         let build = frame_start.elapsed();
         if let Some(cadence) = cadence {
             self.frame_stats.record(cadence, build);
+            // Adaptive LOD protects trading/research responsiveness on weaker GPUs
+            // while allowing high-end GPUs (RTX 4070+) to run smoothly at High/Ultra.
+            if self.adaptive_lod && frame_number.is_multiple_of(60) {
+                if let Some(s) = self.frame_stats.summary() {
+                    if s.samples >= 48 {
+                        if s.cadence_p50_ms > 24.0 {
+                            self.effective_quality = self.effective_quality.step_down();
+                        } else if s.cadence_p50_ms < 14.0 {
+                            self.effective_quality =
+                                self.effective_quality.step_up_toward(self.quality);
+                        }
+                    }
+                }
+            }
         }
         let period = if self.reduced_motion {
             Duration::from_secs(1)

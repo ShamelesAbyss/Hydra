@@ -16,8 +16,8 @@ Obsidian-glass command center · Dedicated OS-protected Treasury · Verified nat
 </div>
 
 > [!IMPORTANT]
-> **Engineering prerelease (`v1.7.0-alpha.29`). Unattended live-trading certification is incomplete.**
-> Exchange integration exists and live execution defaults strictly disabled (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Unresolved orders and unknown net settlement block new exposure. No stable release exists yet; all prior alpha releases remain preserved unchanged as historical checkpoints.
+> **Public Release Foundation (`v1.7.0 | PROJECT LEVIATHAN`). Live-trading safety certification remains incomplete.**
+> Public distribution does **not** constitute certification of unattended live-trading safety. Exchange integration exists and live execution defaults strictly disabled (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Unresolved orders and unknown net settlement block new exposure. All historical `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
 >
 > **Financial Risk Disclosure:** Cryptocurrency perpetual futures involve substantial risk of total capital loss. Entrust Leviathan only with a separate dedicated wallet funded solely with capital you are fully prepared to lose. No strategy, adaptive model, or backtest guarantees profit.
 
@@ -38,9 +38,9 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Track | Current Status | Contents in GitHub Releases |
 | :--- | :--- | :--- |
-| **Latest Development Release** | **`v1.7.0-alpha.29`** (engineering prerelease) | Standalone **`HYDRA-Leviathan-Windows-x64.exe`** (WGPU cockpit + Glow fallback), Windows portable ZIP (`HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, `hydra.exe`), Linux x86_64 headless `tar.gz`, exact-tag source ZIP, and SHA-256 checksum manifests |
-| **Latest Stable Release** | *None yet* | Unattended live-trading certification remains in progress (see [Readiness](#readiness)) |
-| **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous Project Awakening development directly on `main` |
+| **Latest Public Release** | **`v1.7.0 | PROJECT LEVIATHAN`** | Standalone **`HYDRA-Leviathan-Windows-x64.exe`** (reborn PBR WGPU sanctuary + Glow fallback), Windows portable ZIP (`HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, `hydra.exe`), Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
+| **Road to HYDRA 2.0** | Active `v1.x` progression | Iterative public releases advancing toward the generational [`v2.0.0` milestone](ROADMAP_V2.md) |
+| **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous engineering directly on `main` (internal test prereleases never replace Latest) |
 
 - **Windows x64 (Standard Users):** Obtain **`HYDRA-Leviathan-Windows-x64.exe`** from the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) page, verify its SHA-256 hash against the accompanying `SHA256SUMS.txt` manifest, and double-click to launch. No Rust, Python, PowerShell, CLI arguments, repository clone, or ZIP extraction is required. On a clean Windows profile, Hydra initializes `%LOCALAPPDATA%\Hydra\data\hydra.db` automatically and boots safely into `MODE: DORMANT` with trading disabled.
 - **Windows Portable & Linux Headless (Advanced Users):** Portable Windows archives (including the headless/Ratatui `hydra.exe` engine) and verified Ubuntu x86_64 headless `tar.gz` packages are published alongside the standalone executable in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
@@ -57,7 +57,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Surface | Available Today |
 | :--- | :--- |
-| **Unified WGPU Native Cockpit** | Custom WGSL volumetric sanctuary shader with automatic `catch_unwind` Glow fallback, living seven-headed cybernetic dragon, dual-peak Amethyst Heart, obsidian-glass rails, read-only SQLite evidence, `Compact`/`Balanced`/`Expand` analytical drawer, and permanent Ashlan memorial |
+| **Unified WGPU Native Cockpit** | Real-time 2.5D PBR WGSL seven-headed Leviathan shader (overlapping obsidian scales, amethyst sub-scale bioluminescence, sculpted horns/fangs, cursor-tracking slit eyes, backlit wings, dynamic Amethyst Heart point light, `Low`/`Medium`/`High`/`Ultra` + `Adaptive LOD`, automatic Glow fallback) and permanent Ashlan memorial |
 | **Leviathan Treasury & The Offering** | Dedicated-wallet onboarding altar (`Alt+T` / `--treasury`), Windows DPAPI / Unix `0600` local credential vault, read-only public-address Hyperliquid verification, truthful 12-metric portfolio surface, 6 operational modes (`DORMANT`..`SUSPENDED`), and one-click `EMERGENCY SUSPEND` |
 | **Leviathan Evolution (Updates)** | Integrated native update manager (`Alt+U` / `--updates` / `CHECK FOR UPDATES`), GitHub Releases channel filtering (`Stable` / `Development`), SemVer comparison, FIPS 180-4 SHA-256 verification, `secp256k1` signed-manifest provenance checks, staging/backup/rollback, and trading-safe maintenance gating |
 | **Research Workspaces** | HUNTER Radar & liquidity map, FANG deterministic arbitration/EMA research, COGNITION shadow evaluation, AEGIS portfolio/correlation diagnostics, ORACLE held-out cost scenarios, and GENESIS resumable checkpoints & frozen-frontier assessment |
@@ -194,7 +194,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 ### Windows Native Application (`HYDRA-Leviathan-Windows-x64.exe`)
 
-1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the newest development release (`v1.7.0-alpha.29`).
+1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.7.0 | PROJECT LEVIATHAN`**).
 2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and the release's **`SHA256SUMS.txt`** manifest.
 3. Verify the executable integrity before launching:
    ```powershell
@@ -209,9 +209,9 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 Obtain the Linux package and checksum manifest from [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases), verify, and extract:
 
 ```sh
-sha256sum --check hydra-1.7.0-alpha.29-linux-SHA256SUMS.txt
-mkdir hydra-alpha29 && tar -xzf hydra-1.7.0-alpha.29-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha29
-cd hydra-alpha29
+sha256sum --check hydra-1.7.0-linux-SHA256SUMS.txt
+mkdir hydra-1.7.0 && tar -xzf hydra-1.7.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.7.0
+cd hydra-1.7.0
 ./hydra --version
 ./hydra --no-banner config-check
 ```
@@ -250,7 +250,7 @@ Environment templates live in [`.env.example`](.env.example) and strategy parame
 
 | Verification Gate | Current Verified State |
 | :--- | :--- |
-| **Offline Regression Suite** | **462 passing offline tests** (`cargo test --locked --features desktop-wgpu --all-targets`), covering Leviathan Evolution SHA-256/SemVer/`secp256k1` provenance, HUNTER loopback public acquisition, FANG bounded anti-Martingale grids, COGNITION causal regime inference, AEGIS margin stress, and ORACLE dataset integrity |
+| **Offline Regression Suite** | **463 passing offline tests** (`cargo test --locked --features desktop-wgpu --all-targets`), covering the PBR WGSL shader, `Ultra`/Adaptive LOD, public SemVer release selection, SQLite startup health checks, Leviathan Evolution, HUNTER loopback public radar, FANG bounded grids, COGNITION causal regime inference, AEGIS margin stress, and ORACLE dataset integrity |
 | **Renderer & Fallback** | Verified native Windows 11 WGPU shader rendering (`--features desktop-wgpu`) plus Glow compatibility build (`--features desktop`) and `catch_unwind` fallback |
 | **Formatting, Clippy & Policy** | `cargo fmt --check`, `cargo clippy --locked --all-targets`, memorial verification, and automated GitHub compliance check pass |
 | **Dependency Audit** | `cargo audit` passes with **0 vulnerability entries** and 1 known Chrono maintenance warning (zero advisory ignores) |
@@ -275,7 +275,8 @@ Open certification blockers tracked transparently in [`MILESTONE_MATRIX.md`](MIL
 | [Risk Management (AEGIS)](RISK_MANAGEMENT.md) | [Offline Analytics (FANG / COGNITION / AEGIS)](ANALYTICS.md) |
 | [Dependency Audit](DEPENDENCY_AUDIT.md) | [ORACLE Simulation Contract](BACKTESTING.md) |
 | [Contributing & Branch Policy](CONTRIBUTING.md) | [GENESIS Optimization Contract](OPTIMIZATION.md) |
-| [Engineering Guidance](AGENTS.md) | [MIT License](LICENSE) |
+| [Engineering Guidance](AGENTS.md) | [Road to HYDRA 2.0](ROADMAP_V2.md) |
+| [MIT License](LICENSE) | [Dependency Audit](DEPENDENCY_AUDIT.md) |
 
 ---
 

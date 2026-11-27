@@ -14,6 +14,36 @@ pub enum SceneQuality {
     Low,
     Medium,
     High,
+    Ultra,
+}
+
+impl SceneQuality {
+    pub fn step_down(self) -> Self {
+        match self {
+            Self::Ultra => Self::High,
+            Self::High => Self::Medium,
+            Self::Medium => Self::Low,
+            Self::Low => Self::Low,
+        }
+    }
+
+    pub fn step_up_toward(self, target: Self) -> Self {
+        let rank = |q: Self| match q {
+            Self::Low => 0,
+            Self::Medium => 1,
+            Self::High => 2,
+            Self::Ultra => 3,
+        };
+        if rank(self) >= rank(target) {
+            return target;
+        }
+        match self {
+            Self::Low => Self::Medium,
+            Self::Medium => Self::High,
+            Self::High => Self::Ultra,
+            Self::Ultra => Self::Ultra,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -248,6 +278,7 @@ fn glow_ex(
         SceneQuality::Low => 1,
         SceneQuality::Medium => 4,
         SceneQuality::High => 6,
+        SceneQuality::Ultra => 7,
     };
     let s = strength.clamp(0.0, 2.5);
     for layer in (1..=layers).rev() {
@@ -308,16 +339,53 @@ fn safe_activity(head: &HeadPresentation) -> f32 {
     }
 }
 
+#[cfg(feature = "desktop-wgpu")]
+fn compute_head_gaze(
+    index: usize,
+    head_screen: Pos2,
+    pointer: Option<Pos2>,
+    rect: Rect,
+    time: f32,
+    motion: bool,
+) -> [f32; 2] {
+    if !motion {
+        return [0.0, 0.0];
+    }
+    let reactivity = [0.95_f32, 0.85, 0.78, 0.62, 0.75, 0.70, 0.82][index.min(6)];
+    if let Some(ptr) = pointer {
+        if rect.contains(ptr) {
+            let dx = (ptr.x - head_screen.x) / (rect.width().max(1.0) * 0.28);
+            let dy = (ptr.y - head_screen.y) / (rect.height().max(1.0) * 0.34);
+            let len = (dx * dx + dy * dy).sqrt().max(1.0);
+            let gx = (dx / len) * reactivity;
+            let gy = (dy / len) * reactivity * 0.75;
+            return [gx.clamp(-1.0, 1.0), gy.clamp(-1.0, 1.0)];
+        }
+    }
+    let t = if time.is_finite() {
+        time.rem_euclid(3600.0)
+    } else {
+        0.0
+    };
+    let i = index as f32;
+    let lx = (t * (0.29 + i * 0.061) + i * 1.618).sin() * 0.42;
+    let ly = (t * (0.21 + i * 0.043) + i * 2.13).cos() * 0.22;
+    [lx.clamp(-1.0, 1.0), ly.clamp(-1.0, 1.0)]
+}
+
 fn atmosphere(
     p: &egui::Painter,
     rect: Rect,
     c: Canvas,
     poses: &[HeadPose; 7],
     input: &SceneInput<'_>,
-) {
+    pointer: Option<Pos2>,
+) -> bool {
     let purple = Color32::from_rgb(142, 86, 222);
     let moonlit = Color32::from_rgb(198, 184, 235);
     let pulse = heart_pulse(input.time, input.motion);
+    let breath = breath_cycle(input.time, input.motion);
+    let _ = (pointer, breath);
     let t = if input.motion && input.time.is_finite() {
         input.time.rem_euclid(3600.0)
     } else {
@@ -331,7 +399,6 @@ fn atmosphere(
             .iter()
             .map(safe_activity)
             .fold(0.0_f32, f32::max);
-        let heart_alert = input.heads.iter().any(|h| h.warning);
         let head_uvs =
             std::array::from_fn(|i| crate::leviathan_shader::pos_to_uv(rect, c.p(poses[i].center)));
         let head_colors = std::array::from_fn(|i| input.heads[i].accent);
@@ -347,6 +414,30 @@ fn atmosphere(
             }
             e.clamp(0.0, 1.0)
         });
+        let head_look = std::array::from_fn(|i| {
+            compute_head_gaze(i, c.p(poses[i].center), pointer, rect, t, input.motion)
+        });
+        let head_eye_open = std::array::from_fn(|i| eye_openness(i, t, input.motion));
+        let head_observation = std::array::from_fn(|i| {
+            let o = input.heads[i].observation;
+            if o.is_finite() {
+                o.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        });
+        let neck_ctrl1_uv = std::array::from_fn(|i| {
+            crate::leviathan_shader::pos_to_uv(rect, c.p(poses[i].neck[1]))
+        });
+        let neck_ctrl2_uv = std::array::from_fn(|i| {
+            crate::leviathan_shader::pos_to_uv(rect, c.p(poses[i].neck[2]))
+        });
+        let intro_fade = if input.motion && input.time.is_finite() {
+            (input.time / 0.45).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let creature_scale = (820.0 * c.scale / rect.height().max(1.0)).clamp(0.35, 2.0);
         let params = crate::leviathan_shader::AtmosphereParams {
             time: t,
             motion: input.motion,
@@ -354,19 +445,29 @@ fn atmosphere(
                 SceneQuality::Low => 0,
                 SceneQuality::Medium => 1,
                 SceneQuality::High => 2,
+                SceneQuality::Ultra => 3,
             },
             heart_uv: crate::leviathan_shader::pos_to_uv(rect, c.xy(600.0, 622.0)),
             heart_pulse: pulse,
-            heart_alert,
+            offering_glow: input.offering_glow,
             aspect: rect.width() / rect.height().max(1.0),
             active_total,
+            breath,
+            suspended_alert: input.operational_mode == crate::treasury::OperationalMode::Suspended,
             selected: input.selected,
             hovered: input.hovered,
+            intro_fade,
+            creature_scale,
             head_uvs,
             head_colors,
             head_activity,
             head_warning,
             head_emphasis,
+            head_look,
+            head_eye_open,
+            head_observation,
+            neck_ctrl1_uv,
+            neck_ctrl2_uv,
         };
         crate::leviathan_shader::paint_wgpu_atmosphere(p, rect, params);
         true
@@ -375,6 +476,10 @@ fn atmosphere(
     };
     #[cfg(not(feature = "desktop-wgpu"))]
     let used_shader = false;
+
+    if used_shader {
+        return true;
+    }
 
     if !used_shader {
         // Layered Glow / fallback abyssal sanctuary backdrop.
@@ -529,6 +634,7 @@ fn atmosphere(
         fade(purple, altar_alpha),
         1.15,
     );
+    false
 }
 
 fn body(p: &egui::Painter, c: Canvas, input: &SceneInput<'_>) {
@@ -823,6 +929,7 @@ fn neck(p: &egui::Painter, c: Canvas, pose: HeadPose, index: usize, input: &Scen
         SceneQuality::Low => 22,
         SceneQuality::Medium => 36,
         SceneQuality::High => 54,
+        SceneQuality::Ultra => 60,
     };
     let points: Vec<_> = (0..=detail)
         .map(|i| cubic(pose.neck, i as f32 / detail as f32))
@@ -2141,60 +2248,238 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
         operational_mode: input.operational_mode,
     };
 
-    atmosphere(&p, rect, c, &poses, &effective_input);
-    body(&p, c, &effective_input);
-    // Outer necks first and guardian last preserve a coherent shared silhouette.
-    for i in [0, 6, 1, 5, 2, 4, 3] {
-        neck(&p, c, poses[i], i, &effective_input);
-    }
-    // Genuine Offering illumination: animates Treasury -> Amethyst Heart -> AEGIS & NEXUS.
-    if effective_input.offering_glow > 0.0 {
-        let g = effective_input.offering_glow;
-        let heart_core = Pos2::new(600.0, 622.0);
-        let gold = Color32::from_rgb(245, 194, 92);
-        glow_ex(
-            &p,
-            c,
-            heart_core,
-            78.0 + g * 24.0,
-            blend(Color32::from_rgb(184, 122, 255), gold, 0.45),
-            1.4 * g,
-            effective_input.quality,
-        );
-        for &(target_idx, beam_col) in &[
-            (3usize, Color32::from_rgb(58, 232, 165)), // AEGIS (Protection)
-            (4usize, Color32::from_rgb(73, 151, 255)), // NEXUS (Execution)
-        ] {
-            let curve = poses[target_idx].neck;
-            let pts: Vec<_> = (0..=28).map(|k| cubic(curve, k as f32 / 28.0)).collect();
-            line(
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let used_wgpu = atmosphere(&p, rect, c, &poses, &effective_input, pointer);
+    if used_wgpu {
+        render_wgpu_hud_overlay(&p, c, &poses, &effective_input);
+    } else {
+        body(&p, c, &effective_input);
+        // Outer necks first and guardian last preserve a coherent shared silhouette.
+        for i in [0, 6, 1, 5, 2, 4, 3] {
+            neck(&p, c, poses[i], i, &effective_input);
+        }
+        // Genuine Offering illumination: animates Treasury -> Amethyst Heart -> AEGIS & NEXUS.
+        if effective_input.offering_glow > 0.0 {
+            let g = effective_input.offering_glow;
+            let heart_core = Pos2::new(600.0, 622.0);
+            let gold = Color32::from_rgb(245, 194, 92);
+            glow_ex(
                 &p,
                 c,
-                &pts,
-                fade(beam_col, (145.0 * g).clamp(20.0, 220.0) as u8),
-                2.6,
+                heart_core,
+                78.0 + g * 24.0,
+                blend(Color32::from_rgb(184, 122, 255), gold, 0.45),
+                1.4 * g,
+                effective_input.quality,
             );
-            if effective_input.motion && effective_input.time.is_finite() {
-                let u = (effective_input.time * 0.48 + target_idx as f32 * 0.25).rem_euclid(1.0);
-                let spark = cubic(curve, u);
-                glow_ex(
+            for &(target_idx, beam_col) in &[
+                (3usize, Color32::from_rgb(58, 232, 165)), // AEGIS (Protection)
+                (4usize, Color32::from_rgb(73, 151, 255)), // NEXUS (Execution)
+            ] {
+                let curve = poses[target_idx].neck;
+                let pts: Vec<_> = (0..=28).map(|k| cubic(curve, k as f32 / 28.0)).collect();
+                line(
                     &p,
                     c,
-                    spark,
-                    9.0,
-                    beam_col,
-                    1.3 * g,
-                    effective_input.quality,
+                    &pts,
+                    fade(beam_col, (145.0 * g).clamp(20.0, 220.0) as u8),
+                    2.6,
                 );
-                p.circle_filled(c.p(spark), 3.8 * c.scale, blend(beam_col, gold, 0.4));
+                if effective_input.motion && effective_input.time.is_finite() {
+                    let u =
+                        (effective_input.time * 0.48 + target_idx as f32 * 0.25).rem_euclid(1.0);
+                    let spark = cubic(curve, u);
+                    glow_ex(
+                        &p,
+                        c,
+                        spark,
+                        9.0,
+                        beam_col,
+                        1.3 * g,
+                        effective_input.quality,
+                    );
+                    p.circle_filled(c.p(spark), 3.8 * c.scale, blend(beam_col, gold, 0.4));
+                }
             }
         }
+        for i in [0, 6, 1, 5, 2, 4, 3] {
+            head(&p, c, poses[i], i, &effective_input);
+        }
+        heart(&p, c, &effective_input);
     }
-    for i in [0, 6, 1, 5, 2, 4, 3] {
-        head(&p, c, poses[i], i, &effective_input);
-    }
-    heart(&p, c, &effective_input);
     response_out
+}
+
+/// Crisp minimalist HUD callouts, hover rings, Sovereign Heart caption, and Ashlan's
+/// permanent memorial rendered cleanly above the GPU PBR Seven-Headed Leviathan.
+fn render_wgpu_hud_overlay(
+    p: &egui::Painter,
+    c: Canvas,
+    poses: &[HeadPose; 7],
+    input: &SceneInput<'_>,
+) {
+    let roles = [
+        "SURVEILLANCE",
+        "STRATEGY",
+        "REASONING",
+        "RISK SHIELD",
+        "EXECUTION",
+        "VALIDATION",
+        "EVOLUTION",
+    ];
+    for i in 0..7 {
+        let head = &input.heads[i];
+        let selected = input.selected == Some(i);
+        let hovered = input.hovered == Some(i);
+        let active = safe_activity(head) > 0.05;
+        let accent = if head.warning {
+            Color32::from_rgb(246, 188, 83)
+        } else {
+            head.accent
+        };
+        let lift_y = match i {
+            3 => 154.0,
+            2 | 4 => 144.0,
+            1 | 5 => 144.0,
+            _ => 140.0,
+        };
+        let shift_x = match i {
+            0 => -16.0,
+            1 => -8.0,
+            5 => 8.0,
+            6 => 16.0,
+            _ => 0.0,
+        };
+        let box_w = (104.0 * c.scale).clamp(78.0, 128.0);
+        let box_h = (32.0 * c.scale).clamp(24.0, 38.0);
+        let raw_anchor = c.p(poses[i].center + Vec2::new(shift_x, -lift_y));
+        let anchor = Pos2::new(raw_anchor.x, raw_anchor.y.max(c.origin.y + box_h * 0.65));
+        let badge = Rect::from_center_size(anchor, Vec2::new(box_w, box_h));
+
+        let fill_alpha = if selected || hovered { 215 } else { 165 };
+        p.rect_filled(
+            badge,
+            CornerRadius::same(4),
+            Color32::from_rgba_unmultiplied(7, 9, 18, fill_alpha),
+        );
+        p.rect_stroke(
+            badge,
+            CornerRadius::same(4),
+            Stroke::new(
+                if selected || hovered || head.warning {
+                    1.25
+                } else {
+                    0.8
+                },
+                fade(
+                    accent,
+                    if selected || hovered || head.warning || active {
+                        220
+                    } else {
+                        95
+                    },
+                ),
+            ),
+            egui::StrokeKind::Inside,
+        );
+        // Subtle luminous top hairline on badge
+        p.line_segment(
+            [
+                Pos2::new(badge.left() + 6.0, badge.top() + 0.8),
+                Pos2::new(badge.right() - 6.0, badge.top() + 0.8),
+            ],
+            Stroke::new(
+                1.2,
+                fade(accent, if selected || hovered { 220 } else { 120 }),
+            ),
+        );
+        p.text(
+            Pos2::new(badge.center().x, badge.top() + box_h * 0.34),
+            Align2::CENTER_CENTER,
+            head.name,
+            FontId::monospace((9.8 * c.scale).clamp(7.5, 11.5)),
+            if selected || hovered || active || head.warning {
+                accent
+            } else {
+                blend(accent, Color32::from_rgb(220, 228, 244), 0.25)
+            },
+        );
+        let sub = if head.warning || active || selected || hovered {
+            head.status
+        } else {
+            roles[i]
+        };
+        p.text(
+            Pos2::new(badge.center().x, badge.top() + box_h * 0.74),
+            Align2::CENTER_CENTER,
+            sub,
+            FontId::monospace((7.4 * c.scale).clamp(6.2, 8.8)),
+            if head.warning {
+                Color32::from_rgb(246, 188, 83)
+            } else if active {
+                Color32::from_rgb(225, 236, 250)
+            } else {
+                Color32::from_rgb(142, 152, 180)
+            },
+        );
+
+        // Subtle selection / hover target ring framing the sculpted dragon head
+        if selected || hovered {
+            let hc = c.p(poses[i].center);
+            let ring_r = (if i == 3 { 74.0 } else { 62.0 }) * c.scale;
+            p.circle_stroke(
+                hc,
+                ring_r,
+                Stroke::new(1.2, fade(accent, if selected { 140 } else { 85 })),
+            );
+        }
+    }
+
+    // Sovereign Amethyst Heart & Status caption cleanly seated below the crystal heart
+    p.text(
+        c.xy(600.0, 694.0),
+        Align2::CENTER_CENTER,
+        "THE AMETHYST HEART  ·  SOVEREIGN CORE",
+        FontId::monospace((10.0 * c.scale).clamp(8.0, 12.0)),
+        Color32::from_rgb(224, 206, 252),
+    );
+    p.text(
+        c.xy(600.0, 713.0),
+        Align2::CENTER_CENTER,
+        input.heart_status,
+        FontId::monospace((8.2 * c.scale).clamp(6.8, 9.8)),
+        Color32::from_rgb(164, 156, 198),
+    );
+
+    // Permanent Memorial Dedication to Ashlan Haley Rapponotti
+    let rule_w = 148.0 * c.scale;
+    let rule_y = c.xy(600.0, 744.0).y;
+    p.line_segment(
+        [
+            Pos2::new(c.xy(600.0, 744.0).x - rule_w, rule_y),
+            Pos2::new(c.xy(600.0, 744.0).x + rule_w, rule_y),
+        ],
+        Stroke::new(0.8, Color32::from_rgba_unmultiplied(186, 134, 246, 92)),
+    );
+    p.circle_filled(
+        Pos2::new(c.xy(600.0, 744.0).x, rule_y),
+        2.6 * c.scale,
+        Color32::from_rgb(206, 154, 255),
+    );
+    p.text(
+        c.xy(600.0, 772.0),
+        Align2::CENTER_CENTER,
+        "In Loving Memory of Ashlan Haley Rapponotti",
+        FontId::proportional((13.0 * c.scale).clamp(10.0, 16.0)),
+        Color32::from_rgb(228, 214, 246),
+    );
+    p.text(
+        c.xy(600.0, 797.0),
+        Align2::CENTER_CENTER,
+        "June 21, 2003 – November 13, 2026",
+        FontId::proportional((10.2 * c.scale).clamp(8.0, 13.0)),
+        Color32::from_rgb(162, 154, 190),
+    );
 }
 
 /// Draw one connected native creature and return any clicked head index.
@@ -2281,7 +2566,12 @@ mod tests {
         let mut heads = states();
         heads[3].warning = true;
         heads[0].activity = 0.8;
-        for quality in [SceneQuality::Low, SceneQuality::Medium, SceneQuality::High] {
+        for quality in [
+            SceneQuality::Low,
+            SceneQuality::Medium,
+            SceneQuality::High,
+            SceneQuality::Ultra,
+        ] {
             for motion in [false, true] {
                 let input = SceneInput {
                     heads: &heads,

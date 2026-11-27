@@ -1,3 +1,29 @@
+## 1.7.0 — v1.7.0 | PROJECT LEVIATHAN (Public Release Foundation & Rebirth of the Leviathan)
+
+- **Rebirth of the Leviathan (`src/leviathan_shader.rs`, `src/leviathan_scene.rs`):** Replace
+  the polygonal WGPU dragon with a real-time 2.5D PBR signed-distance-field WGSL shader
+  featuring seven anatomically distinct sculpted obsidian dragon heads, imbricated overlapping
+  dragon scales along articulated 3D cylindrical necks, deep amethyst sub-scale bioluminescence,
+  curved organic keratin horn phenotypes, gleaming ivory-obsidian fangs, realistic slit-pupil
+  eyes with independent cursor/attention tracking and smooth blinking eyelids, backlit membranous
+  wings, dynamic Amethyst Heart point-light illumination, volumetric mist, floating embers, and
+  ACES filmic tonemapping. Preserve the Glow fallback for non-WGPU hardware.
+- **Performance & Adaptive Rendering (`src/cockpit.rs`, `src/leviathan_scene.rs`):** Add
+  `SceneQuality::Ultra` preset (`Low`/`Medium`/`High`/`Ultra`) and rolling frame-cadence
+  **Adaptive LOD** with tight GPU bounding-box culling so RTX 4070-class GPUs cruise smoothly
+  while weaker GPUs automatically protect trading/research responsiveness.
+- **Public Release Cycle & Manifests (`.github/workflows/release.yml`, `src/evolution.rs`):**
+  Graduate to normal semantic versioning (`v1.7.0`, `draft: false`, `prerelease: false`,
+  `make_latest: true`) with automated `/releases/latest` verification and structured
+  `hydra-1.7.0-release-manifest.json`; internal prereleases explicitly pass `--latest=false`
+  so they never displace the Latest public release.
+- **Startup Database Health Check (`src/startup_diagnostics.rs`, `src/bin/hydra-cockpit.rs`):**
+  Run a non-destructive read-only `PRAGMA quick_check(1)` at cockpit startup and log diagnostic
+  status alongside clean-profile initialization and crash reporting.
+- **Road to HYDRA 2.0 (`ROADMAP_V2.md`):** Publish the iterative `v1.x` → `v2.0.0` engineering
+  and visual roadmap. Public distribution does not constitute certification of unattended live
+  trading; all financial safeguards and Ashlan Haley Rapponotti's permanent memorial remain intact.
+
 ## 1.7.0-alpha.29 — Five-Head Project Awakening leap (HUNTER, FANG, COGNITION, AEGIS & ORACLE)
 
 - **HUNTER (`src/hunter.rs`, `src/hunter_ui.rs`):** Add read-only public Hyperliquid perpetual

@@ -38,13 +38,15 @@ fn main() {
     hydra::startup_diagnostics::install_panic_hook();
     let options = Options::parse();
     let db_path = hydra::startup_diagnostics::resolve_default_database(options.db);
+    let db_health = hydra::startup_diagnostics::verify_local_database_health(&db_path);
     hydra::startup_diagnostics::log_startup(&format!(
-        "Launching HYDRA cockpit v{} (renderer={}, fullscreen={}, quality={:?}, db={})",
+        "Launching HYDRA cockpit v{} (renderer={}, fullscreen={}, quality={:?}, db={}, db_health={:?})",
         env!("CARGO_PKG_VERSION"),
         options.renderer.name(),
         options.fullscreen,
         options.quality,
-        db_path.display()
+        db_path.display(),
+        db_health
     ));
 
     if let Err(err) = hydra::cockpit::run_with_initial_view(

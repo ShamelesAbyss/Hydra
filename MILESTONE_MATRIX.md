@@ -231,3 +231,25 @@ five subsystems with immediate unified native cockpit integration (**462 passing
   latency simulation and GENESIS NSGA-II remain next alongside the M1/M2/M3 live certification
   track (round-trip net settlement, stream recovery, authenticated control IPC, watchdog). No
   original major milestone is fully certified yet and no financial safeguard is weakened.
+
+### v1.7.0 — Public Release Foundation & Rebirth of the Leviathan
+
+All seven milestone rows reviewed. Graduates HYDRA from the `v1.7.0-alpha.*` prerelease series
+into the normal public `v1.x` semantic-versioning lifecycle (`draft: false`, `prerelease: false`,
+`make_latest: true`, preserving all historical alpha releases and establishing `ROADMAP_V2.md`):
+
+- **M3 / M7 Visual & Rendering Leap:** Replaced polygonal WGPU geometry with a full 2.5D PBR
+  WGSL seven-headed obsidian-and-amethyst dragon sanctuary (`src/leviathan_shader.rs`) featuring
+  overlapping normal-mapped scales, sub-scale amethyst bioluminescence, seven sculpted horn &
+  head phenotypes, independent cursor-tracking slit eyes, backlit wings, dynamic Amethyst Heart
+  point-light illumination, ACES tonemapping, `Low`/`Medium`/`High`/`Ultra` presets, and rolling
+  **Adaptive LOD** while retaining the Glow OpenGL fallback.
+- **M3 / M7 Distribution & Reliability:** Added structured `hydra-1.7.0-release-manifest.json`
+  generation and `/releases/latest` verification in `.github/workflows/release.yml`, updated
+  **LEVIATHAN EVOLUTION** to default to public `Stable` releases on `v1.7.0+`, and added read-only
+  SQLite `PRAGMA quick_check(1)` startup health diagnostics (`src/startup_diagnostics.rs`).
+- **Explicit Live-Certification Boundary:** Public release `v1.7.0` does **not** certify
+  unattended live trading. Unattended `AWAKENED` execution remains locked pending M1/M2/M3/M4
+  certification (complete round-trip fee/funding net settlement, stream/restart recovery, native
+  protective exchange orders, authenticated local control IPC, watchdog supervision, and signed
+  release-key infrastructure — see `ROADMAP_V2.md`).

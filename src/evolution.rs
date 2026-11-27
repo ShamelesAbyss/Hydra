@@ -56,8 +56,10 @@ impl UpdateChannel {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::Stable => "Stable certified releases only (none published yet).",
-            Self::Development => "Alpha/Beta/RC engineering prereleases and newer stable releases.",
+            Self::Stable => "Normal public releases (v1.7.0+); internal prereleases are skipped.",
+            Self::Development => {
+                "Includes engineering prereleases (alpha/beta/rc) and newer public releases."
+            }
         }
     }
 
@@ -318,6 +320,25 @@ pub struct SignedReleaseManifest {
     pub asset_size: u64,
     pub asset_sha256: String,
     pub published_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseManifestAsset {
+    pub name: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseManifest {
+    pub schema_version: u32,
+    pub product: String,
+    pub version: String,
+    pub tag: String,
+    pub commit_sha: String,
+    pub prerelease: bool,
+    pub published_at: String,
+    pub assets: Vec<ReleaseManifestAsset>,
 }
 
 #[derive(Debug, Clone)]
@@ -1464,6 +1485,35 @@ mod tests {
             dev.primary_asset.unwrap().name,
             "HYDRA-Leviathan-Windows-x64.exe"
         );
+
+        // Once public v1.7.0 is published, Stable selects v1.7.0 while ignoring v1.7.1-alpha.1.
+        let mut with_public = releases;
+        with_public.push(GitHubRelease {
+            tag_name: "v1.7.0".into(),
+            name: Some("v1.7.0 | PROJECT LEVIATHAN".into()),
+            body: Some("Public release".into()),
+            draft: false,
+            prerelease: false,
+            published_at: Some("2026-11-27T10:00:00Z".into()),
+            html_url: "https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.0".into(),
+            assets: vec![],
+        });
+        with_public.push(GitHubRelease {
+            tag_name: "v1.7.1-alpha.1".into(),
+            name: Some("Internal test".into()),
+            body: None,
+            draft: false,
+            prerelease: true,
+            published_at: Some("2026-11-28T00:00:00Z".into()),
+            html_url: "https://github.com/ShamelesAbyss/Hydra/releases/tag/v1.7.1-alpha.1".into(),
+            assets: vec![],
+        });
+        let stable_pick = select_newest_release(&with_public, UpdateChannel::Stable, win).unwrap();
+        assert_eq!(stable_pick.tag_name, "v1.7.0");
+        assert!(!stable_pick.prerelease);
+        let dev_pick =
+            select_newest_release(&with_public, UpdateChannel::Development, win).unwrap();
+        assert_eq!(dev_pick.tag_name, "v1.7.1-alpha.1");
     }
 
     #[test]

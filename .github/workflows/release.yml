@@ -211,16 +211,38 @@ jobs:
           git archive --format=zip --output="$out/$srcZip" $tag -- . ':!bin'
           if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
 
-          # 5. Combined SHA-256 checksum manifest covering all mandatory release assets.
+          # 5. Generate structured release manifest & combined SHA-256 checksum manifest.
           $exeHash = (Get-FileHash "$out/$standaloneExe" -Algorithm SHA256).Hash.ToLower()
           $winHash = (Get-FileHash "$out/$winZip" -Algorithm SHA256).Hash.ToLower()
           $srcHash = (Get-FileHash "$out/$srcZip" -Algorithm SHA256).Hash.ToLower()
+          $isPrerelease = $version -match '-(alpha|beta|rc)'
+
+          $manifestFile = "hydra-$version-release-manifest.json"
+          $manifestObj = [ordered]@{
+            schema_version = 1
+            product        = "HYDRA — Project Leviathan"
+            version        = $version
+            tag            = $tag
+            commit_sha     = "${{ github.sha }}"
+            prerelease     = [bool]$isPrerelease
+            published_at   = (Get-Date).ToUniversalTime().ToString("o")
+            assets         = @(
+              [ordered]@{ name = $standaloneExe; size_bytes = (Get-Item "$out/$standaloneExe").Length; sha256 = $exeHash }
+              [ordered]@{ name = $winZip;        size_bytes = (Get-Item "$out/$winZip").Length;        sha256 = $winHash }
+              [ordered]@{ name = $linuxTar;      size_bytes = (Get-Item "$out/$linuxTar").Length;      sha256 = $linuxHash }
+              [ordered]@{ name = $srcZip;        size_bytes = (Get-Item "$out/$srcZip").Length;        sha256 = $srcHash }
+            )
+          }
+          $manifestObj | ConvertTo-Json -Depth 4 | Set-Content "$out/$manifestFile" -Encoding utf8
+          $manifestHash = (Get-FileHash "$out/$manifestFile" -Algorithm SHA256).Hash.ToLower()
+
           $sums = "hydra-$version-SHA256SUMS.txt"
           @(
             "$exeHash  $standaloneExe"
             "$winHash  $winZip"
             "$linuxHash  $linuxTar"
             "$srcHash  $srcZip"
+            "$manifestHash  $manifestFile"
           ) | Set-Content "$out/$sums" -Encoding ascii
 
           # 6. Prevent duplicate/overwrite of existing releases.
@@ -229,22 +251,27 @@ jobs:
             throw "GitHub Release $tag already exists; refusing to overwrite."
           }
 
-          $isPrerelease = $version -match '-(alpha|beta|rc)'
           $titleLine = (Get-Content RELEASE_NOTES.md | Select-Object -First 1).TrimStart('#').Trim()
-          if ([string]::IsNullOrWhiteSpace($titleLine)) { $titleLine = "HYDRA — Project Leviathan $tag" }
+          if ([string]::IsNullOrWhiteSpace($titleLine)) { $titleLine = "$tag | PROJECT LEVIATHAN" }
 
           $assets = @(
             "$out/$standaloneExe",
             "$out/$winZip",
             "$out/$linuxTar",
             "$out/$srcZip",
+            "$out/$manifestFile",
             "$out/$sums",
             "$out/$linuxSums"
           )
 
           # Create visible non-draft GitHub Release.
+          # Public SemVer releases set make_latest=true; prereleases never replace Latest.
           $createArgs = @('release', 'create', $tag, '--title', $titleLine, '--notes-file', 'RELEASE_NOTES.md')
-          if ($isPrerelease) { $createArgs += '--prerelease' }
+          if ($isPrerelease) {
+            $createArgs += @('--prerelease', '--latest=false')
+          } else {
+            $createArgs += '--latest'
+          }
           & gh @createArgs
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
 
@@ -259,12 +286,21 @@ jobs:
             if (-not $uploaded) { throw "Failed to upload release asset $asset" }
           }
 
-          # 7. Verify public unauthenticated accessibility & exact SHA-256 digest of published exe.
+          # 7. Verify public unauthenticated accessibility, Latest resolution, & exact SHA-256 digest.
           Start-Sleep -Seconds 5
           $apiUrl = "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag"
           $pub = Invoke-RestMethod -Uri $apiUrl -Headers @{ 'User-Agent' = 'Hydra-Release-Verifier' }
           if ($pub.draft -eq $true) { throw "Published release is still marked draft!" }
-          $expectedNames = @($standaloneExe, $winZip, $linuxTar, $srcZip, $sums, $linuxSums)
+          if ((-not $isPrerelease) -and ($pub.prerelease -eq $true)) {
+            throw "Public release $tag was incorrectly marked prerelease!"
+          }
+          if (-not $isPrerelease) {
+            $latestApi = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases/latest" -Headers @{ 'User-Agent' = 'Hydra-Release-Verifier' }
+            if ($latestApi.tag_name -ne $tag) {
+              throw "/releases/latest resolved to '$($latestApi.tag_name)' instead of '$tag'"
+            }
+          }
+          $expectedNames = @($standaloneExe, $winZip, $linuxTar, $srcZip, $manifestFile, $sums, $linuxSums)
           foreach ($n in $expectedNames) {
             $found = $pub.assets | Where-Object { $_.name -eq $n }
             if (-not $found) { throw "Published GitHub Release is missing asset: $n" }

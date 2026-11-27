@@ -1,3 +1,20 @@
+# Release verification — 1.7.0
+
+All **463 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding coverage
+for the 512-byte aligned PBR WGSL Leviathan shader uniform buffer & NaN/Inf sanitization, `Ultra`
+quality tessellation & Adaptive LOD stepping, public `v1.7.0` vs. prerelease `v1.7.1-alpha.1`
+channel selection in **LEVIATHAN EVOLUTION**, and read-only SQLite `PRAGMA quick_check(1)`
+startup database health validation (verifying clean databases pass and corrupt headers are flagged).
+
+`cargo fmt --check`, `cargo clippy --locked --all-targets`, Glow compilation (`--features desktop`),
+`verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass. Native Windows 11 RTX 4070
+WGPU captures confirm real-time PBR rendering of the reborn seven-headed Leviathan sanctuary with
+overlapping obsidian scales, amethyst sub-scale bioluminescence, sculpted horns/fangs, and glowing
+tracking eyes. Prior release **`v1.7.0-alpha.29`** passed CI run `45980192880` and verified
+`HYDRA-Leviathan-Windows-x64.exe` SHA-256 `6fdf404426f50bbc3ed00f034a9e33a3dbe895322828ccb04c81343808b1dd89`
+with clean-profile launch. Public distribution does not certify unattended live trading; no real
+exchange orders, live wallet credentials, or transfers were used.
+
 # Release verification — 1.7.0-alpha.29
 
 All **462 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding five

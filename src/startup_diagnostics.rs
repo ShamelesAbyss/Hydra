@@ -66,6 +66,27 @@ pub fn resolve_default_database(explicit_db: Option<PathBuf>) -> PathBuf {
     cwd_candidate
 }
 
+/// Non-destructive read-only SQLite quick integrity check logged during startup
+/// so damaged or inaccessible local history files are diagnosed cleanly.
+pub fn verify_local_database_health(db_path: &Path) -> Result<String, String> {
+    if !db_path.is_file() {
+        return Ok("database file not yet created".into());
+    }
+    let flags =
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = rusqlite::Connection::open_with_flags(db_path, flags)
+        .map_err(|e| format!("open read-only failed: {e}"))?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
+    let check: String = conn
+        .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+        .map_err(|e| format!("PRAGMA quick_check failed: {e}"))?;
+    if check.eq_ignore_ascii_case("ok") {
+        Ok("ok".into())
+    } else {
+        Err(format!("SQLite quick_check reported: {check}"))
+    }
+}
+
 pub fn logs_dir() -> Option<PathBuf> {
     let dir = app_data_root()?.join("logs");
     let _ = fs::create_dir_all(&dir);
@@ -215,5 +236,17 @@ mod tests {
         if let Some(root) = app_data_root() {
             assert_eq!(root.file_name().and_then(|s| s.to_str()), Some("Hydra"));
         }
+    }
+
+    #[test]
+    fn database_health_check_validates_clean_sqlite_and_flags_corruption() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("clean.db");
+        crate::local_setup::initialize_history(&db).unwrap();
+        assert_eq!(verify_local_database_health(&db).unwrap(), "ok");
+
+        let corrupt = dir.path().join("corrupt.db");
+        fs::write(&corrupt, b"not-a-valid-sqlite-header").unwrap();
+        assert!(verify_local_database_health(&corrupt).is_err());
     }
 }
