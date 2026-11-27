@@ -29,6 +29,9 @@ struct Options {
     /// Open directly to the LEVIATHAN TREASURY / THE OFFERING settings tab.
     #[arg(long)]
     treasury: bool,
+    /// Open directly to the LEVIATHAN EVOLUTION native updates tab.
+    #[arg(long)]
+    updates: bool,
 }
 
 fn main() {
@@ -44,7 +47,7 @@ fn main() {
         db_path.display()
     ));
 
-    if let Err(err) = hydra::cockpit::run_with_initial_tab(
+    if let Err(err) = hydra::cockpit::run_with_initial_view(
         db_path,
         options.renderer,
         options.fullscreen,
@@ -53,6 +56,7 @@ fn main() {
         options.reduced_motion,
         options.frame_cap,
         options.treasury,
+        options.updates,
     ) {
         let detail = format!("{err}");
         hydra::startup_diagnostics::log_startup(&format!("STARTUP FAILED: {detail}"));

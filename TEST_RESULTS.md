@@ -1,3 +1,20 @@
+# Release verification — 1.7.0-alpha.28
+
+All **457 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding six
+**LEVIATHAN EVOLUTION** regressions in `src/evolution.rs` covering NIST FIPS 180-4 SHA-256
+vectors, SemVer 2.0.0 prerelease/numeric ordering, Stable vs. Development channel and draft
+filtering, `secp256k1` signed-manifest provenance verification and tamper rejection (confirming
+automatic installation remains locked when unconfigured), trading-safe maintenance gate blocking
+under active modes, unsafe path/host rejection, and a real loopback HTTP download, SHA-256
+verification, staging, backup, and rollback roundtrip.
+
+`cargo fmt --check`, `cargo clippy --locked --all-targets`, Glow desktop compilation
+(`--features desktop --all-targets`), `verify-memorial.ps1`, and the new automated
+`verify-github-compliance.ps1` check all pass. Native Windows 11 WGPU captures
+(`docs/assets/leviathan-awakened-wgpu.png` and `docs/assets/leviathan-evolution-updates.png`)
+verify the live `v1.7.0-alpha.28` sanctuary and Evolution workspace. No real exchange orders,
+live wallet credentials, or transfers were used.
+
 # Release verification — 1.7.0-alpha.27
 
 All **451 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding

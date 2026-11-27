@@ -1,0 +1,32 @@
+---
+description: Enforce permanent GitHub distribution compliance across README.md and all repository documentation
+alwaysApply: true
+---
+
+# Permanent GitHub Distribution Compliance
+
+This rule is permanent and supersedes any older documentation or distribution instruction.
+
+## Prohibited Patterns in README.md and Repository Documentation
+
+Never include in `README.md`, `RELEASE_NOTES.md`, `CHANGELOG.md`, or any other committed repository documentation, generated page, or badge:
+
+- Direct executable download links (`.exe`, `.apk`, `.msi`, `.dmg`).
+- Direct archive download links (`.zip`, `.tar.gz`).
+- Direct checksum download links (`SHA256SUMS.txt`).
+- Download buttons or download badges linking directly to executable or archive assets.
+- Any `/releases/download/` or `/releases/latest/download/` URL.
+- Any `browser_download_url` link.
+- Redirect services, URL shorteners, external download mirrors, download proxy services, or disguised/indirect artifact download mechanisms.
+
+## Approved Distribution Pattern
+
+- All compiled executables, portable packages, source archives, release notes, and SHA-256 checksums must remain exclusively in the repository's native GitHub Releases section (`https://github.com/ShamelesAbyss/Hydra/releases`).
+- `README.md` may include an ordinary informational link to the repository's native GitHub Releases page using neutral wording:
+  "Compiled executables, portable packages, source archives, release notes and SHA-256 checksums are available through the repository's GitHub Releases section."
+- Informational badges (version, CI workflow status, offline tests, language, license, audit, platform support) are permitted only when they do not link directly to downloadable binary/archive/checksum assets.
+- All artwork, banners, diagrams, and screenshots in `README.md` must use locally committed repository files under `docs/assets/` with exact case-sensitive relative paths.
+
+## Automated Enforcement
+
+Run `./.github/scripts/verify-github-compliance.ps1` locally and in GitHub Actions (`.github/workflows/verify.yml` and `.github/workflows/release.yml`) before every commit and release. Do not remove or weaken this rule without explicit owner authorization and clarification from GitHub Support.

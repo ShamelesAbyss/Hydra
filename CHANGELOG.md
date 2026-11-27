@@ -1,3 +1,24 @@
+## 1.7.0-alpha.28 — Leviathan Evolution native updater, restored README artwork & permanent GitHub compliance
+
+- Implement **LEVIATHAN EVOLUTION** integrated native update manager (`src/evolution.rs`,
+  `src/evolution_ui.rs`) inside the unified cockpit with a prominent top-bar **`CHECK FOR UPDATES`**
+  button, dedicated **`LEVIATHAN EVOLUTION`** (`Updates` / `Alt+U` / `--updates`) workspace tab,
+  and genuine **GENESIS** head pulse during active checks and downloads.
+- Support GitHub Releases API channel selection (`Development` / `Stable`, skipping drafts and
+  never misusing `/releases/latest` for prereleases), full SemVer 2.0.0 comparison, OS/arch asset
+  selection, release notes display, streaming download progress/cancellation, pure-Rust FIPS 180-4
+  SHA-256 verification, cryptographic `secp256k1` signed-manifest provenance checks (keeping
+  automatic installation strictly locked until pinned signing infrastructure is configured),
+  trading-safe maintenance gating, verified backups, rollback, and persistent update diagnostics.
+- Restore and redesign `README.md` with original obsidian-amethyst `docs/assets/leviathan-banner.svg`
+  and `docs/assets/architecture.svg` artwork, genuine native WGPU screenshots, and GitHub-compliant
+  distribution wording pointing exclusively to the repository's native GitHub Releases section.
+- Add permanent GitHub compliance enforcement (`.github/scripts/verify-github-compliance.ps1`,
+  `.cursor/rules/github-compliance.mdc`, `AGENTS.md`, and both CI workflows) preventing direct
+  artifact download URLs, shorteners, mirrors, or broken/wrong-cased README image references.
+- Preserve all financial safeguards, disabled live defaults, headless/Ratatui operation, and
+  Ashlan Haley Rapponotti's permanent memorial dedication.
+
 ## 1.7.0-alpha.27 — standalone Windows graphical executable, startup diagnostics & automated releases
 
 - Publish standalone double-clickable Windows graphical executable **`HYDRA-Leviathan-Windows-x64.exe`**

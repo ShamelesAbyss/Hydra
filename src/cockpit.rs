@@ -53,6 +53,7 @@ const HEADS: [(&str, &str, Color32); 7] = [
 enum Workspace {
     Overview,
     Treasury,
+    Evolution,
     Head(usize),
     Positions,
     BlackBox,
@@ -79,6 +80,7 @@ pub struct Cockpit {
     offering_pulse_at: Option<Instant>,
 
     treasury: crate::treasury_ui::TreasuryWorkspace,
+    evolution: crate::evolution_ui::EvolutionWorkspace,
     research: crate::research_ui::ResearchWorkspace,
     hunter: crate::hunter_ui::HunterWorkspace,
     diagnostics: crate::diagnostics_ui::DiagnosticWorkspace,
@@ -196,6 +198,7 @@ impl Cockpit {
             offering_pulse_at: None,
 
             treasury: crate::treasury_ui::TreasuryWorkspace::default(),
+            evolution: crate::evolution_ui::EvolutionWorkspace::default(),
             research: crate::research_ui::ResearchWorkspace::default(),
             hunter: crate::hunter_ui::HunterWorkspace::default(),
             diagnostics: crate::diagnostics_ui::DiagnosticWorkspace::default(),
@@ -296,6 +299,15 @@ impl Cockpit {
             }
             return;
         }
+        if self.workspace == Workspace::Evolution {
+            let events = self
+                .evolution
+                .show(ui, self.treasury.mode(), self.snapshot.as_deref());
+            if events.genesis_pulse {
+                self.research_changed_at[6] = Some(Instant::now());
+            }
+            return;
+        }
         if self.workspace == Workspace::Source
             || (self.workspace == Workspace::Overview && self.snapshot.is_none())
         {
@@ -374,7 +386,7 @@ impl Cockpit {
             Workspace::Overview => {
                 self.overview(ui, &data);
             }
-            Workspace::Treasury => {}
+            Workspace::Treasury | Workspace::Evolution => {}
             Workspace::Head(index) => {
                 let (name, description, color) = HEADS[index];
                 ui.heading(RichText::new(name).color(color));
@@ -708,6 +720,36 @@ impl Cockpit {
                 self.workspace = Workspace::Treasury;
                 self.target_details_height = self.target_details_height.max(460.0);
             }
+            let update_btn_text = if let Some(tag) = self.evolution.update_available_tag() {
+                format!("UPDATE: {tag}")
+            } else if self.evolution.is_busy() {
+                "CHECKING UPDATES…".into()
+            } else {
+                "CHECK FOR UPDATES".into()
+            };
+            let update_btn_col = if self.evolution.update_available_tag().is_some() {
+                EMERALD
+            } else {
+                HEADS[6].2
+            };
+            if ui
+                .button(
+                    RichText::new(update_btn_text)
+                        .monospace()
+                        .size(10.0)
+                        .strong()
+                        .color(update_btn_col),
+                )
+                .on_hover_text(
+                    "Check GitHub Releases & open LEVIATHAN EVOLUTION native update manager (Alt+U)",
+                )
+                .clicked()
+            {
+                self.workspace = Workspace::Evolution;
+                self.target_details_height = self.target_details_height.max(460.0);
+                self.evolution.trigger_check(ui.ctx());
+                self.research_changed_at[6] = Some(Instant::now());
+            }
             if self.treasury.is_suspended() {
                 if ui
                     .button(
@@ -942,6 +984,13 @@ impl Cockpit {
             Workspace::Treasury,
             "LEVIATHAN TREASURY",
             Color32::from_rgb(245, 194, 92),
+        );
+        nav(
+            ui,
+            &mut self.workspace,
+            Workspace::Evolution,
+            "LEVIATHAN EVOLUTION",
+            HEADS[6].2,
         );
         nav(
             ui,
@@ -1341,11 +1390,22 @@ impl eframe::App for Cockpit {
         if treasury_events.offering_illuminated {
             self.offering_pulse_at = Some(frame_start);
         }
+        let evo_events = self.evolution.poll(ui.ctx());
+        if evo_events.genesis_pulse {
+            self.research_changed_at[6] = Some(frame_start);
+        }
         if ui
             .ctx()
             .input(|i| i.modifiers.alt && i.key_pressed(egui::Key::T))
         {
             self.workspace = Workspace::Treasury;
+            self.target_details_height = self.target_details_height.max(460.0);
+        }
+        if ui
+            .ctx()
+            .input(|i| i.modifiers.alt && i.key_pressed(egui::Key::U))
+        {
+            self.workspace = Workspace::Evolution;
             self.target_details_height = self.target_details_height.max(460.0);
         }
         for (index, key) in [
@@ -1385,6 +1445,7 @@ impl eframe::App for Cockpit {
         let details_accent = match self.workspace {
             Workspace::Head(i) => HEADS[i].2,
             Workspace::Treasury => Color32::from_rgb(245, 194, 92),
+            Workspace::Evolution => HEADS[6].2,
             Workspace::Positions => EMERALD,
             Workspace::BlackBox => CYAN,
             Workspace::Source => AMBER,
@@ -1423,6 +1484,8 @@ impl eframe::App for Cockpit {
                     let heads = std::array::from_fn(|index| {
                         let running = if index == 0 {
                             self.hunter.running()
+                        } else if index == 6 {
+                            self.research.running_head() == Some(6) || self.evolution.is_busy()
                         } else {
                             self.diagnostics.running_head() == Some(index)
                                 || self.research.running_head() == Some(index)
@@ -1552,6 +1615,7 @@ impl eframe::App for Cockpit {
                             match self.workspace {
                                 Workspace::Overview => "COMMAND OVERVIEW",
                                 Workspace::Treasury => "LEVIATHAN TREASURY",
+                                Workspace::Evolution => "LEVIATHAN EVOLUTION",
                                 Workspace::Head(i) => HEADS[i].0,
                                 Workspace::Positions => "PORTFOLIO / POSITIONS",
                                 Workspace::BlackBox => "EVENT TIMELINE",
@@ -1579,6 +1643,16 @@ impl eframe::App for Cockpit {
                             .clicked()
                         {
                             self.workspace = Workspace::Treasury;
+                            self.target_details_height = self.target_details_height.max(460.0);
+                        }
+                        if ui
+                            .selectable_label(
+                                self.workspace == Workspace::Evolution,
+                                RichText::new("Updates").color(HEADS[6].2),
+                            )
+                            .clicked()
+                        {
+                            self.workspace = Workspace::Evolution;
                             self.target_details_height = self.target_details_height.max(460.0);
                         }
                         if ui
@@ -1637,14 +1711,16 @@ impl eframe::App for Cockpit {
                 region(ui, plan.footer, "footer", None, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(
-                            RichText::new("SEVEN HEADS. ONE HEART. ONE TREASURY.")
-                                .monospace()
-                                .small()
-                                .color(Color32::from_rgb(194, 168, 236)),
+                            RichText::new(
+                                "SEVEN HEADS. ONE HEART. ONE TREASURY. CONTINUOUS EVOLUTION.",
+                            )
+                            .monospace()
+                            .small()
+                            .color(Color32::from_rgb(194, 168, 236)),
                         );
                         ui.label(
                             RichText::new(
-                                "Alt+1…7 heads · Alt+T Treasury · F11 fullscreen · idle motion decorative · colored research / silver history",
+                                "Alt+1…7 heads · Alt+T Treasury · Alt+U Updates · F11 fullscreen · idle motion decorative · colored research / silver history",
                             )
                             .small()
                             .color(MUTED),
@@ -1719,6 +1795,30 @@ pub fn run_with_initial_tab(
     frame_limit: u32,
     open_treasury: bool,
 ) -> eframe::Result {
+    run_with_initial_view(
+        path,
+        backend,
+        fullscreen,
+        borderless,
+        quality,
+        reduced_motion,
+        frame_limit,
+        open_treasury,
+        false,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_initial_view(
+    path: PathBuf,
+    backend: crate::desktop_renderer::Backend,
+    fullscreen: bool,
+    borderless: bool,
+    quality: crate::leviathan_scene::SceneQuality,
+    reduced_motion: bool,
+    frame_limit: u32,
+    open_treasury: bool,
+    open_updates: bool,
+) -> eframe::Result {
     let attempts = crate::desktop_renderer::attempts(backend)
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let mut failure: Option<String> = None;
@@ -1738,7 +1838,11 @@ pub fn run_with_initial_tab(
                     let mut app = Cockpit::new(cc, database);
                     app.fullscreen = fullscreen;
                     app.borderless = borderless;
-                    if open_treasury {
+                    if open_updates {
+                        app.workspace = Workspace::Evolution;
+                        app.details_height = 520.0;
+                        app.target_details_height = 520.0;
+                    } else if open_treasury {
                         app.workspace = Workspace::Treasury;
                         app.details_height = 520.0;
                         app.target_details_height = 520.0;

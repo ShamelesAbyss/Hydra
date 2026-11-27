@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.27** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.27^{commit}`.
-- Previous recovery: v1.7.0-alpha.26.
+- Version and current recovery tag: **v1.7.0-alpha.28** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.28^{commit}`.
+- Previous recovery: v1.7.0-alpha.26 / v1.7.0-alpha.27.
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: Emergency Distribution Correction (**v1.7.0-alpha.27** standalone `HYDRA-Leviathan-Windows-x64.exe`, startup diagnostics/crash dialogs, dedicated `.github/workflows/release.yml`, top-of-README downloads), immediately followed by **Project Awakening** (`v1.7.0-alpha.28` **LEVIATHAN EVOLUTION** native updater and all seven major milestones).
+- Current phase: **Project Awakening — Restoration & Continuation** (**v1.7.0-alpha.28** delivers restored obsidian-amethyst README/artwork, permanent automated GitHub compliance enforcement, published standalone `HYDRA-Leviathan-Windows-x64.exe` release pipeline, and the integrated **LEVIATHAN EVOLUTION** native update manager), continuing immediately into the seven major milestones (HUNTER, FANG, COGNITION, AEGIS, NEXUS, ORACLE, GENESIS).
 - Development verification remains offline; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1

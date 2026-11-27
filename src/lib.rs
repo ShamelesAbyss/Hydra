@@ -12,6 +12,9 @@ pub mod cli;
 pub mod cockpit;
 pub mod config;
 pub mod core;
+pub mod evolution;
+#[cfg(feature = "desktop")]
+pub mod evolution_ui;
 pub mod execution;
 pub mod genesis;
 pub mod history;

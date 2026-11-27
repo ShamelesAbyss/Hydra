@@ -30,6 +30,9 @@ jobs:
       - name: Preserve permanent memorial dedication
         shell: pwsh
         run: ./.github/scripts/verify-memorial.ps1
+      - name: Enforce GitHub distribution compliance
+        shell: pwsh
+        run: ./.github/scripts/verify-github-compliance.ps1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

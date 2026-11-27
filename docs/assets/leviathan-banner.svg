@@ -1,1 +1,213 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="590" viewBox="0 0 1440 590" role="img" aria-label="HYDRA — Project Leviathan. Seven heads. One engine. Continuous evolution."><title>HYDRA — Project Leviathan. Seven heads. One engine. Continuous evolution.</title><rect width="1440" height="590" rx="20" fill="#080E17"/><rect x=".5" y=".5" width="1439" height="589" rx="20" fill="none" stroke="#263A4B"/><defs><radialGradient id="a"><stop stop-color="#134F57" stop-opacity=".48"/><stop offset="1" stop-color="#080E17" stop-opacity="0"/></radialGradient><pattern id="g" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1B2A39" stroke-width=".6"/></pattern><linearGradient id="line"><stop stop-color="#26D9FF"/><stop offset=".5" stop-color="#29F0B4"/><stop offset="1" stop-color="#FF81CD"/></linearGradient></defs><rect x="1" y="1" width="1438" height="588" rx="20" fill="url(#g)" opacity=".5"/><ellipse cx="1100" cy="295" rx="330" ry="275" fill="url(#a)"/><text x="66" y="62" fill="#8DA5B7" font-family="Segoe UI,Arial,sans-serif" font-size="13" >H Y D R A   /   S Y S T E M S   D I V I S I O N</text><text x="62" y="219" fill="#EDFAFF" font-family="Segoe UI,Arial,sans-serif" font-size="126" font-weight="800" letter-spacing="5">HYDRA</text><text x="68" y="270" fill="#29F0B4" font-family="Segoe UI,Arial,sans-serif" font-size="24" >P R O J E C T   L E V I A T H A N</text><path d="M68 305H615" stroke="url(#line)" stroke-width="2"/><text x="68" y="352" fill="#D2E2ED" font-family="Segoe UI,Arial,sans-serif" font-size="24" >Quantitative intelligence. Durable execution.</text><text x="68" y="388" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="19" >Native Rust. Local evidence. Independent research.</text><text x="68" y="466" fill="#F2F9FC" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" letter-spacing="1.5">SEVEN HEADS. ONE ENGINE. ONE BRANCH.</text><text x="68" y="502" fill="#7694A9" font-family="Segoe UI,Arial,sans-serif" font-size="15" letter-spacing="3">CONTINUOUS EVOLUTION.</text><path d="M1100 433 C1064.6 340 805.0 350 805.0 286.0" stroke="#26D9FF" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1064.6 340 805.0 350 805.0 286.0" stroke="#26D9FF" stroke-width="2" fill="none"/><path d="M780 245 L805 230 L832 247 L824 278 L805 291 L785 276Z" fill="#0D1C29" stroke="#26D9FF" stroke-width="1.8"/><path d="M789 257L800 263M821 257L810 263" stroke="#26D9FF" stroke-width="3"/><text x="805" y="318" fill="#26D9FF" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">01</text><path d="M1100 433 C1074.9 340 891.0 350 891.0 186.0" stroke="#FFCA58" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1074.9 340 891.0 350 891.0 186.0" stroke="#FFCA58" stroke-width="2" fill="none"/><path d="M866 145 L891 130 L918 147 L910 178 L891 191 L871 176Z" fill="#0D1C29" stroke="#FFCA58" stroke-width="1.8"/><path d="M875 157L886 163M907 157L896 163" stroke="#FFCA58" stroke-width="3"/><text x="891" y="218" fill="#FFCA58" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">02</text><path d="M1100 433 C1085.2 340 977.0 350 977.0 126.0" stroke="#B19BFF" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1085.2 340 977.0 350 977.0 126.0" stroke="#B19BFF" stroke-width="2" fill="none"/><path d="M952 85 L977 70 L1004 87 L996 118 L977 131 L957 116Z" fill="#0D1C29" stroke="#B19BFF" stroke-width="1.8"/><path d="M961 97L972 103M993 97L982 103" stroke="#B19BFF" stroke-width="3"/><text x="977" y="158" fill="#B19BFF" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">03</text><path d="M1100 433 C1095.6 340 1063.0 350 1063.0 101.0" stroke="#29F0B4" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1095.6 340 1063.0 350 1063.0 101.0" stroke="#29F0B4" stroke-width="2" fill="none"/><path d="M1038 60 L1063 45 L1090 62 L1082 93 L1063 106 L1043 91Z" fill="#0D1C29" stroke="#29F0B4" stroke-width="1.8"/><path d="M1047 72L1058 78M1079 72L1068 78" stroke="#29F0B4" stroke-width="3"/><text x="1063" y="133" fill="#29F0B4" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">04</text><path d="M1100 433 C1105.9 340 1149.0 350 1149.0 126.0" stroke="#48A8FF" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1105.9 340 1149.0 350 1149.0 126.0" stroke="#48A8FF" stroke-width="2" fill="none"/><path d="M1124 85 L1149 70 L1176 87 L1168 118 L1149 131 L1129 116Z" fill="#0D1C29" stroke="#48A8FF" stroke-width="1.8"/><path d="M1133 97L1144 103M1165 97L1154 103" stroke="#48A8FF" stroke-width="3"/><text x="1149" y="158" fill="#48A8FF" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">05</text><path d="M1100 433 C1116.2 340 1235.0 350 1235.0 186.0" stroke="#FF81CD" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1116.2 340 1235.0 350 1235.0 186.0" stroke="#FF81CD" stroke-width="2" fill="none"/><path d="M1210 145 L1235 130 L1262 147 L1254 178 L1235 191 L1215 176Z" fill="#0D1C29" stroke="#FF81CD" stroke-width="1.8"/><path d="M1219 157L1230 163M1251 157L1240 163" stroke="#FF81CD" stroke-width="3"/><text x="1235" y="218" fill="#FF81CD" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">06</text><path d="M1100 433 C1126.5 340 1321.0 350 1321.0 286.0" stroke="#CC8EFF" stroke-width="10" opacity=".08" fill="none"/><path d="M1100 433 C1126.5 340 1321.0 350 1321.0 286.0" stroke="#CC8EFF" stroke-width="2" fill="none"/><path d="M1296 245 L1321 230 L1348 247 L1340 278 L1321 291 L1301 276Z" fill="#0D1C29" stroke="#CC8EFF" stroke-width="1.8"/><path d="M1305 257L1316 263M1337 257L1326 263" stroke="#CC8EFF" stroke-width="3"/><text x="1321" y="318" fill="#CC8EFF" font-family="Segoe UI,Arial,sans-serif" font-size="11" text-anchor="middle">07</text><circle cx="1100" cy="433" r="39" fill="none" stroke="#29F0B4" opacity="0.8"/><circle cx="1100" cy="433" r="53" fill="none" stroke="#29F0B4" opacity="0.18"/><circle cx="1100" cy="433" r="67" fill="none" stroke="#29F0B4" opacity="0.18"/><path d="M1081 419L1100 407L1119 419V445L1100 458L1081 445Z" fill="#29F0B4" fill-opacity=".12" stroke="#29F0B4"/><text x="1100" y="439" fill="#E4FFF6" font-family="Segoe UI,Arial,sans-serif" font-size="20" text-anchor="middle" font-weight="700">H</text><text x="1100" y="535" fill="#819BAE" font-family="Segoe UI,Arial,sans-serif" font-size="10" text-anchor="middle" letter-spacing="1">PERCEIVE / REASON / PROTECT / EXECUTE / EVOLVE</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="580" viewBox="0 0 1440 580" role="img" aria-label="HYDRA — Project Leviathan. Seven heads. One heart. One treasury. Continuous evolution.">
+  <title>HYDRA — Project Leviathan. Seven heads. One heart. One treasury. Continuous evolution.</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#04050C"/>
+      <stop offset="52%" stop-color="#090B18"/>
+      <stop offset="100%" stop-color="#110B22"/>
+    </linearGradient>
+    <radialGradient id="amethystNebula" cx="73%" cy="56%" r="40%">
+      <stop offset="0%" stop-color="#A855F7" stop-opacity="0.34"/>
+      <stop offset="45%" stop-color="#6D28D9" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#05060D" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cyanAura" cx="56%" cy="34%" r="28%">
+      <stop offset="0%" stop-color="#36CDF5" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#05060D" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="heartCore" cx="50%" cy="46%" r="55%">
+      <stop offset="0%" stop-color="#F6E8FF"/>
+      <stop offset="35%" stop-color="#C084FC"/>
+      <stop offset="78%" stop-color="#7E22CE"/>
+      <stop offset="100%" stop-color="#3B0764"/>
+    </radialGradient>
+    <linearGradient id="accentRule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#36CDF5"/>
+      <stop offset="28%" stop-color="#B374FA"/>
+      <stop offset="62%" stop-color="#3AE8A5"/>
+      <stop offset="100%" stop-color="#F47FE0"/>
+    </linearGradient>
+    <linearGradient id="wingLeft" x1="1" y1="0.5" x2="0" y2="0.1">
+      <stop offset="0%" stop-color="#1A1230" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#0B0C1B" stop-opacity="0.25"/>
+    </linearGradient>
+    <linearGradient id="wingRight" x1="0" y1="0.5" x2="1" y2="0.1">
+      <stop offset="0%" stop-color="#1A1230" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#0B0C1B" stop-opacity="0.25"/>
+    </linearGradient>
+    <pattern id="cyberGrid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#241E42" stroke-width="0.65"/>
+    </pattern>
+  </defs>
+
+  <!-- Obsidian Frame -->
+  <rect width="1440" height="580" rx="22" fill="url(#bgGrad)"/>
+  <rect x="1" y="1" width="1438" height="578" rx="21" fill="url(#cyberGrid)" opacity="0.45"/>
+  <rect x="0" y="0" width="1440" height="580" rx="22" fill="url(#amethystNebula)"/>
+  <rect x="0" y="0" width="1440" height="580" rx="22" fill="url(#cyanAura)"/>
+  <rect x="0.75" y="0.75" width="1438.5" height="578.5" rx="21.5" fill="none" stroke="#36285A" stroke-width="1.4"/>
+
+  <!-- Cybernetic Corner Brackets -->
+  <path d="M22 46V22H46 M1394 22H1418V46 M22 534V558H46 M1394 558H1418V534" fill="none" stroke="#B374FA" stroke-width="2" opacity="0.85"/>
+  <path d="M56 22H260" stroke="#36CDF5" stroke-width="1.2" opacity="0.45"/>
+  <path d="M1180 558H1384" stroke="#F47FE0" stroke-width="1.2" opacity="0.45"/>
+
+  <!-- Left Typography & Identity -->
+  <text x="68" y="76" fill="#A598C8" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="13" font-weight="600" letter-spacing="4.5">PROJECT LEVIATHAN  /  NATIVE QUANTITATIVE SANCTUARY</text>
+
+  <text x="64" y="210" fill="#F4EEFF" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="122" font-weight="800" letter-spacing="6">HYDRA</text>
+
+  <text x="70" y="256" fill="#C084FC" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="5">P R O J E C T   L E V I A T H A N</text>
+
+  <rect x="70" y="282" width="540" height="2.5" rx="1.25" fill="url(#accentRule)"/>
+
+  <text x="70" y="330" fill="#E3EDF8" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="23" font-weight="600">Living seven-headed command center for Hyperliquid.</text>
+  <text x="70" y="366" fill="#9EACC4" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="18">Native Rust · WGPU Sanctuary · Local Evidence · Dedicated Treasury</text>
+
+  <!-- Seven-Head Discipline Pills -->
+  <g font-family="Consolas,DejaVu Sans Mono,monospace" font-size="11" font-weight="700">
+    <rect x="70" y="400" width="84" height="24" rx="4" fill="#0C1726" stroke="#36CDF5" stroke-opacity="0.65"/>
+    <text x="112" y="416" fill="#36CDF5" text-anchor="middle">HUNTER</text>
+
+    <rect x="162" y="400" width="66" height="24" rx="4" fill="#1E0E17" stroke="#F75F69" stroke-opacity="0.65"/>
+    <text x="195" y="416" fill="#F75F69" text-anchor="middle">FANG</text>
+
+    <rect x="236" y="400" width="102" height="24" rx="4" fill="#17112B" stroke="#AD85FF" stroke-opacity="0.65"/>
+    <text x="287" y="416" fill="#AD85FF" text-anchor="middle">COGNITION</text>
+
+    <rect x="346" y="400" width="72" height="24" rx="4" fill="#0A1E1B" stroke="#3AE8A5" stroke-opacity="0.7"/>
+    <text x="382" y="416" fill="#3AE8A5" text-anchor="middle">AEGIS</text>
+
+    <rect x="426" y="400" width="74" height="24" rx="4" fill="#0C172B" stroke="#4997FF" stroke-opacity="0.65"/>
+    <text x="463" y="416" fill="#4997FF" text-anchor="middle">NEXUS</text>
+
+    <rect x="508" y="400" width="80" height="24" rx="4" fill="#17152B" stroke="#D0C7F7" stroke-opacity="0.65"/>
+    <text x="548" y="416" fill="#D0C7F7" text-anchor="middle">ORACLE</text>
+
+    <rect x="596" y="400" width="84" height="24" rx="4" fill="#211028" stroke="#F47FE0" stroke-opacity="0.65"/>
+    <text x="638" y="416" fill="#F47FE0" text-anchor="middle">GENESIS</text>
+  </g>
+
+  <text x="70" y="478" fill="#F4EEFF" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="16" font-weight="700" letter-spacing="1.8">SEVEN HEADS. ONE HEART. ONE TREASURY.</text>
+  <text x="70" y="510" fill="#A68CD6" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="14" font-weight="600" letter-spacing="3.5">CONTINUOUS EVOLUTION.</text>
+
+  <!-- Right Emblem: Sweeping Cybernetic Dragon Wings -->
+  <g opacity="0.9">
+    <path d="M1045 415 L815 245 L735 310 L820 358 L762 402 L875 426 L985 442 Z" fill="url(#wingLeft)" stroke="#7C3AED" stroke-width="1.2" stroke-opacity="0.55"/>
+    <path d="M1045 415 L848 286 M1045 415 L812 346 M1045 415 L840 398" stroke="#B374FA" stroke-width="1" opacity="0.35"/>
+
+    <path d="M1085 415 L1315 245 L1395 310 L1310 358 L1368 402 L1255 426 L1145 442 Z" fill="url(#wingRight)" stroke="#7C3AED" stroke-width="1.2" stroke-opacity="0.55"/>
+    <path d="M1085 415 L1282 286 M1085 415 L1318 346 M1085 415 L1290 398" stroke="#B374FA" stroke-width="1" opacity="0.35"/>
+  </g>
+
+  <!-- Armored Carapace Torso -->
+  <path d="M982 465 L1018 394 L1065 376 L1112 394 L1148 465 L1106 498 L1065 510 L1024 498 Z" fill="#0B0D1D" stroke="#6D3FB8" stroke-width="1.6"/>
+  <path d="M1010 462 L1065 492 L1120 462" fill="none" stroke="#B374FA" stroke-width="1.2" opacity="0.5"/>
+
+  <!-- Seven Articulated Serpentine Necks & Glowing Conduits -->
+  <!-- 01 HUNTER (Cyan) -->
+  <path d="M1042 422 C965 380 865 348 796 270" fill="none" stroke="#36CDF5" stroke-width="14" opacity="0.1"/>
+  <path d="M1042 422 C965 380 865 348 796 270" fill="none" stroke="#182B3E" stroke-width="8"/>
+  <path d="M1042 422 C965 380 865 348 796 270" fill="none" stroke="#36CDF5" stroke-width="2"/>
+
+  <!-- 02 FANG (Crimson/Gold) -->
+  <path d="M1048 416 C988 340 915 280 874 188" fill="none" stroke="#F75F69" stroke-width="14" opacity="0.1"/>
+  <path d="M1048 416 C988 340 915 280 874 188" fill="none" stroke="#2D1520" stroke-width="8"/>
+  <path d="M1048 416 C988 340 915 280 874 188" fill="none" stroke="#F75F69" stroke-width="2"/>
+
+  <!-- 03 COGNITION (Amethyst) -->
+  <path d="M1056 410 C1022 314 984 226 966 132" fill="none" stroke="#AD85FF" stroke-width="14" opacity="0.1"/>
+  <path d="M1056 410 C1022 314 984 226 966 132" fill="none" stroke="#22183B" stroke-width="8"/>
+  <path d="M1056 410 C1022 314 984 226 966 132" fill="none" stroke="#AD85FF" stroke-width="2"/>
+
+  <!-- 04 AEGIS (Sovereign Emerald Apex) -->
+  <path d="M1065 406 C1065 300 1065 210 1065 106" fill="none" stroke="#3AE8A5" stroke-width="16" opacity="0.12"/>
+  <path d="M1065 406 C1065 300 1065 210 1065 106" fill="none" stroke="#102C28" stroke-width="9"/>
+  <path d="M1065 406 C1065 300 1065 210 1065 106" fill="none" stroke="#3AE8A5" stroke-width="2.2"/>
+
+  <!-- 05 NEXUS (Sapphire) -->
+  <path d="M1074 410 C1108 314 1146 226 1164 132" fill="none" stroke="#4997FF" stroke-width="14" opacity="0.1"/>
+  <path d="M1074 410 C1108 314 1146 226 1164 132" fill="none" stroke="#14233E" stroke-width="8"/>
+  <path d="M1074 410 C1108 314 1146 226 1164 132" fill="none" stroke="#4997FF" stroke-width="2"/>
+
+  <!-- 06 ORACLE (Moonlit Silver-Violet) -->
+  <path d="M1082 416 C1142 340 1215 280 1256 188" fill="none" stroke="#D0C7F7" stroke-width="14" opacity="0.1"/>
+  <path d="M1082 416 C1142 340 1215 280 1256 188" fill="none" stroke="#23203A" stroke-width="8"/>
+  <path d="M1082 416 C1142 340 1215 280 1256 188" fill="none" stroke="#D0C7F7" stroke-width="2"/>
+
+  <!-- 07 GENESIS (Prismatic Orchid) -->
+  <path d="M1088 422 C1165 380 1265 348 1334 270" fill="none" stroke="#F47FE0" stroke-width="14" opacity="0.1"/>
+  <path d="M1088 422 C1165 380 1265 348 1334 270" fill="none" stroke="#2D1635" stroke-width="8"/>
+  <path d="M1088 422 C1165 380 1265 348 1334 270" fill="none" stroke="#F47FE0" stroke-width="2"/>
+
+  <!-- Sculpted Dragon Heads -->
+  <!-- 01 HUNTER -->
+  <g transform="translate(796,262)">
+    <polygon points="-28,-16 -6,-28 24,-18 18,12 0,24 -22,12" fill="#0B1824" stroke="#36CDF5" stroke-width="1.8"/>
+    <path d="M-24,-14 L-38,-32 M18,-16 L32,-30" stroke="#36CDF5" stroke-width="2"/>
+    <path d="M-14,-4 L-3,2 M14,-4 L3,2" stroke="#36CDF5" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="42" fill="#36CDF5" font-family="Consolas,monospace" font-size="10" font-weight="700" text-anchor="middle">01 HUNTER</text>
+  </g>
+
+  <!-- 02 FANG -->
+  <g transform="translate(874,178)">
+    <polygon points="-26,-16 0,-28 26,-16 20,14 0,25 -20,14" fill="#1E0E15" stroke="#F75F69" stroke-width="1.8"/>
+    <path d="M-22,-14 L-34,-34 M22,-14 L34,-34" stroke="#F6BC53" stroke-width="2"/>
+    <path d="M-13,-3 L-3,3 M13,-3 L3,3" stroke="#F6BC53" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="43" fill="#F75F69" font-family="Consolas,monospace" font-size="10" font-weight="700" text-anchor="middle">02 FANG</text>
+  </g>
+
+  <!-- 03 COGNITION -->
+  <g transform="translate(966,120)">
+    <polygon points="-26,-15 0,-30 26,-15 20,14 0,24 -20,14" fill="#151029" stroke="#AD85FF" stroke-width="1.8"/>
+    <polygon points="0,-38 6,-28 0,-20 -6,-28" fill="#D8B4FE" opacity="0.9"/>
+    <path d="M-13,-3 L-3,2 M13,-3 L3,2" stroke="#C4B5FD" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="42" fill="#AD85FF" font-family="Consolas,monospace" font-size="10" font-weight="700" text-anchor="middle">03 COGNITION</text>
+  </g>
+
+  <!-- 04 AEGIS (Apex Sovereign) -->
+  <g transform="translate(1065,92)">
+    <polygon points="0,-48 44,-22 44,24 0,48 -44,24 -44,-22" fill="none" stroke="#3AE8A5" stroke-width="1.1" stroke-opacity="0.32" stroke-dasharray="4 4"/>
+    <polygon points="-30,-18 0,-34 30,-18 24,16 0,28 -24,16" fill="#0B1F1D" stroke="#3AE8A5" stroke-width="2.2"/>
+    <polygon points="0,-24 6,-15 0,-6 -6,-15" fill="#3AE8A5"/>
+    <path d="M-15,-2 L-4,4 M15,-2 L4,4" stroke="#3AE8A5" stroke-width="3.2" stroke-linecap="round"/>
+    <text x="0" y="47" fill="#3AE8A5" font-family="Consolas,monospace" font-size="10.5" font-weight="700" text-anchor="middle">04 AEGIS</text>
+  </g>
+
+  <!-- 05 NEXUS -->
+  <g transform="translate(1164,120)">
+    <polygon points="-26,-15 0,-30 26,-15 20,14 0,24 -20,14" fill="#0C172B" stroke="#4997FF" stroke-width="1.8"/>
+    <path d="M-18,-22 L-22,-36 M18,-22 L22,-36" stroke="#93C5FD" stroke-width="2"/>
+    <path d="M-13,-3 L-3,2 M13,-3 L3,2" stroke="#4997FF" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="42" fill="#4997FF" font-family="Consolas,monospace" font-size="10" font-weight="700" text-anchor="middle">05 NEXUS</text>
+  </g>
+
+  <!-- 06 ORACLE -->
+  <g transform="translate(1256,178)">
+    <ellipse cx="0" cy="-4" rx="34" ry="11" fill="none" stroke="#D0C7F7" stroke-width="1" opacity="0.4" transform="rotate(-14)"/>
+    <polygon points="-26,-16 0,-28 26,-16 20,14 0,25 -20,14" fill="#17142C" stroke="#D0C7F7" stroke-width="1.8"/>
+    <circle cx="0" cy="-14" r="3.5" fill="#EFEAFF"/>
+    <path d="M-13,-3 L-3,3 M13,-3 L3,3" stroke="#D0C7F7" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="43" fill="#D0C7F7" font-family="Consolas,monospace" font-size="10" font-weight="700" text-anchor="middle">06 ORACLE</text>
+  </g>
+
+  <!-- 07 GENESIS -->
+  <g transform="translate(1334,262)">
+    <polygon points="-28,-16 0,-28 28,-16 20,12 0,24 -20,12" fill="#211027" stroke="#F47FE0" stroke-width="1.8"/>
+    <path d="M-16,-20 L-24,-34 M0,-26 L0,-40 M16,-20 L24,-34" stroke="#F9A8D4" stroke-width="2"/>
+    <path d="M-14,-4 L-3,2 M14,-4 L3,2" stroke="#F47FE0" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="42" fill="#F47FE0" font-family="Consolas,monospace" font-size="10" font-weight="700" text-anchor="middle">07 GENESIS</text>
+  </g>
+
+  <!-- Central Gem-Cut Amethyst Heart -->
+  <g transform="translate(1065,436)">
+    <circle r="66" fill="none" stroke="#B374FA" stroke-width="1" opacity="0.22"/>
+    <circle r="50" fill="none" stroke="#C084FC" stroke-width="1.2" opacity="0.45"/>
+    <polygon points="0,-38 33,-16 26,24 0,40 -26,24 -33,-16" fill="url(#heartCore)" stroke="#E9D5FF" stroke-width="1.8"/>
+    <polygon points="0,-24 18,-8 14,14 0,24 -14,14 -18,-8" fill="#F3E8FF" fill-opacity="0.24" stroke="#F5D0FE" stroke-width="1"/>
+    <path d="M0,-38 L0,40 M-33,-16 L33,-16 M-26,24 L26,24" stroke="#F5D0FE" stroke-width="0.8" opacity="0.45"/>
+    <circle r="5" fill="#FFFFFF" opacity="0.92"/>
+  </g>
+
+  <text x="1065" y="532" fill="#C4B5FD" font-family="Consolas,DejaVu Sans Mono,monospace" font-size="11" font-weight="700" text-anchor="middle" letter-spacing="2.2">THE AMETHYST HEART  ·  OBSERVE / REASON / PROTECT / EXECUTE / EVOLVE</text>
+</svg>

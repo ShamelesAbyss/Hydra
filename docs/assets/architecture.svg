@@ -1,1 +1,71 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="510" viewBox="0 0 1120 510" role="img" aria-label="Actual architecture: native cockpit, terminal and CLI; trading and independent research; local SQLite and Hyperliquid boundaries."><title>Actual architecture: native cockpit, terminal and CLI; trading and independent research; local SQLite and Hyperliquid boundaries.</title><rect width="1120" height="510" rx="20" fill="#080E17"/><rect x=".5" y=".5" width="1119" height="509" rx="20" fill="none" stroke="#263A4B"/><text x="36" y="43" fill="#EFF8FC" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="700">ONE ENGINE. THREE SURFACES.</text><text x="36" y="70" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="13" >Current implementation boundaries · seven heads are logical subsystems, not seven services.</text><rect x="36" y="102" width="320" height="77" rx="10" fill="#0F1C29" stroke="#29F0B4" stroke-opacity=".6"/><text x="52" y="130" fill="#29F0B4" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">NATIVE COCKPIT / eframe</text><text x="52" y="153" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Recorded telemetry + local research</text><rect x="400" y="102" width="320" height="77" rx="10" fill="#0F1C29" stroke="#26D9FF" stroke-opacity=".6"/><text x="416" y="130" fill="#26D9FF" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">TERMINAL / Ratatui</text><text x="416" y="153" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Bounded engine dashboard</text><rect x="764" y="102" width="320" height="77" rx="10" fill="#0F1C29" stroke="#B19BFF" stroke-opacity=".6"/><text x="780" y="130" fill="#B19BFF" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">CLI / HEADLESS</text><text x="780" y="153" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Engine, diagnostics, research commands</text><rect x="36" y="238" width="504" height="104" rx="10" fill="#0F1C29" stroke="#26D9FF" stroke-opacity=".6"/><text x="52" y="266" fill="#26D9FF" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">TRADING ENGINE / Rust + Tokio</text><text x="52" y="289" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Strategies → context → risk → durable intent</text><text x="52" y="318" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Hyperliquid adapter · account ownership · protective exits</text><rect x="580" y="238" width="504" height="104" rx="10" fill="#0F1C29" stroke="#FF81CD" stroke-opacity=".6"/><text x="596" y="266" fill="#FF81CD" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">RESEARCH / Oracle + Genesis</text><text x="596" y="289" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Candle replay → seeded search → Pareto candidates</text><text x="596" y="318" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Explicit simulation limits · no automatic deployment</text><rect x="36" y="405" width="504" height="69" rx="10" fill="#0F1C29" stroke="#29F0B4" stroke-opacity=".6"/><text x="52" y="433" fill="#29F0B4" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">SQLite / LOCAL EVIDENCE</text><text x="52" y="456" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Positions · intents · exact facts · fills/funding · risk</text><rect x="580" y="405" width="504" height="69" rx="10" fill="#0F1C29" stroke="#48A8FF" stroke-opacity=".6"/><text x="596" y="433" fill="#48A8FF" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700">Hyperliquid / EXTERNAL VENUE</text><text x="596" y="456" fill="#A7BBCC" font-family="Segoe UI,Arial,sans-serif" font-size="12" >Info reads · gated signed execution</text><path d="M196 179V205H18V440H36" stroke="#29F0B4" fill="none" stroke-width="1.5" stroke-dasharray="4 5"/><path d="M560 179V205H288V238" stroke="#26D9FF" fill="none" stroke-width="1.5"/><path d="M924 179V205H832V238" stroke="#B19BFF" fill="none" stroke-width="1.5"/><path d="M924 179V218H505V238" stroke="#B19BFF" fill="none" stroke-width="1.5"/><path d="M288 342V405" stroke="#29F0B4" fill="none" stroke-width="1.5"/><path d="M540 290H560V375H832V405" stroke="#48A8FF" fill="none" stroke-width="1.5"/><text x="210" y="389" fill="#29F0B4" font-family="Segoe UI,Arial,sans-serif" font-size="11" >read-only telemetry</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="540" viewBox="0 0 1160 540" role="img" aria-label="HYDRA Project Leviathan architecture: unified WGPU/Glow cockpit, Ratatui TUI, CLI engine, independent research, Treasury DPAPI vault, Evolution updater, SQLite evidence, and Hyperliquid mainnet boundaries.">
+  <title>HYDRA Project Leviathan Architecture</title>
+  <defs>
+    <linearGradient id="archBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#05060E"/>
+      <stop offset="100%" stop-color="#0D0B1D"/>
+    </linearGradient>
+  </defs>
+  <rect width="1160" height="540" rx="20" fill="url(#archBg)"/>
+  <rect x="0.75" y="0.75" width="1158.5" height="538.5" rx="19.5" fill="none" stroke="#36285A" stroke-width="1.4"/>
+
+  <text x="36" y="44" fill="#F3EEFF" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="1.2">ONE ORGANISM. THREE SURFACES. STRICT SAFETY BOUNDARIES.</text>
+  <text x="36" y="69" fill="#9EACC4" font-family="Segoe UI,DejaVu Sans,Arial,sans-serif" font-size="13">Seven heads are logical Rust subsystems sharing durable SQLite evidence; signing stays isolated from GUI and research workers.</text>
+
+  <!-- Row 1: Operator Surfaces -->
+  <rect x="36" y="98" width="340" height="82" rx="10" fill="#101224" stroke="#B374FA" stroke-width="1.4"/>
+  <text x="54" y="128" fill="#C084FC" font-family="Consolas,monospace" font-size="14" font-weight="700">NATIVE COCKPIT (WGPU + Glow)</text>
+  <text x="54" y="150" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Living 7-head sanctuary · Treasury · Evolution</text>
+  <text x="54" y="168" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">Read-only SQLite snapshots · standalone .exe</text>
+
+  <rect x="410" y="98" width="340" height="82" rx="10" fill="#101224" stroke="#36CDF5" stroke-width="1.4"/>
+  <text x="428" y="128" fill="#36CDF5" font-family="Consolas,monospace" font-size="14" font-weight="700">TERMINAL DASHBOARD (Ratatui)</text>
+  <text x="428" y="150" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Bounded live engine TUI &amp; tracing feed</text>
+  <text x="428" y="168" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">Zero graphical dependency · SSH friendly</text>
+
+  <rect x="784" y="98" width="340" height="82" rx="10" fill="#101224" stroke="#3AE8A5" stroke-width="1.4"/>
+  <text x="802" y="128" fill="#3AE8A5" font-family="Consolas,monospace" font-size="14" font-weight="700">HEADLESS ENGINE &amp; CLI</text>
+  <text x="802" y="150" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Engine runtime · offline forensic inspectors</text>
+  <text x="802" y="168" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">Windows &amp; Linux x86_64 · independent lifetime</text>
+
+  <!-- Row 2: Core Domains -->
+  <rect x="36" y="232" width="340" height="114" rx="10" fill="#111528" stroke="#4997FF" stroke-width="1.4"/>
+  <text x="54" y="261" fill="#4997FF" font-family="Consolas,monospace" font-size="14" font-weight="700">TRADING CORE (FANG · AEGIS · NEXUS)</text>
+  <text x="54" y="285" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Strategies &amp; deterministic arbitration</text>
+  <text x="54" y="305" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">AEGIS persistent exposure &amp; drawdown breakers</text>
+  <text x="54" y="325" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">Durable intent journal · exact fill/residual facts</text>
+
+  <rect x="410" y="232" width="340" height="114" rx="10" fill="#111528" stroke="#F47FE0" stroke-width="1.4"/>
+  <text x="428" y="261" fill="#F47FE0" font-family="Consolas,monospace" font-size="14" font-weight="700">RESEARCH (HUNTER · COGNITION · ORACLE · GENESIS)</text>
+  <text x="428" y="285" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Market radar ranking &amp; watchlist hysteresis</text>
+  <text x="428" y="305" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Shadow attribution · held-out replay scenarios</text>
+  <text x="428" y="325" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">Resumable checkpoints · zero signing authority</text>
+
+  <rect x="784" y="232" width="340" height="114" rx="10" fill="#111528" stroke="#F6BC53" stroke-width="1.4"/>
+  <text x="802" y="261" fill="#F6BC53" font-family="Consolas,monospace" font-size="14" font-weight="700">TREASURY &amp; LEVIATHAN EVOLUTION</text>
+  <text x="802" y="285" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Dedicated wallet vault (Windows DPAPI / 0600)</text>
+  <text x="802" y="305" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">The Offering · 6 operational modes · Suspend</text>
+  <text x="802" y="325" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">SHA-256 &amp; signed-manifest gated native updates</text>
+
+  <!-- Row 3: Durable Persistence & External Boundaries -->
+  <rect x="36" y="406" width="524" height="94" rx="10" fill="#0E1A22" stroke="#3AE8A5" stroke-width="1.4"/>
+  <text x="54" y="436" fill="#3AE8A5" font-family="Consolas,monospace" font-size="14" font-weight="700">LOCAL PERSISTENCE (SQLite + OS-Protected Vault)</text>
+  <text x="54" y="460" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">%LOCALAPPDATA%\Hydra\data\hydra.db · durable signer-nonce DB · OS locks</text>
+  <text x="54" y="482" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">Private keys stay strictly local · never logged, sent to AI, or exported</text>
+
+  <rect x="600" y="406" width="524" height="94" rx="10" fill="#121428" stroke="#4997FF" stroke-width="1.4"/>
+  <text x="618" y="436" fill="#4997FF" font-family="Consolas,monospace" font-size="14" font-weight="700">EXTERNAL NETWORK BOUNDARIES (STRICTLY SCOPED)</text>
+  <text x="618" y="460" fill="#C6D4E4" font-family="Segoe UI,Arial,sans-serif" font-size="12">Hyperliquid Mainnet: read-only /info · gated secp256k1 IOC execution</text>
+  <text x="618" y="482" fill="#8C99B6" font-family="Segoe UI,Arial,sans-serif" font-size="11">GitHub Releases API: read-only version checks · zero withdrawals/transfers</text>
+
+  <!-- Connectors -->
+  <path d="M206 180 V206 H206 V232" stroke="#B374FA" stroke-width="1.5" fill="none" stroke-dasharray="4 4"/>
+  <path d="M206 206 H580 V232" stroke="#B374FA" stroke-width="1.5" fill="none"/>
+  <path d="M206 206 H954 V232" stroke="#F6BC53" stroke-width="1.5" fill="none"/>
+  <path d="M580 180 V206" stroke="#36CDF5" stroke-width="1.5" fill="none"/>
+  <path d="M954 180 V206" stroke="#3AE8A5" stroke-width="1.5" fill="none"/>
+  <path d="M206 346 V406" stroke="#3AE8A5" stroke-width="1.6" fill="none"/>
+  <path d="M376 289 H393 V374 H760 V406" stroke="#4997FF" stroke-width="1.6" fill="none"/>
+  <path d="M954 346 V406" stroke="#F6BC53" stroke-width="1.5" fill="none" stroke-dasharray="4 4"/>
+  <path d="M954 374 H480 V406" stroke="#F6BC53" stroke-width="1.3" fill="none" stroke-dasharray="3 4"/>
+</svg>

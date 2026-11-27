@@ -174,7 +174,32 @@ Corrected distribution architecture so ordinary Windows users download and doubl
 PowerShell, CLI arguments, repository files, or ZIP extraction. Added OS-native
 `%LOCALAPPDATA%\Hydra` clean-profile bootstrap, readable local crash reports, visible Win32
 startup error dialogs, `catch_unwind` WGPU→Glow fallback, dedicated `.github/workflows/release.yml`
-with post-publish public download & SHA-256 checks, top-of-README download redesign, and the
-Permanent Definition of Done in `AGENTS.md`. Preserves all financial safeguards and Ashlan
-Haley Rapponotti's permanent memorial. Next: **LEVIATHAN EVOLUTION** secure native updater
-(`v1.7.0-alpha.28`) and continued progression across all seven major milestones.
+with post-publish public download & SHA-256 checks, and the Permanent Definition of Done in
+`AGENTS.md`. Preserves all financial safeguards and Ashlan Haley Rapponotti's permanent memorial.
+
+### Alpha.28 — Permanent GitHub Compliance, Restored Obsidian-Amethyst Presentation & LEVIATHAN EVOLUTION
+
+All seven milestone rows reviewed. Delivered:
+
+- **Permanent GitHub Compliance & Restored Presentation (M7):** Restored `README.md` with
+  original obsidian-amethyst `docs/assets/leviathan-banner.svg` and `docs/assets/architecture.svg`,
+  genuine native WGPU screenshots, neutral Releases navigation pointing exclusively to the
+  repository's native GitHub Releases section, and automated CI/local enforcement via
+  `.github/scripts/verify-github-compliance.ps1` and `.cursor/rules/github-compliance.mdc`.
+- **LEVIATHAN EVOLUTION Native Update Manager (M3 / M7):** Implemented `src/evolution.rs` and
+  `src/evolution_ui.rs` with top-bar **`CHECK FOR UPDATES`** button, dedicated **`Updates`**
+  (`Alt+U` / `--updates`) workspace tab, GitHub Releases channel selection (`Development` /
+  `Stable`), SemVer 2.0.0 comparison, OS/arch asset matching, release notes, download progress and
+  cancellation, pure-Rust FIPS 180-4 SHA-256 verification, cryptographic `secp256k1` signed
+  manifest provenance verification (auto-install strictly locked until pinned signing keys are
+  configured), trading-safe maintenance gating, staging/backup/rollback, and update diagnostics.
+- **Next Project Awakening slices (continuing immediately on `main`):**
+  1. **M4 FANG Shared Deterministic Planner Integration:** Connect the deterministic planner and
+     ownership/budget arbitration into live/replay consumers with fixture parity.
+  2. **M5 HUNTER Autonomous Public Market Acquisition & Portfolio-Aware Ranking + COGNITION
+     Inferred Regime Calibration.**
+  3. **M6 ORACLE Realistic Execution Models (Funding/Partial/Latency) & Dataset Provenance +
+     GENESIS Multi-Objective Evolution.**
+  4. **M1/M2/M4 Certification Track:** Complete round-trip fee/funding net settlement, stream/restart
+     recovery, native protective orders, and authenticated local control IPC. No original major
+     milestone is fully certified yet and no financial safeguard is weakened.
