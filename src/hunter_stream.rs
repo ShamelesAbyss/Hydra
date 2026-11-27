@@ -45,8 +45,22 @@ pub struct L2BookObservation {
     pub ask_depth_usd: f64,
     pub levels_bid: usize,
     pub levels_ask: usize,
+    #[serde(default)]
+    pub bids: Vec<(f64, f64)>,
+    #[serde(default)]
+    pub asks: Vec<(f64, f64)>,
     pub exchange_ts_ms: Option<i64>,
     pub received_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct L2DepthSample {
+    pub received_at_ms: i64,
+    pub spread_bps: f64,
+    pub bid_depth_usd: f64,
+    pub ask_depth_usd: f64,
+    pub top_bid_usd: f64,
+    pub top_ask_usd: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -333,6 +347,8 @@ impl TradeStreamBuffer {
 #[derive(Debug, Clone)]
 pub struct HunterMarketState {
     pub l2_books: BTreeMap<String, L2BookObservation>,
+    pub l2_history: BTreeMap<String, VecDeque<L2DepthSample>>,
+    pub oi_history: BTreeMap<String, VecDeque<(i64, f64)>>,
     trades: BTreeMap<String, TradeStreamBuffer>,
     pub candles: BTreeMap<String, CompletedCandleSeries>,
     pub meta_ctx: BTreeMap<String, InstrumentMetaCtx>,
@@ -350,6 +366,8 @@ impl HunterMarketState {
     pub fn new(stale_after_ms: i64) -> Self {
         Self {
             l2_books: BTreeMap::new(),
+            l2_history: BTreeMap::new(),
+            oi_history: BTreeMap::new(),
             trades: BTreeMap::new(),
             candles: BTreeMap::new(),
             meta_ctx: BTreeMap::new(),
@@ -410,6 +428,11 @@ impl HunterMarketState {
         }
 
         for obs in &obs_list {
+            let oi_hist = self.oi_history.entry(obs.symbol.clone()).or_default();
+            oi_hist.push_back((received_at_ms, obs.open_interest_usd));
+            while oi_hist.len() > 64 {
+                oi_hist.pop_front();
+            }
             self.meta_ctx.insert(
                 obs.symbol.clone(),
                 InstrumentMetaCtx {
@@ -509,6 +532,21 @@ impl HunterMarketState {
                 .map_or(received_at_ms, |p| p.max(received_at_ms)),
         );
 
+        let top_bids: Vec<(f64, f64)> = bids.iter().take(20).copied().collect();
+        let top_asks: Vec<(f64, f64)> = asks.iter().take(20).copied().collect();
+        let depth_hist = self.l2_history.entry(symbol.to_string()).or_default();
+        depth_hist.push_back(L2DepthSample {
+            received_at_ms,
+            spread_bps,
+            bid_depth_usd,
+            ask_depth_usd,
+            top_bid_usd: best_bid * best_bid_sz,
+            top_ask_usd: best_ask * best_ask_sz,
+        });
+        while depth_hist.len() > 64 {
+            depth_hist.pop_front();
+        }
+
         self.l2_books.insert(
             symbol.to_string(),
             L2BookObservation {
@@ -522,6 +560,8 @@ impl HunterMarketState {
                 ask_depth_usd,
                 levels_bid: bids.len(),
                 levels_ask: asks.len(),
+                bids: top_bids,
+                asks: top_asks,
                 exchange_ts_ms,
                 received_at_ms,
             },
@@ -1011,6 +1051,52 @@ impl HunterMarketState {
             },
         })
     }
+
+    pub fn microstructure_snapshot(
+        &self,
+        symbol: &str,
+        as_of_ms: i64,
+        probe_notional_usd: f64,
+    ) -> crate::hunter_microstructure::MicrostructureSnapshot {
+        let book = self.l2_books.get(symbol);
+        let depth_hist = self.l2_history.get(symbol);
+        let trades = self.recent_trades(symbol);
+        let candles = self
+            .candles
+            .get(symbol)
+            .map(CompletedCandleSeries::completed_vec)
+            .unwrap_or_default();
+        let funding_bps = self
+            .meta_ctx
+            .get(symbol)
+            .and_then(|c| c.funding_received_at_ms.map(|_| c.funding_bps_1h));
+        let oi_hist = self.oi_history.get(symbol);
+        crate::hunter_microstructure::compute_microstructure_snapshot(
+            symbol,
+            as_of_ms,
+            book,
+            depth_hist,
+            &trades,
+            &candles,
+            funding_bps,
+            oi_hist,
+            probe_notional_usd,
+        )
+    }
+
+    pub fn cross_market_correlations(
+        &self,
+        symbols: &[String],
+        lookback_bars: usize,
+    ) -> Result<crate::hunter_microstructure::CorrelationMatrix> {
+        let mut map = BTreeMap::new();
+        for sym in symbols {
+            if let Some(series) = self.candles.get(sym) {
+                map.insert(sym.clone(), series.completed_vec());
+            }
+        }
+        crate::hunter_microstructure::compute_correlation_matrix(&map, lookback_bars)
+    }
 }
 
 /// Async public WebSocket + REST snapshot ingester supporting both mainnet and loopback URLs.
@@ -1043,6 +1129,66 @@ impl HunterStreamClient {
         )
     }
 
+    /// Resolves active monitored symbols = `watchlist ∪ held_positions` when non-empty,
+    /// otherwise bootstraps from the top liquid instruments observed in `meta_ctx` (or BTC/ETH/SOL
+    /// prior to the initial REST discovery snapshot) so an empty watchlist never drops live streams.
+    pub fn resolve_bootstrap_universe(
+        &self,
+        watchlist: &[String],
+        held: &BTreeSet<String>,
+    ) -> Vec<String> {
+        let explicit = HunterMarketState::monitor_universe(watchlist, held);
+        if !explicit.is_empty() {
+            return explicit;
+        }
+        let guard = self.state.read().expect("hunter state lock");
+        if !guard.meta_ctx.is_empty() {
+            let obs: Vec<PublicMarketObservation> = guard
+                .meta_ctx
+                .values()
+                .map(|c| PublicMarketObservation {
+                    symbol: c.symbol.clone(),
+                    mark_px: c.mark_px,
+                    oracle_px: c.oracle_px,
+                    prev_day_px: None,
+                    change_24h_pct: None,
+                    volume_24h_usd: c.volume_24h_usd,
+                    open_interest_usd: c.open_interest_usd,
+                    funding_bps_1h: c.funding_bps_1h,
+                    impact_spread_bps: c.impact_spread_bps,
+                    max_leverage: c.max_leverage,
+                })
+                .collect();
+            if let Ok(rep) = crate::hunter::evaluate_public_markets(
+                "bootstrap_discovery",
+                &obs,
+                &self.policy,
+                &[],
+                held,
+            ) {
+                if !rep.watchlist.is_empty() {
+                    return rep.watchlist;
+                }
+            }
+            let mut by_vol: Vec<_> = guard.meta_ctx.values().collect();
+            by_vol.sort_by(|a, b| {
+                b.volume_24h_usd
+                    .total_cmp(&a.volume_24h_usd)
+                    .then_with(|| a.symbol.cmp(&b.symbol))
+            });
+            let cap = self.policy.slots.clamp(3, 8);
+            let picked: Vec<String> = by_vol
+                .into_iter()
+                .take(cap)
+                .map(|c| c.symbol.clone())
+                .collect();
+            if !picked.is_empty() {
+                return picked;
+            }
+        }
+        vec!["BTC".into(), "ETH".into(), "SOL".into()]
+    }
+
     /// Initializes or refreshes REST snapshots (`metaAndAssetCtxs`, `l2Book`, `candleSnapshot`)
     /// with bounded rate-limit exponential backoff.
     pub async fn refresh_rest_snapshots(
@@ -1063,8 +1209,13 @@ impl HunterStreamClient {
             guard.apply_meta_and_ctxs_json(&meta_bytes, now_ms)?;
         }
 
+        let target_symbols = if watched_symbols.is_empty() {
+            self.resolve_bootstrap_universe(&[], &BTreeSet::new())
+        } else {
+            watched_symbols.to_vec()
+        };
         let start_ms = now_ms - 60 * 60_000;
-        for sym in watched_symbols.iter().take(12) {
+        for sym in target_symbols.iter().take(12) {
             if let Ok(book_bytes) = post_info_with_backoff(
                 http,
                 &self.info_url,
@@ -1119,7 +1270,7 @@ impl HunterStreamClient {
             let universe = {
                 let wl = watchlist.read().expect("watchlist lock").clone();
                 let held = held_positions.read().expect("held lock").clone();
-                HunterMarketState::monitor_universe(&wl, &held)
+                self.resolve_bootstrap_universe(&wl, &held)
             };
             if let Err(e) = self.refresh_rest_snapshots(&http, &universe).await {
                 tracing::debug!(error=%e, "initial REST snapshot unavailable; continuing to WS");
@@ -1139,12 +1290,7 @@ impl HunterStreamClient {
                     let initial_symbols = {
                         let wl = watchlist.read().expect("watchlist lock").clone();
                         let held = held_positions.read().expect("held lock").clone();
-                        let u = HunterMarketState::monitor_universe(&wl, &held);
-                        if u.is_empty() {
-                            vec!["BTC".into(), "ETH".into(), "SOL".into()]
-                        } else {
-                            u
-                        }
+                        self.resolve_bootstrap_universe(&wl, &held)
                     };
                     for sym in &initial_symbols {
                         if send_symbol_subscriptions(&mut write, sym, true)
@@ -1196,7 +1342,7 @@ impl HunterStreamClient {
                                 let desired: BTreeSet<String> = {
                                     let wl = watchlist.read().expect("watchlist lock").clone();
                                     let held = held_positions.read().expect("held lock").clone();
-                                    HunterMarketState::monitor_universe(&wl, &held).into_iter().collect()
+                                    self.resolve_bootstrap_universe(&wl, &held).into_iter().collect()
                                 };
                                 for sym in desired.difference(&subscribed).cloned().collect::<Vec<_>>() {
                                     if send_symbol_subscriptions(&mut write, &sym, true).await.is_ok() {
@@ -1562,5 +1708,33 @@ mod tests {
         assert!(snap2.freshness.mark_is_fresh());
         assert!(snap2.freshness.funding.is_stale);
         assert!(snap2.is_stale);
+    }
+
+    #[test]
+    fn empty_watchlist_bootstraps_liquid_symbols_without_dropping_streams() {
+        let client = HunterStreamClient::new("ws://127.0.0.1:1", "http://127.0.0.1:1/info", 30_000);
+        // Empty watchlist with empty meta falls back cleanly to core liquid majors.
+        assert_eq!(
+            client.resolve_bootstrap_universe(&[], &BTreeSet::new()),
+            vec!["BTC".to_string(), "ETH".to_string(), "SOL".to_string()]
+        );
+
+        // Once meta_ctx is discovered, empty watchlist discovers top liquid markets dynamically.
+        let meta = r#"[
+            {"universe":[{"name":"AAA","szDecimals":2},{"name":"BBB","szDecimals":2}]},
+            [
+                {"markPx":"10","funding":"0.0001","openInterest":"200000","dayNtlVlm":"5000000","impactPxs":["9.999","10.001"]},
+                {"markPx":"20","funding":"0.0001","openInterest":"500000","dayNtlVlm":"50000000","impactPxs":["19.998","20.002"]}
+            ]
+        ]"#;
+        client
+            .state
+            .write()
+            .unwrap()
+            .apply_meta_and_ctxs_json(meta.as_bytes(), 1_700_000_000_000)
+            .unwrap();
+        let discovered = client.resolve_bootstrap_universe(&[], &BTreeSet::new());
+        assert!(discovered.contains(&"BBB".to_string()));
+        assert!(!discovered.is_empty());
     }
 }

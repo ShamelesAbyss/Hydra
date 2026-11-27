@@ -126,6 +126,50 @@ impl ResearchWorkspace {
     pub fn genesis_ready(&self) -> bool {
         self.genesis.is_some() || self.assessment.is_some()
     }
+    pub fn latest_oracle_summary(&self) -> Option<(String, f64, f64, usize)> {
+        if let Some(r) = &self.oracle {
+            let ret = if r.initial_equity > 0.0 {
+                ((r.final_equity - r.initial_equity) / r.initial_equity) * 100.0
+            } else {
+                0.0
+            };
+            return Some((
+                r.symbol.clone(),
+                ret,
+                r.max_drawdown_fraction * 100.0,
+                r.trades.len(),
+            ));
+        }
+        self.validation.as_ref().map(|v| {
+            let first = v.scenarios.first();
+            (
+                first
+                    .map(|s| s.scenario.name.clone())
+                    .unwrap_or_else(|| "walk-forward".into()),
+                first
+                    .map(|s| s.summary.mean_fold_return * 100.0)
+                    .unwrap_or(0.0),
+                first
+                    .map(|s| s.summary.worst_fold_drawdown_fraction * 100.0)
+                    .unwrap_or(0.0),
+                first.map(|s| s.summary.trade_count).unwrap_or(0),
+            )
+        })
+    }
+    pub fn latest_genesis_summary(&self) -> Option<(u64, usize, f64)> {
+        self.genesis.as_ref().map(|r| {
+            let best_ret = r
+                .candidates
+                .iter()
+                .map(|c| c.objectives.net_return * 100.0)
+                .fold(f64::NEG_INFINITY, f64::max);
+            (
+                r.generations.len() as u64,
+                r.pareto_candidate_ids.len(),
+                if best_ret.is_finite() { best_ret } else { 0.0 },
+            )
+        })
+    }
     /// Returns the subsystem that actually completed, for an event-backed pulse.
     pub fn poll(&mut self, ctx: &egui::Context) -> Option<usize> {
         let result = self.receiver.as_ref().and_then(|rx| match rx.try_recv() {
@@ -373,6 +417,16 @@ impl ResearchWorkspace {
         } else if let Some(report) = &self.oracle {
             oracle_report(ui, report);
         }
+        ui.separator();
+        ui.collapsing(
+            RichText::new("ORACLE Multi-Market & Purged Walk-Forward / GENESIS NSGA-II Engines")
+                .strong()
+                .color(Color32::from_rgb(179, 116, 250)),
+            |ui| {
+                ui.label("Multi-market synchronized portfolio simulation (`simulate_portfolio`) includes >=1-bar latency, bid/ask spread, sqrt depth slippage, hourly historical funding, outage windows, and buy-and-hold excess.");
+                ui.label("Purged + embargoed walk-forward cross-validation + circular block-bootstrap CI + deterministic multi-worker NSGA-II (`auto_deployment_authorized: false`) are exposed via `hydra oracle-portfolio` and `hydra genesis-nsga2`.");
+            },
+        );
     }
     fn start(&mut self, optimizer: bool, ctx: &egui::Context) {
         if self.receiver.is_some() {

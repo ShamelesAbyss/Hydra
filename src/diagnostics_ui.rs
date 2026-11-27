@@ -145,9 +145,11 @@ impl DiagnosticWorkspace {
                 kind = DiagnosticKind::EmaAnchor;
             }
             self.show_bounded_grid_planner(ui);
+            self.show_fang_strategy_registry(ui);
             ui.separator();
         } else if head == 2 {
             self.show_cognition_regime_inference(ui);
+            self.show_cognition_stats_diagnostics(ui);
             ui.separator();
         } else if head == 3 {
             self.show_aegis_stress_simulator(ui);
@@ -613,6 +615,69 @@ impl DiagnosticWorkspace {
                         ui.colored_label(Color32::LIGHT_RED, err);
                     }
                     None => {}
+                }
+            },
+        );
+    }
+
+    fn show_fang_strategy_registry(&self, ui: &mut egui::Ui) {
+        let reg = crate::fang_engine::default_strategy_registry();
+        ui.collapsing(
+            RichText::new(format!(
+                "FANG Unified Strategy Registry ({} · {} strategies)",
+                crate::fang_engine::REGISTRY_VERSION,
+                reg.len()
+            ))
+            .strong()
+            .color(Color32::from_rgb(247, 95, 105)),
+            |ui| {
+                ui.label(
+                    "Shared deterministically across Engine, Synapse Paper, ORACLE, and GENESIS.",
+                );
+                for d in &reg {
+                    ui.collapsing(format!("{} · {:?} ({})", d.id, d.family, d.version), |ui| {
+                        let regimes: Vec<&str> =
+                            d.supported_regimes.iter().map(|r| r.label()).collect();
+                        ui.label(format!("Regimes: {}", regimes.join(", ")));
+                        ui.label(format!("Activation: {}", d.activation_requirement));
+                        ui.label(format!("Provenance: {}", d.research_provenance));
+                        for c in &d.risk_constraints {
+                            ui.label(format!("  - {c}"));
+                        }
+                    });
+                }
+            },
+        );
+    }
+
+    fn show_cognition_stats_diagnostics(&self, ui: &mut egui::Ui) {
+        ui.collapsing(
+            RichText::new("COGNITION Bayesian Expectancy, Calibration & Drift Diagnostics")
+                .strong()
+                .color(Color32::from_rgb(173, 133, 255)),
+            |ui| {
+                ui.label("Prior shrinkage (kappa_0=5.0), empirical Brier/ECE probability calibration, cost-adjusted EV bps, and Page-Hinkley drift detection.");
+                if let Some(DiagnosticReport::Cognition(r)) = &self.report {
+                    ui.monospace(format!(
+                        "Loaded {} samples · {} groups · {} comparisons (simulated-only boundary enforced)",
+                        r.supplied_samples,
+                        r.groups.len(),
+                        r.comparisons.len(),
+                    ));
+                    for g in r.groups.iter().take(6) {
+                        ui.label(format!(
+                            "  {} [{} / {:?}] n={} eff_n={:.1} mean={:?}R lb={:?}R",
+                            g.strategy,
+                            g.regime,
+                            g.source,
+                            g.estimate.samples,
+                            g.estimate.effective_samples,
+                            g.estimate.weighted_mean_r,
+                            g.estimate.approximate_lower_bound_r,
+                        ));
+                    }
+                } else {
+                    ui.label("No COGNITION samples loaded — empirical calibration remains UncalibratedPrior. Load a COGNITION snapshot or run `hydra cognition-stats`.");
                 }
             },
         );

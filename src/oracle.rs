@@ -1,11 +1,16 @@
 //! Deterministic single-instrument candle research. Signals see completed bars only.
 use crate::{
+    cognition_shadow::{infer_regime, RegimeInferenceConfig},
     config::AppConfig,
     core::{Candle, MarketSnapshot, Side, Signal},
+    fang_engine::{FangMarketInput, FangUnifiedPlanner, UnifiedStrategyConfig},
+    fang_planner::PlanningBudget,
     strategies::{make_strategies, regime::classify_regime, Strategy},
 };
 use anyhow::{ensure, Result};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -342,4 +347,41 @@ fn adverse(price: f64, buy: bool, bps: f64) -> f64 {
         } else {
             1.0 - bps / 10_000.0
         }
+}
+
+/// Evaluates `FangUnifiedPlanner` deterministically on a single-instrument candle slice,
+/// bridging legacy `oracle::replay` consumers onto the shared FANG strategy architecture.
+pub fn plan_unified_oracle_candidates(
+    candles: &[Candle],
+    symbol: &str,
+    equity_usd: Decimal,
+    cfg: &UnifiedStrategyConfig,
+    budget: &PlanningBudget,
+) -> Result<crate::fang_engine::UnifiedPlanOutput> {
+    ensure!(!candles.is_empty(), "candles required");
+    let as_of_ms = candles.last().unwrap().ts.timestamp_millis();
+    let reg = infer_regime(
+        candles,
+        &RegimeInferenceConfig {
+            lookback_bars: cfg.slow_ema.max(12),
+            ..Default::default()
+        },
+    )
+    .map(|a| a.regime)
+    .unwrap_or(crate::cognition_shadow::InferredRegime::InsufficientHistory);
+    let mark = Decimal::try_from(candles.last().unwrap().close)
+        .unwrap_or(Decimal::ONE)
+        .round_dp(6);
+    let input = FangMarketInput {
+        as_of_ms,
+        correlation_id: format!("oracle-unified-{as_of_ms}"),
+        watchlist: vec![symbol.to_string()],
+        candles: BTreeMap::from([(symbol.to_string(), candles.to_vec())]),
+        marks: BTreeMap::from([(symbol.to_string(), mark)]),
+        regimes: BTreeMap::from([(symbol.to_string(), reg)]),
+        microstructure: BTreeMap::new(),
+        portfolio_equity_usd: equity_usd,
+    };
+    let _ = BTreeSet::<String>::new();
+    FangUnifiedPlanner::evaluate_and_plan(&input, budget, cfg, None)
 }

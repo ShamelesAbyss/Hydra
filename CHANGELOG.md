@@ -1,3 +1,16 @@
+## 1.13.0 — v1.13.0 | PROJECT OMNISCIENCE — UNIFIED QUANTITATIVE INTELLIGENCE
+
+- **HUNTER Microstructure & Cross-Market Correlation (`src/hunter_microstructure.rs`, `src/hunter_stream.rs`, `src/hunter_ui.rs`):**
+  Added causal point-in-time `MicrostructureSnapshot` metrics (L2 depth/imbalance, Kyle impact, trade-flow imbalance, spread widening, OI delta, adverse selection tagged `DataProvenance::DerivedMarketStat`), timestamp-aligned Pearson `CorrelationMatrix`, signal lift evaluation, and empty-watchlist bootstrap universe resolution (`HunterStreamClient::resolve_bootstrap_universe`).
+- **COGNITION Statistical Intelligence (`src/cognition_stats.rs`, `src/diagnostics_ui.rs`, `src/cli/mod.rs`):**
+  Added conjugate Bayesian R shrinkage (`BayesianExpectancyEstimate`), empirical Brier/ECE probability calibration, `cost_adjusted_ev_bps`, Page-Hinkley strategy deterioration alerts, and conservative `rank_and_weight_ensemble` weighting with strict `OutcomeSource::Simulated` vs. `VerifiedNet` separation.
+- **FANG Unified Engine & Cross-Consumer Parity (`src/fang_engine.rs`, `src/oracle.rs`, `src/core/engine.rs`, `src/paper_pipeline.rs`, `tests/fang_parity.rs`):**
+  Added 7-strategy versioned registry (`fang-registry-v1`), `TrailingEntryState`, `TrailingExitState`, `compute_adaptive_take_profit`, and bit-for-bit cross-consumer parity across `FangUnifiedPlanner`, ORACLE, Engine, and `SynapsePipeline`.
+- **ORACLE Multi-Market & GENESIS Constraint-Aware NSGA-II (`src/oracle_research.rs`, `src/genesis_nsga2.rs`, `src/research_ui.rs`, `src/cockpit.rs`, `src/cli/mod.rs`):**
+  Added synchronized multi-market portfolio simulation (latency, spread, sqrt impact, partial fills, outage windows, hourly funding, Sharpe/Sortino/Calmar/CVaR-95, buy-and-hold excess), purged/embargoed walk-forward CV with circular block bootstrap CI, deterministic multi-worker NSGA-II (`auto_deployment_authorized: false`), `OracleValidation` / `GenesisProposal` bus events, and offline CLI commands (`fang-registry`, `cognition-stats`, `oracle-portfolio`, `genesis-nsga2`).
+- **`v1.12.0` Audit Remediation & Test Suites (`src/paper_pipeline.rs`, `src/paper_store.rs`, `src/paper_service.rs`):**
+  Attributed per-position & closed-trade funding into `normalized_r`, persisted `equity_complete` nullable columns, enforced lock-held `archive_session_guarded` / `reset_session_confirmed_guarded`, and verified **517** desktop-wgpu / **471** headless tests while preserving Glow fallback, `MODE: DORMANT`, GitHub compliance, and Ashlan's permanent memorial.
+
 ## 1.12.0 — v1.12.0 | PROJECT ASCENDANCY — OPERATIONAL RELIABILITY & TRANSACTIONAL TRUTH
 
 - **Self-Contained Standalone Detached Paper Service (`src/bin/hydra-cockpit.rs`, `src/paper_service.rs`):**

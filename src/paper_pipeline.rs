@@ -13,11 +13,13 @@ use crate::cognition_shadow::{
     evaluate as evaluate_shadow, infer_regime, InferredRegime, OutcomeSource,
     RegimeInferenceConfig, ShadowPolicy, ShadowRequest, ShadowSample,
 };
-use crate::core::{Candle, Side, Signal};
-use crate::fang_planner::{
-    ema_anchor, plan as plan_candidates, EmaAnchorOptions, PlanCandidate, PlanningBudget,
+use crate::core::{Candle, Side};
+use crate::fang_engine::{
+    default_strategy_registry, FangMarketInput, FangUnifiedPlanner, UnifiedStrategyConfig,
 };
+use crate::fang_planner::PlanningBudget;
 use crate::hunter::{evaluate as evaluate_hunter, HunterPolicy, HunterRequest, MarketObservation};
+use crate::hunter_microstructure::{MicrostructureSampleCounts, MicrostructureSnapshot};
 use crate::hunter_stream::ObservedMarketSnapshot;
 use crate::portfolio_research::{evaluate_margin_stress, MarginPositionInput};
 use crate::synapse_bus::{DataProvenance, HeadId, SynapseBus, SynapseEvent, SynapsePayload};
@@ -42,6 +44,8 @@ pub struct PaperPosition {
     pub entry_fee_usd: Decimal,
     pub opened_at_ms: i64,
     pub correlation_id: String,
+    #[serde(default)]
+    pub accumulated_funding_usd: Decimal,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,6 +58,8 @@ pub struct PaperClosedTrade {
     pub qty: Decimal,
     pub gross_pnl_usd: Decimal,
     pub fees_usd: Decimal,
+    #[serde(default)]
+    pub funding_usd: Decimal,
     pub realized_net_pnl_usd: Decimal,
     pub exit_reason: String,
     pub closed_at_ms: i64,
@@ -175,10 +181,54 @@ impl PaperLedger {
             Side::Long => -(base_ntl * rate_dec).round_dp(6),
             Side::Short => (base_ntl * rate_dec).round_dp(6),
         };
+        if let Some(pos_mut) = self.open_positions.get_mut(symbol) {
+            pos_mut.accumulated_funding_usd += cash_delta;
+        }
         self.cash_equity += cash_delta;
         self.total_funding_usd += cash_delta;
         self.realized_net_pnl_usd += cash_delta;
         Some(cash_delta)
+    }
+
+    pub fn checked_current_drawdown_ratio(
+        &self,
+        marks: &BTreeMap<String, Decimal>,
+    ) -> Result<Decimal> {
+        let eq = self.checked_mark_to_market_equity(marks)?;
+        if self.high_water_equity <= Decimal::ZERO || eq >= self.high_water_equity {
+            Ok(Decimal::ZERO)
+        } else {
+            Ok(((self.high_water_equity - eq) / self.high_water_equity)
+                .round_dp(6)
+                .max(Decimal::ZERO))
+        }
+    }
+
+    pub fn update_drawdown_checked(
+        &mut self,
+        marks: &BTreeMap<String, Decimal>,
+        max_drawdown_ratio: Decimal,
+    ) -> Result<()> {
+        let eq = self.checked_mark_to_market_equity(marks)?;
+        if eq > self.high_water_equity {
+            self.high_water_equity = eq;
+        }
+        let dd = if self.high_water_equity <= Decimal::ZERO || eq >= self.high_water_equity {
+            Decimal::ZERO
+        } else {
+            ((self.high_water_equity - eq) / self.high_water_equity)
+                .round_dp(6)
+                .max(Decimal::ZERO)
+        };
+        if dd > self.max_drawdown_ratio {
+            self.max_drawdown_ratio = dd;
+        }
+        if dd >= max_drawdown_ratio && self.breaker_reason.is_none() {
+            self.breaker_reason = Some(format!(
+                "Simulated drawdown {dd} reached AEGIS ceiling {max_drawdown_ratio}"
+            ));
+        }
+        Ok(())
     }
 
     pub fn current_drawdown_ratio(&self, marks: &BTreeMap<String, Decimal>) -> Decimal {
@@ -189,22 +239,6 @@ impl PaperLedger {
             ((self.high_water_equity - eq) / self.high_water_equity)
                 .round_dp(6)
                 .max(Decimal::ZERO)
-        }
-    }
-
-    fn update_drawdown(&mut self, marks: &BTreeMap<String, Decimal>, max_drawdown_ratio: Decimal) {
-        let eq = self.mark_to_market_equity(marks);
-        if eq > self.high_water_equity {
-            self.high_water_equity = eq;
-        }
-        let dd = self.current_drawdown_ratio(marks);
-        if dd > self.max_drawdown_ratio {
-            self.max_drawdown_ratio = dd;
-        }
-        if dd >= max_drawdown_ratio && self.breaker_reason.is_none() {
-            self.breaker_reason = Some(format!(
-                "Simulated drawdown {dd} reached AEGIS ceiling {max_drawdown_ratio}"
-            ));
         }
     }
 }
@@ -251,6 +285,12 @@ pub struct CycleSummary {
     pub events_emitted: usize,
     pub mtm_equity_usd: Decimal,
     pub breaker_latched: bool,
+    #[serde(default)]
+    pub equity_complete: bool,
+    #[serde(default)]
+    pub unavailable_mark_symbols: Vec<String>,
+    #[serde(default)]
+    pub unattributed_funding_hours: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,17 +389,17 @@ impl SynapsePipeline {
         }
 
         // 0.5 Settle simulated hourly funding across crossed epoch-hour boundaries without double-charging.
-        self.settle_elapsed_funding(now_ms, markets, &effective_marks);
+        let unattributed_funding_hours =
+            self.settle_funding_with_history(now_ms, markets, &effective_marks, None);
 
         // 1. Settle protective exits first (permits exits even if AEGIS entry breaker is latched).
         let closed_this_cycle = self.evaluate_exits(now_ms, &correlation_id, &effective_marks)?;
         let mut missing_marks_halt = false;
-        let _mtm_eq = match self.ledger.checked_mark_to_market_equity(&effective_marks) {
-            Ok(eq) => {
-                self.ledger
-                    .update_drawdown(&effective_marks, self.config.max_drawdown_ratio);
-                eq
-            }
+        let _mtm_eq = match self
+            .ledger
+            .update_drawdown_checked(&effective_marks, self.config.max_drawdown_ratio)
+        {
+            Ok(()) => self.ledger.mark_to_market_equity(&effective_marks),
             Err(err) => {
                 missing_marks_halt = true;
                 self.bus.publish(
@@ -497,7 +537,7 @@ impl SynapsePipeline {
             );
         }
 
-        // 4. FANG — shared deterministic strategy planner honoring budgets & ownership.
+        // 4. FANG + COGNITION — shared deterministic unified strategy planner & Bayesian ensemble weights.
         let mtm_eq = self.ledger.mark_to_market_equity(&effective_marks);
         let allocated = self.ledger.allocated_exposure();
         let total_cap = (mtm_eq * self.config.max_total_exposure_ratio).round_dp(4);
@@ -508,15 +548,6 @@ impl SynapsePipeline {
         for (sym, pos) in &self.ledger.open_positions {
             occupied_symbols.insert(sym.clone(), pos.owner_strategy.clone());
         }
-        let mut candidates = Vec::new();
-        let ema_opts = EmaAnchorOptions {
-            fast_span: 4,
-            slow_span: 12,
-            offset_bps: 4.0,
-            max_quote_distance_bps: 500.0,
-        };
-        let created_at = DateTime::from_timestamp_millis(now_ms).unwrap_or_else(Utc::now);
-
         for sym in &self.watchlist {
             let held_notional = self
                 .ledger
@@ -528,94 +559,81 @@ impl SynapsePipeline {
                 sym.clone(),
                 (self.config.max_market_notional - held_notional).max(Decimal::ZERO),
             );
-            let regime = regimes
-                .get(sym)
-                .copied()
-                .unwrap_or(InferredRegime::InsufficientHistory);
-            let Some(bars) = candles.get(sym) else {
-                continue;
-            };
-            if bars.len() < ema_opts.slow_span {
-                continue;
-            }
-            if matches!(
-                regime,
-                InferredRegime::HighVolatilityTurbulent | InferredRegime::InsufficientHistory
-            ) {
-                continue;
-            }
-            let side = match regime {
-                InferredRegime::TrendingDown => Side::Short,
-                _ => Side::Long,
-            };
-            if let Ok(anchor_rep) = ema_anchor(bars, side, &ema_opts) {
-                let last_close = bars.last().map(|b| b.close).unwrap_or(0.0);
-                if last_close <= 0.0 || !last_close.is_finite() {
-                    continue;
-                }
-                let confidence = match regime {
-                    InferredRegime::TrendingUp | InferredRegime::TrendingDown => 0.72,
-                    InferredRegime::MeanRevertingRange => 0.58,
-                    _ => 0.40,
-                };
-                let aligned_trend = match regime {
-                    InferredRegime::TrendingUp => {
-                        anchor_rep.fast_ema >= anchor_rep.slow_ema
-                            && anchor_rep.directional_deviation_bps >= -1200.0
-                    }
-                    InferredRegime::TrendingDown => {
-                        anchor_rep.fast_ema <= anchor_rep.slow_ema
-                            && anchor_rep.directional_deviation_bps >= -1200.0
-                    }
-                    _ => anchor_rep.directional_deviation_bps >= -60.0,
-                };
-                if aligned_trend && confidence >= self.config.confidence_floor {
-                    let sl = match side {
-                        Side::Long => {
-                            last_close * (1.0 - f64_from_decimal(self.config.stop_loss_pct))
-                        }
-                        Side::Short => {
-                            last_close * (1.0 + f64_from_decimal(self.config.stop_loss_pct))
-                        }
-                    };
-                    let tp = match side {
-                        Side::Long => {
-                            last_close * (1.0 + f64_from_decimal(self.config.take_profit_pct))
-                        }
-                        Side::Short => {
-                            last_close * (1.0 - f64_from_decimal(self.config.take_profit_pct))
-                        }
-                    };
-                    let desired_notional = self
-                        .config
-                        .max_market_notional
-                        .min((mtm_eq * Decimal::new(15, 2)).round_dp(2));
-                    let edge_bonus = if anchor_rep.directional_deviation_bps >= 0.0 {
-                        anchor_rep.directional_deviation_bps * 0.25
-                    } else {
-                        (-anchor_rep.directional_deviation_bps).min(200.0) * 0.05
-                    };
-                    if desired_notional > Decimal::ZERO {
-                        candidates.push(PlanCandidate {
-                            id: format!("{correlation_id}-{sym}"),
-                            signal: Signal {
-                                strategy: format!("synapse_ema_{}", regime.label().to_lowercase()),
-                                venue: "hyperliquid".into(),
-                                symbol: sym.clone(),
-                                side,
-                                confidence,
-                                expected_edge_bps: 18.0 + edge_bonus,
-                                stop_price: sl,
-                                take_profit: tp,
-                                reason: format!("Causal {} EMA anchor", regime.label()),
-                                created_at,
-                            },
-                            reference_price: last_close,
-                            requested_notional: desired_notional,
-                        });
-                    }
-                }
-            }
+        }
+
+        let u_cfg = UnifiedStrategyConfig {
+            base_stop_loss_pct: self.config.stop_loss_pct,
+            base_take_profit_pct: self.config.take_profit_pct,
+            max_market_notional: self.config.max_market_notional,
+            default_prior_confidence: self.config.confidence_floor.max(0.55),
+            ..Default::default()
+        };
+        let strategy_ids: Vec<String> = default_strategy_registry()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        let dominant_regime = self
+            .watchlist
+            .first()
+            .and_then(|s| regimes.get(s))
+            .map(|r| r.label())
+            .unwrap_or("TrendingUp");
+        let ensemble_ranking = if !self.simulated_samples.is_empty() {
+            let stop_bps = (f64_from_decimal(self.config.stop_loss_pct) * 10_000.0).max(25.0);
+            crate::cognition_stats::rank_and_weight_ensemble(
+                now_ms,
+                dominant_regime,
+                OutcomeSource::Simulated,
+                &strategy_ids,
+                &self.simulated_samples,
+                &ShadowPolicy::default(),
+                stop_bps,
+                u_cfg.round_trip_cost_bps,
+            )
+            .ok()
+        } else {
+            None
+        };
+
+        let mut microstructure_map = BTreeMap::new();
+        for obs in markets {
+            let sym = obs.symbol.trim().to_ascii_uppercase();
+            let completed_candles = candles.get(&sym).map(|c| c.len()).unwrap_or(0);
+            microstructure_map.insert(
+                sym.clone(),
+                MicrostructureSnapshot {
+                    symbol: sym,
+                    as_of_ms: obs.observed_at_ms,
+                    provenance: DataProvenance::DerivedMarketStat,
+                    order_book_imbalance: None,
+                    top_level_imbalance: None,
+                    trade_flow_imbalance: None,
+                    buyer_volume_usd: 0.0,
+                    seller_volume_usd: 0.0,
+                    liquidity_migration_bps: None,
+                    liquidity_deterioration_ratio: None,
+                    spread_current_bps: obs.spread_bps,
+                    spread_baseline_bps: None,
+                    spread_widening_ratio: None,
+                    depth_impact_buy_bps: None,
+                    depth_impact_sell_bps: None,
+                    realized_volatility_ann_pct: None,
+                    funding_bps_1h: obs.funding_bps,
+                    open_interest_delta_pct: None,
+                    adverse_selection_score: obs
+                        .spread_bps
+                        .map(|s| (s / 50.0).clamp(0.0, 1.0) * 0.5),
+                    sample_counts: MicrostructureSampleCounts {
+                        bid_levels: 0,
+                        ask_levels: 0,
+                        causal_trades: 0,
+                        depth_history: 0,
+                        completed_candles,
+                        oi_samples: usize::from(obs.open_interest_usd.is_some()),
+                    },
+                    limitations: vec![],
+                },
+            );
         }
 
         let budget = PlanningBudget {
@@ -626,7 +644,24 @@ impl SynapsePipeline {
             occupied_symbols,
             confidence_floor: self.config.confidence_floor,
         };
-        let plan_rep = plan_candidates(&candidates, &budget).context("FANG planner failed")?;
+        let fang_input = FangMarketInput {
+            as_of_ms: now_ms,
+            correlation_id: correlation_id.to_string(),
+            watchlist: self.watchlist.clone(),
+            candles: candles.clone(),
+            marks: effective_marks.clone(),
+            regimes: regimes.clone(),
+            microstructure: microstructure_map,
+            portfolio_equity_usd: mtm_eq,
+        };
+        let fang_out = FangUnifiedPlanner::evaluate_and_plan(
+            &fang_input,
+            &budget,
+            &u_cfg,
+            ensemble_ranking.as_ref(),
+        )
+        .context("FANG unified planner failed")?;
+        let plan_rep = fang_out.report;
         let rejection_reasons: Vec<String> = plan_rep
             .rejected
             .iter()
@@ -681,10 +716,14 @@ impl SynapsePipeline {
 
             let projected_alloc = cur_alloc
                 + post_fill_metrics
-                    .map(|(_, _, ntl, fee)| ntl + fee)
+                    .map(|(_, _, ntl, _)| ntl)
                     .unwrap_or(cand.requested_notional);
-            let projected_ratio = if cur_eq > Decimal::ZERO {
-                (projected_alloc / cur_eq).round_dp(4)
+            let post_fee_eq = cur_eq
+                - post_fill_metrics
+                    .map(|(_, _, _, fee)| fee)
+                    .unwrap_or(Decimal::ZERO);
+            let projected_ratio = if post_fee_eq > Decimal::ZERO {
+                (projected_alloc / post_fee_eq).round_dp(4)
             } else {
                 Decimal::from(99u32)
             };
@@ -695,8 +734,10 @@ impl SynapsePipeline {
             });
 
             let mut stress_ok = true;
-            if let (Some((fill_px, qty, _, _)), true) = (post_fill_metrics, !missing_marks_halt) {
-                if cur_eq > Decimal::ZERO {
+            if let (Some((fill_px, qty, _, fee_usd)), true) =
+                (post_fill_metrics, !missing_marks_halt)
+            {
+                if cur_eq > fee_usd {
                     let mut stress_inputs = Vec::new();
                     for p in self.ledger.open_positions.values() {
                         if let Some(&mp) = effective_marks
@@ -725,9 +766,11 @@ impl SynapsePipeline {
                             mark_price: fill_px,
                             maintenance_margin_rate: Decimal::new(5, 2),
                         });
-                        if let Ok(rep) =
-                            evaluate_margin_stress(cur_eq, &stress_inputs, &[Decimal::from(10u32)])
-                        {
+                        if let Ok(rep) = evaluate_margin_stress(
+                            (cur_eq - fee_usd).max(Decimal::ZERO),
+                            &stress_inputs,
+                            &[Decimal::from(10u32)],
+                        ) {
                             if rep.scenarios.iter().any(|s| s.maintenance_breached) {
                                 stress_ok = false;
                             }
@@ -827,6 +870,7 @@ impl SynapsePipeline {
                         entry_fee_usd: fee_usd,
                         opened_at_ms: now_ms,
                         correlation_id: correlation_id.clone(),
+                        accumulated_funding_usd: Decimal::ZERO,
                     },
                 );
                 self.last_funding_applied_ms.insert(sym.clone(), now_ms);
@@ -851,8 +895,23 @@ impl SynapsePipeline {
             }
         }
 
-        self.ledger
-            .update_drawdown(&effective_marks, self.config.max_drawdown_ratio);
+        let mut unavailable_mark_symbols: Vec<String> = self
+            .ledger
+            .open_positions
+            .keys()
+            .filter(|sym| {
+                effective_marks
+                    .get(*sym)
+                    .is_none_or(|m| *m <= Decimal::ZERO)
+            })
+            .cloned()
+            .collect();
+        unavailable_mark_symbols.sort();
+        let equity_complete = unavailable_mark_symbols.is_empty()
+            && self
+                .ledger
+                .update_drawdown_checked(&effective_marks, self.config.max_drawdown_ratio)
+                .is_ok();
 
         Ok(CycleSummary {
             cycle: self.cycle_count,
@@ -864,33 +923,43 @@ impl SynapsePipeline {
             events_emitted: self.bus.total_published().saturating_sub(before_events) as usize,
             mtm_equity_usd: self
                 .ledger
-                .mark_to_market_equity(&effective_marks)
+                .checked_mark_to_market_equity(&effective_marks)
+                .unwrap_or(self.ledger.cash_equity)
                 .round_dp(2),
             breaker_latched: self.ledger.breaker_reason.is_some(),
+            equity_complete,
+            unavailable_mark_symbols,
+            unattributed_funding_hours,
         })
     }
 
-    fn settle_elapsed_funding(
+    /// Settles crossed hourly funding boundaries. When `curr_hour - prev_hour > 1` (e.g.
+    /// after an offline gap), applies exact per-hour rates from `historical_hourly_rates`
+    /// where supplied and counts any missing earlier hours in `unattributed_funding_hours`
+    /// rather than duplicating a single stale spot rate across unseen hours.
+    pub fn settle_funding_with_history(
         &mut self,
         now_ms: i64,
         markets: &[MarketObservation],
         effective_marks: &BTreeMap<String, Decimal>,
-    ) {
+        historical_hourly_rates: Option<&BTreeMap<String, BTreeMap<i64, f64>>>,
+    ) -> u64 {
+        let mut unattributed_hours = 0u64;
         let syms: Vec<String> = self.ledger.open_positions.keys().cloned().collect();
         for sym in syms {
             let Some(&mark_px) = effective_marks.get(&sym).filter(|m| **m > Decimal::ZERO) else {
                 continue;
             };
-            let Some(obs) = markets.iter().find(|m| m.symbol == sym) else {
-                continue;
-            };
-            let obs_age = now_ms.saturating_sub(obs.observed_at_ms);
-            if obs_age < 0 || obs_age > self.config.stale_market_max_age_ms {
-                continue;
-            }
-            let Some(funding_bps) = obs.funding_bps.filter(|f| f.is_finite()) else {
-                continue;
-            };
+            let obs_funding = markets
+                .iter()
+                .find(|m| {
+                    m.symbol == sym
+                        && now_ms >= m.observed_at_ms
+                        && now_ms.saturating_sub(m.observed_at_ms)
+                            <= self.config.stale_market_max_age_ms
+                })
+                .and_then(|m| m.funding_bps.filter(|f| f.is_finite()));
+
             let opened_at = self
                 .ledger
                 .open_positions
@@ -909,17 +978,30 @@ impl SynapsePipeline {
             let prev_hour = last_ts.div_euclid(3_600_000);
             let curr_hour = now_ms.div_euclid(3_600_000);
             if curr_hour > prev_hour {
-                let elapsed_hours = (curr_hour - prev_hour) as f64;
-                if self
-                    .ledger
-                    .apply_simulated_funding(&sym, funding_bps, elapsed_hours, mark_px)
-                    .is_some()
-                {
-                    self.last_funding_applied_ms
-                        .insert(sym, curr_hour.saturating_mul(3_600_000));
+                for hour_idx in (prev_hour + 1)..=curr_hour {
+                    let hour_ms = hour_idx.saturating_mul(3_600_000);
+                    let rate_opt = historical_hourly_rates
+                        .and_then(|map| map.get(&sym))
+                        .and_then(|hrs| hrs.get(&hour_ms).copied())
+                        .filter(|f| f.is_finite())
+                        .or(if hour_idx == curr_hour {
+                            obs_funding
+                        } else {
+                            None
+                        });
+                    if let Some(rate) = rate_opt {
+                        let _ = self
+                            .ledger
+                            .apply_simulated_funding(&sym, rate, 1.0, mark_px);
+                    } else {
+                        unattributed_hours = unattributed_hours.saturating_add(1);
+                    }
                 }
+                self.last_funding_applied_ms
+                    .insert(sym, curr_hour.saturating_mul(3_600_000));
             }
         }
+        unattributed_hours
     }
 
     fn evaluate_exits(
@@ -977,7 +1059,7 @@ impl SynapsePipeline {
                 let exit_fee = (exit_notional * fee_frac).round_dp(4);
                 let net_close = gross - exit_fee;
                 let total_trade_fees = pos.entry_fee_usd + exit_fee;
-                let net_round_trip = gross - total_trade_fees;
+                let net_round_trip = gross - total_trade_fees + pos.accumulated_funding_usd;
 
                 self.ledger.cash_equity += net_close;
                 self.ledger.total_fees_usd += exit_fee;
@@ -995,6 +1077,7 @@ impl SynapsePipeline {
                     qty: pos.qty,
                     gross_pnl_usd: gross,
                     fees_usd: total_trade_fees,
+                    funding_usd: pos.accumulated_funding_usd,
                     realized_net_pnl_usd: net_round_trip,
                     exit_reason: reason.into(),
                     closed_at_ms: now_ms,
@@ -1289,6 +1372,7 @@ mod tests {
                 entry_fee_usd: Decimal::new(240, 2),
                 opened_at_ms: now_ms - 60_000,
                 correlation_id: "prior-1".into(),
+                accumulated_funding_usd: Decimal::ZERO,
             },
         );
         let mut marks = BTreeMap::new();
@@ -1323,6 +1407,7 @@ mod tests {
                 entry_fee_usd: Decimal::new(120, 2),
                 opened_at_ms: base_ms - 100_000,
                 correlation_id: "pos-eth".into(),
+                accumulated_funding_usd: Decimal::ZERO,
             },
         );
 
@@ -1403,6 +1488,7 @@ mod tests {
                 entry_fee_usd: Decimal::ZERO,
                 opened_at_ms: opened_ms,
                 correlation_id: "fund-1".into(),
+                accumulated_funding_usd: Decimal::ZERO,
             },
         );
         let mk_obs = |ts: i64| MarketObservation {
@@ -1446,5 +1532,69 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pipe.ledger.total_funding_usd, Decimal::new(-1000, 2));
+    }
+
+    #[test]
+    fn funding_history_restores_missed_hours_attributes_to_learning_and_marks_incomplete_equity() {
+        let mut pipe = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+        let opened_ms = 472_223_i64 * 3_600_000 + 600_000;
+        let h1_ms = 472_224_i64 * 3_600_000;
+        let h2_ms = 472_225_i64 * 3_600_000;
+        pipe.ledger.open_positions.insert(
+            "ETH".into(),
+            PaperPosition {
+                symbol: "ETH".into(),
+                owner_strategy: "momentum".into(),
+                side: Side::Long,
+                entry_price: Decimal::from(3_000u32),
+                qty: Decimal::from(1u32),
+                notional: Decimal::from(3_000u32),
+                stop_price: Decimal::from(2_800u32),
+                take_profit_price: Decimal::from(3_300u32),
+                entry_fee_usd: Decimal::ZERO,
+                opened_at_ms: opened_ms,
+                correlation_id: "hist-fund".into(),
+                accumulated_funding_usd: Decimal::ZERO,
+            },
+        );
+        // Incomplete equity check when mark is missing
+        let sum_missing = pipe
+            .step_cycle(opened_ms + 30_000, &[], &BTreeMap::new(), &BTreeMap::new())
+            .unwrap();
+        assert!(!sum_missing.equity_complete);
+        assert_eq!(
+            sum_missing.unavailable_mark_symbols,
+            vec!["ETH".to_string()]
+        );
+
+        // Restore 2 missed hourly boundaries from historical funding rate table (10 bps/hr each on $3k = -$3 + -$3 = -$6).
+        let marks = BTreeMap::from([("ETH".to_string(), Decimal::from(3_000u32))]);
+        let rates = BTreeMap::from([(
+            "ETH".to_string(),
+            BTreeMap::from([(h1_ms, 10.0), (h2_ms, 10.0)]),
+        )]);
+        let unattributed =
+            pipe.settle_funding_with_history(h2_ms + 5_000, &[], &marks, Some(&rates));
+        assert_eq!(unattributed, 0);
+        assert_eq!(
+            pipe.ledger.open_positions["ETH"].accumulated_funding_usd,
+            Decimal::new(-600, 2)
+        );
+
+        // Close position at TP=3300: gross = +300 (minus 3bps slip = 3299.01 -> +299.01 - 4bps exit fee ~ 1.3196 = 297.6904) PLUS accumulated_funding (-6.00) flows into closed trade & ShadowSample!
+        let close_marks = BTreeMap::from([("ETH".to_string(), Decimal::from(3_300u32))]);
+        let closed_sum = pipe
+            .step_cycle(h2_ms + 10_000, &[], &BTreeMap::new(), &close_marks)
+            .unwrap();
+        assert!(closed_sum.equity_complete);
+        assert_eq!(closed_sum.closed_trades, 1);
+        let ct = &pipe.ledger.closed_trades[0];
+        assert_eq!(ct.funding_usd, Decimal::new(-600, 2));
+        assert_eq!(
+            ct.realized_net_pnl_usd,
+            ct.gross_pnl_usd - ct.fees_usd + ct.funding_usd
+        );
+        assert_eq!(pipe.simulated_samples.len(), 1);
+        assert!(pipe.simulated_samples[0].normalized_r > 0.0);
     }
 }

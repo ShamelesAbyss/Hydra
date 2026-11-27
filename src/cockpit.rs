@@ -2471,6 +2471,59 @@ impl eframe::App for Cockpit {
         }
         if let Some(index) = self.research.poll(ui.ctx()) {
             self.research_changed_at[index] = Some(frame_start);
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            if index == 5 {
+                if let Some((strategy, net_return_pct, max_drawdown_pct, trades)) =
+                    self.research.latest_oracle_summary()
+                {
+                    let seq = self.synapse.last_seen_event_seq.saturating_add(1);
+                    self.synapse.last_seen_event_seq = seq;
+                    self.synapse.recent_events.insert(
+                        0,
+                        crate::synapse_bus::SynapseEvent {
+                            schema_version: crate::synapse_bus::SYNAPSE_SCHEMA_VERSION,
+                            event_id: seq,
+                            session_id: None,
+                            correlation_id: format!("oracle-ui-{seq}"),
+                            timestamp_ms: now_ms,
+                            head: crate::synapse_bus::HeadId::Oracle,
+                            provenance: crate::synapse_bus::DataProvenance::HistoricalValidation,
+                            payload: crate::synapse_bus::SynapsePayload::OracleValidation {
+                                strategy,
+                                net_return_pct,
+                                max_drawdown_pct,
+                                trades,
+                            },
+                        },
+                    );
+                    self.synapse.recent_events.truncate(24);
+                }
+            } else if index == 6 {
+                if let Some((generation, pareto_size, best_score)) =
+                    self.research.latest_genesis_summary()
+                {
+                    let seq = self.synapse.last_seen_event_seq.saturating_add(1);
+                    self.synapse.last_seen_event_seq = seq;
+                    self.synapse.recent_events.insert(
+                        0,
+                        crate::synapse_bus::SynapseEvent {
+                            schema_version: crate::synapse_bus::SYNAPSE_SCHEMA_VERSION,
+                            event_id: seq,
+                            session_id: None,
+                            correlation_id: format!("genesis-ui-{seq}"),
+                            timestamp_ms: now_ms,
+                            head: crate::synapse_bus::HeadId::Genesis,
+                            provenance: crate::synapse_bus::DataProvenance::EvolutionProposal,
+                            payload: crate::synapse_bus::SynapsePayload::GenesisProposal {
+                                generation,
+                                pareto_size,
+                                best_score,
+                            },
+                        },
+                    );
+                    self.synapse.recent_events.truncate(24);
+                }
+            }
         }
         let treasury_events = self.treasury.poll(ui.ctx());
         if treasury_events.offering_illuminated {

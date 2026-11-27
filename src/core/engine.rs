@@ -893,3 +893,29 @@ impl Engine {
         );
     }
 }
+
+/// Arbitrates candidate execution signals through the authoritative FANG planner (`fang_planner::plan`)
+/// so the live/dry-run engine consumes the exact same deterministic priority & budget semantics
+/// as Synapse Paper, ORACLE, and GENESIS.
+pub fn plan_engine_candidates(
+    signals: &[crate::core::Signal],
+    marks: &std::collections::BTreeMap<String, rust_decimal::Decimal>,
+    budget: &crate::fang_planner::PlanningBudget,
+    requested_notional: rust_decimal::Decimal,
+) -> anyhow::Result<crate::fang_planner::PlanningReport> {
+    use rust_decimal::prelude::ToPrimitive;
+    let cands: Vec<crate::fang_planner::PlanCandidate> = signals
+        .iter()
+        .enumerate()
+        .map(|(i, s)| crate::fang_planner::PlanCandidate {
+            id: format!("eng-{i}-{}-{}", s.strategy, s.symbol),
+            signal: s.clone(),
+            reference_price: marks
+                .get(&s.symbol)
+                .and_then(|d| d.to_f64())
+                .unwrap_or(0.5 * (s.stop_price + s.take_profit)),
+            requested_notional,
+        })
+        .collect();
+    crate::fang_engine::FangUnifiedPlanner::arbitrate_external_candidates(&cands, budget)
+}

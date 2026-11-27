@@ -257,6 +257,9 @@ impl PaperStore {
                 mtm_equity_usd TEXT NOT NULL,
                 unrealized_pnl_usd TEXT NOT NULL,
                 drawdown_ratio TEXT NOT NULL,
+                equity_complete INTEGER NOT NULL DEFAULT 1,
+                complete_mtm_equity_usd TEXT,
+                complete_drawdown_ratio TEXT,
                 recorded_at_ms INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_paper_equity_session ON paper_equity_history(session_id);
@@ -319,6 +322,32 @@ impl PaperStore {
         if !has_fault_reason {
             conn.execute(
                 "ALTER TABLE paper_sessions ADD COLUMN fault_reason TEXT",
+                [],
+            )?;
+        }
+        let mut eq_cols = std::collections::BTreeSet::new();
+        {
+            let mut stmt = conn.prepare("PRAGMA table_info(paper_equity_history)")?;
+            let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            for col in cols {
+                eq_cols.insert(col?);
+            }
+        }
+        if !eq_cols.contains("equity_complete") {
+            conn.execute(
+                "ALTER TABLE paper_equity_history ADD COLUMN equity_complete INTEGER NOT NULL DEFAULT 1",
+                [],
+            )?;
+        }
+        if !eq_cols.contains("complete_mtm_equity_usd") {
+            conn.execute(
+                "ALTER TABLE paper_equity_history ADD COLUMN complete_mtm_equity_usd TEXT",
+                [],
+            )?;
+        }
+        if !eq_cols.contains("complete_drawdown_ratio") {
+            conn.execute(
+                "ALTER TABLE paper_equity_history ADD COLUMN complete_drawdown_ratio TEXT",
                 [],
             )?;
         }
@@ -591,8 +620,10 @@ impl PaperStore {
         })
     }
 
+    /// Acquires and holds the exclusive session lock across the entire archive transition
+    /// to eliminate TOCTOU races with detached workers.
     pub fn archive_session_guarded(&self, lock_root: &Path, session_id: &str) -> Result<()> {
-        crate::paper_service::PaperSessionLock::assert_unowned(lock_root, session_id)?;
+        let _lock = crate::paper_service::PaperSessionLock::acquire(lock_root, session_id)?;
         self.archive_session(session_id)
     }
 
@@ -611,13 +642,15 @@ impl PaperStore {
         self.set_status(session_id, PaperSessionStatus::Archived, None)
     }
 
+    /// Acquires and holds the exclusive session lock across the entire destructive reset
+    /// transaction to eliminate TOCTOU races with detached workers.
     pub fn reset_session_confirmed_guarded(
         &self,
         lock_root: &Path,
         session_id: &str,
         confirmation: &str,
     ) -> Result<PaperSessionSummary> {
-        crate::paper_service::PaperSessionLock::assert_unowned(lock_root, session_id)?;
+        let _lock = crate::paper_service::PaperSessionLock::acquire(lock_root, session_id)?;
         self.reset_session_confirmed(session_id, confirmation)
     }
 
@@ -730,7 +763,22 @@ impl PaperStore {
         let wl_json = serde_json::to_string(&pipeline.watchlist)?;
         let checkpoint_json = serde_json::to_string(&pipeline.export_checkpoint())?;
         let unrealized = pipeline.ledger.unrealized_pnl(marks);
-        let drawdown = pipeline.ledger.current_drawdown_ratio(marks);
+        let checked_drawdown = pipeline.ledger.checked_current_drawdown_ratio(marks).ok();
+        let equity_complete =
+            summary.equity_complete && pipeline.ledger.checked_mark_to_market_equity(marks).is_ok();
+        let mtm_text = if equity_complete {
+            summary.mtm_equity_usd.to_string()
+        } else {
+            "UNAVAILABLE".to_string()
+        };
+        let dd_text = checked_drawdown
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "UNAVAILABLE".to_string());
+        let complete_mtm: Option<String> =
+            equity_complete.then(|| summary.mtm_equity_usd.to_string());
+        let complete_dd: Option<String> = equity_complete
+            .then_some(checked_drawdown.map(|d| d.to_string()))
+            .flatten();
 
         self.with_conn(|conn| -> Result<()> {
             let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -780,16 +828,24 @@ impl PaperStore {
             tx.execute(
                 r#"INSERT INTO paper_equity_history(
                     session_id, cycle, correlation_id, cash_equity_usd,
-                    mtm_equity_usd, unrealized_pnl_usd, drawdown_ratio, recorded_at_ms
-                ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)"#,
+                    mtm_equity_usd, unrealized_pnl_usd, drawdown_ratio,
+                    equity_complete, complete_mtm_equity_usd, complete_drawdown_ratio, recorded_at_ms
+                ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"#,
                 params![
                     session_id,
                     summary.cycle as i64,
                     summary.correlation_id,
                     pipeline.ledger.cash_equity.to_string(),
-                    summary.mtm_equity_usd.to_string(),
-                    unrealized.to_string(),
-                    drawdown.to_string(),
+                    mtm_text,
+                    if equity_complete {
+                        unrealized.to_string()
+                    } else {
+                        "UNAVAILABLE".to_string()
+                    },
+                    dd_text,
+                    i64::from(equity_complete),
+                    complete_mtm,
+                    complete_dd,
                     now_ms,
                 ],
             )?;

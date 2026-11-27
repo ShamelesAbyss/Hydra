@@ -16,8 +16,8 @@ Obsidian-glass command center · Dedicated OS-protected Treasury · Verified nat
 </div>
 
 > [!IMPORTANT]
-> **Public Release `v1.12.0 | PROJECT ASCENDANCY — OPERATIONAL RELIABILITY & TRANSACTIONAL TRUTH`. Live-trading safety certification remains incomplete.**
-> Public distribution does **not** constitute certification of unattended live-trading safety. Every production execution entry point enforces an authoritative `PendingCertification` gate and structural `VenueTransportClass` isolation (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Isolated SQLite paper sessions and self-contained detached streaming exist solely for simulation. All historical `v1.11.0`, `v1.10.0`, `v1.9.0`, `v1.8.0`, `v1.7.0`, and `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
+> **Public Release `v1.13.0 | PROJECT OMNISCIENCE — UNIFIED QUANTITATIVE INTELLIGENCE`. Live-trading safety certification remains incomplete.**
+> Public distribution does **not** constitute certification of unattended live-trading safety. Every production execution entry point enforces an authoritative `PendingCertification` gate and structural `VenueTransportClass` isolation (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Isolated SQLite paper sessions and self-contained detached streaming exist solely for simulation. All historical `v1.12.0`, `v1.11.0`, `v1.10.0`, `v1.9.0`, `v1.8.0`, `v1.7.0`, and `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
 >
 > **Financial Risk Disclosure:** Cryptocurrency perpetual futures involve substantial risk of total capital loss. Entrust Leviathan only with a separate dedicated wallet funded solely with capital you are fully prepared to lose. No strategy, adaptive model, or backtest guarantees profit.
 
@@ -38,7 +38,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Track | Current Status | Contents in GitHub Releases |
 | :--- | :--- | :--- |
-| **Latest Public Release** | **`v1.12.0 \| PROJECT ASCENDANCY — OPERATIONAL RELIABILITY & TRANSACTIONAL TRUTH`** | Self-contained **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Sanctuary + embedded `--paper-service-worker` detached service + Staged Transactional `paper_sessions.db` + Per-Field Freshness & Hourly Funding Attribution + Bounded IPC + Structural `VenueTransportClass` / `PendingCertification` Gate + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
+| **Latest Public Release** | **`v1.13.0 \| PROJECT OMNISCIENCE — UNIFIED QUANTITATIVE INTELLIGENCE`** | Self-contained **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Sanctuary + embedded `--paper-service-worker` + HUNTER Microstructure & Pearson Correlations + COGNITION Bayesian Shrinkage & Calibration + 7-Strategy Unified `FangUnifiedPlanner` with Cross-Consumer Parity + ORACLE Multi-Market Walk-Forward + GENESIS Constraint-Aware NSGA-II + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
 | **Road to HYDRA 2.0** | Active `v1.x` progression | Iterative public releases advancing toward the generational [`v2.0.0` milestone](ROADMAP_V2.md) |
 | **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous engineering directly on `main` (internal test prereleases never replace Latest) |
 
@@ -72,7 +72,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 | **Unified WGPU 3D PBR Spatial Sanctuary** | 96-bone articulated 3D seven-headed Leviathan with dorsal thoracic armor, `1536 × 1536` PCF shadow mapping, Cook-Torrance GGX PBR, HDR bloom, ACES compositing, `Low`/`Medium`/`High`/`Ultra`/`Cinematic` presets, `TIMESTAMP_QUERY` GPU pass timing, 360° camera orbit + collision avoidance, 7 personality-paced aware heads + whole-body compensation, Hybrid World-Space + Native `egui` holographic workspaces, interchangeable `SPATIAL \| CLASSIC` modes, Glow fallback, and permanent Ashlan memorial |
 | **Leviathan Treasury & The Offering** | Dedicated-wallet onboarding altar (`Alt+T` / `--treasury`), Windows DPAPI encryption (`CryptProtectData`) on Windows and strict `0700`/`0600` owner-only filesystem permissions on Unix, read-only public-address Hyperliquid verification, truthful 12-metric portfolio surface, 6 operational modes (`DORMANT`..`SUSPENDED`), and permanent fixed `EMERGENCY SUSPEND` |
 | **Leviathan Evolution (Updates)** | Integrated native update manager (`Alt+U` / `--updates` / `CHECK FOR UPDATES`), GitHub Releases channel filtering (`Stable` / `Development`), SemVer comparison, FIPS 180-4 SHA-256 verification, `secp256k1` signed-manifest provenance checks, staging/backup/rollback, and trading-safe maintenance gating |
-| **Research Workspaces** | HUNTER Radar & liquidity map, FANG deterministic arbitration/EMA research, COGNITION shadow evaluation, AEGIS portfolio/correlation diagnostics, ORACLE held-out cost scenarios, and GENESIS resumable checkpoints & frozen-frontier assessment |
+| **Research Workspaces & CLI** | HUNTER Radar, liquidity map & causal microstructure (`hunter_microstructure`), FANG 7-strategy unified planner & bounded grids (`fang-registry`), COGNITION Bayesian/calibration/drift stats (`cognition-stats`), AEGIS stress matrix, ORACLE multi-market purged walk-forward (`oracle-portfolio`), and GENESIS constraint-aware NSGA-II (`genesis-nsga2`) |
 | **Terminal (Ratatui) & Headless CLI** | Independent engine runtime, bounded Ratatui TUI, configuration checks, ledger sync, and offline forensic inspectors (`status-history`, `wire-history`, `intent-evidence`) |
 
 <details>
@@ -206,7 +206,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 ### Windows Native Application (`HYDRA-Leviathan-Windows-x64.exe`)
 
-1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.12.0 | PROJECT ASCENDANCY — OPERATIONAL RELIABILITY & TRANSACTIONAL TRUTH`**).
+1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.13.0 | PROJECT OMNISCIENCE — UNIFIED QUANTITATIVE INTELLIGENCE`**).
 2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and the release's **`SHA256SUMS.txt`** manifest.
 3. Verify the executable integrity before launching:
    ```powershell
@@ -221,10 +221,11 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 Obtain the Linux package and checksum manifest from [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases), verify, and extract:
 
 ```sh
-sha256sum --check hydra-1.12.0-linux-SHA256SUMS.txt
-mkdir hydra-1.12.0 && tar -xzf hydra-1.12.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.12.0
-cd hydra-1.12.0
+sha256sum --check hydra-1.13.0-linux-SHA256SUMS.txt
+mkdir hydra-1.13.0 && tar -xzf hydra-1.13.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.13.0
+cd hydra-1.13.0
 ./hydra --version
+./hydra --no-banner fang-registry --json
 ./hydra --no-banner config-check
 ./hydra paper-service list
 ```
@@ -263,7 +264,7 @@ Environment templates live in [`.env.example`](.env.example) and strategy parame
 
 | Verification Gate | Current Verified State |
 | :--- | :--- |
-| **Offline Regression Suite** | **504 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`, 34 suites) + **458 passing headless tests** (`cargo test --locked --all-targets`, 33 suites), covering structural `VenueTransportClass` & `PendingCertification` gating (`live_gate`), per-field freshness & `observed_history_minutes` (`hunter_stream`), stale-mark exit/entry exclusion & hourly funding attribution (`paper_pipeline`), complete SQLite checkpoint recovery & rollback/guard tests (`paper_store`), bounded IPC, watchdog & DB fault handling (`paper_service`), `SynapseBus` v2, 360° orbital camera, 7-personality awareness, 96-bone 3D PBR WGPU renderer, Leviathan Evolution, HUNTER radar, FANG grids, COGNITION causal regime inference, AEGIS margin stress, and ORACLE dataset integrity |
+| **Offline Regression Suite** | **517 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`, 35 suites) + **471 passing headless tests** (`cargo test --locked --all-targets`, 34 suites), covering HUNTER L2/trade-flow/OI microstructure & Pearson correlation (`hunter_microstructure`, `hunter_stream`), COGNITION Bayesian R shrinkage, empirical calibration & Page-Hinkley drift detection (`cognition_stats`), unified 7-strategy `FangUnifiedPlanner` with cross-consumer parity across Engine, ORACLE & Synapse Paper (`fang_engine`, `fang_parity`), ORACLE multi-market portfolio simulation & purged walk-forward + block bootstrap CI (`oracle_research`), GENESIS parallel constraint-aware NSGA-II (`genesis_nsga2`), structural `VenueTransportClass` & `PendingCertification` gating (`live_gate`), funding attribution & completeness (`paper_pipeline`, `paper_store`), bounded IPC/watchdog (`paper_service`), `SynapseBus` v2, 360° orbital camera, 96-bone 3D PBR WGPU renderer, and Leviathan Evolution |
 | **Renderer & Fallback** | Verified native Windows 11 RTX 4070 `WGPU 3D PBR` Spatial & Classic rendering (`--features desktop-wgpu`, `0.14–0.53 ms` GPU pass) plus Glow compatibility build (`--features desktop`, 0 warnings, runtime check passed) and `catch_unwind` fallback |
 | **Formatting, Clippy & Policy** | `cargo fmt --check`, `cargo clippy --locked --all-targets`, memorial verification, and automated GitHub compliance check pass |
 | **Dependency Audit** | `cargo audit` passes with **0 vulnerability entries** and 1 known Chrono maintenance warning (zero advisory ignores) |

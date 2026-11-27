@@ -549,7 +549,25 @@ pub async fn run_paper_session_service(
             let obs_summaries: Vec<_> = observed_snaps
                 .iter()
                 .map(|s| {
+                    let tail_bars: Vec<_> = s
+                        .completed_candles
+                        .iter()
+                        .rev()
+                        .take(16)
+                        .rev()
+                        .map(|c| {
+                            serde_json::json!({
+                                "ts_ms": c.ts.timestamp_millis(),
+                                "o": c.open,
+                                "h": c.high,
+                                "l": c.low,
+                                "c": c.close,
+                                "v": c.volume,
+                            })
+                        })
+                        .collect();
                     serde_json::json!({
+                        "strategy_version": crate::paper_store::PAPER_STRATEGY_VERSION,
                         "symbol": s.symbol,
                         "mark_px": s.mark_px,
                         "best_bid": s.best_bid,
@@ -559,12 +577,16 @@ pub async fn run_paper_session_service(
                         "volume_24h_usd": s.volume_24h_usd,
                         "open_interest_usd": s.open_interest_usd,
                         "funding_bps_1h": s.funding_bps_1h,
+                        "volatility_pct": s.volatility_pct,
+                        "directionality": s.directionality,
+                        "coverage_fraction": s.coverage_fraction,
                         "observed_history_minutes": s.observed_history_minutes,
                         "instrument_listing_age_days": s.instrument_listing_age_days,
                         "freshness": s.freshness,
                         "is_stale": s.is_stale,
                         "received_at_ms": s.received_at_ms,
                         "missing_fields": s.missing_fields,
+                        "candle_tail_16": tail_bars,
                     })
                 })
                 .collect();

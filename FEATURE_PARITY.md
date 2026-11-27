@@ -5,14 +5,14 @@ feature is not proof of full parity with upstream. No upstream Rust code is port
 
 | Requested upstream capability | Hydra equivalent/status | Validation or next work |
 |---|---|---|
-| Rust strategy engine | Existing divergence/momentum/mean reversion | Existing indicator/learning tests preserved |
-| Deterministic orchestration | Pure research arbitration with exact external budgets/ownership | Live/replay orchestration integration pending |
+| Rust strategy engine | `FangUnifiedPlanner` (`fang-registry-v1`: 7 strategies) + divergence/momentum/mean reversion | `fang_engine`, `fang_parity`, existing strategy/indicator tests pass |
+| Deterministic orchestration | Authoritative shared planner unified across Engine, Synapse Paper & ORACLE | Verified identical selection & sizing in `tests/fang_parity.rs` |
 | Hyperliquid execution | Existing mainnet adapter, journal/typed response improvements | Offline faults; comprehensive reconciliation pending |
-| EMA Anchor | Basic Hydra-owned offline EMA-band kernel | Not a Passivbot port/parity; live/adaptive integration pending |
-| Trailing Martingale | Not integrated | Hard exposure budget required; no unbounded doubling |
-| Trailing grids | Not integrated | Planner and trailing-state persistence first |
-| Dynamic entry grids | Not integrated | Metadata and exposure-aware order planning |
-| Dynamic take-profit grids | Not integrated | Partial-fill ownership/net-position semantics |
+| EMA Anchor | Adaptive `ema_anchor` shared kernel integrated into `FangUnifiedPlanner` | Verified across `fang_parity`, ORACLE & Synapse Paper |
+| Trailing Martingale | Permanently excluded (anti-Martingale `size_multiplier <= 1.5` & hard USD cap enforced) | Verified rejection of unbounded multipliers in `fang_planner` |
+| Trailing grids | `TrailingEntryState` & `TrailingExitState` implemented in `fang_engine.rs` | Unit-tested in `fang_engine`; live exchange order persistence pending |
+| Dynamic entry grids | Bounded geometric/arithmetic grids (`1..=20` levels, cumulative USD cap) | Unit-tested & wired into `FangUnifiedPlanner` |
+| Dynamic take-profit grids | Volatility-scaled `compute_adaptive_take_profit` (`0.6x–1.8x` ATR scale) | Verified in `fang_engine`; partial-fill live scaling pending |
 | Wallet exposure limits | Existing risk sizing | Configuration validation and accounting gaps remain |
 | Total wallet exposure | Standard-mode account snapshot plus pending-order exposure and reservations | Narrow terminal-entry reconciliation implemented; broader account/lifecycle models remain |
 | Exposure enforcement | Persistent Aegis authority, reservations, unresolved gate and position ownership | Orphan, reduced/closed and ambiguous lifecycle cases remain held |

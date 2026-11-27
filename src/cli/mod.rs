@@ -214,6 +214,48 @@ pub enum Command {
         #[command(subcommand)]
         action: PaperServiceAction,
     },
+    /// Inspect the authoritative FANG versioned strategy registry (`fang-registry-v1`).
+    FangRegistry {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run COGNITION Bayesian shrinkage, empirical calibration, and Page-Hinkley drift diagnostics.
+    CognitionStats {
+        #[arg(long)]
+        samples: std::path::PathBuf,
+        #[arg(long, default_value = "*")]
+        regime: String,
+        #[arg(long, default_value_t = 200.0)]
+        stop_loss_bps: f64,
+        #[arg(long, default_value_t = 14.0)]
+        cost_bps: f64,
+    },
+    /// Run ORACLE multi-market portfolio simulation and purged embargoed walk-forward CV.
+    OraclePortfolio {
+        #[arg(long)]
+        dataset: std::path::PathBuf,
+        #[arg(long, default_value_t = 3)]
+        folds: usize,
+        #[arg(long, default_value_t = 4)]
+        embargo_bars: usize,
+    },
+    /// Run deterministic multi-worker GENESIS NSGA-II multi-objective campaign with embargoed OOS validation.
+    GenesisNsga2 {
+        #[arg(long)]
+        dataset: std::path::PathBuf,
+        #[arg(long, default_value_t = 40)]
+        train_bars: usize,
+        #[arg(long, default_value_t = 4)]
+        embargo_bars: usize,
+        #[arg(long, default_value_t = 8)]
+        population: usize,
+        #[arg(long, default_value_t = 3)]
+        generations: usize,
+        #[arg(long, default_value_t = 2)]
+        workers: usize,
+        #[arg(long, default_value_t = 7)]
+        seed: u64,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -421,6 +463,141 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
     }
     if let Command::PaperService { action } = &cli.cmd {
         return handle_paper_service_cli(action).await;
+    }
+    if let Command::FangRegistry { json } = &cli.cmd {
+        let reg = crate::fang_engine::default_strategy_registry();
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "registry_version": crate::fang_engine::REGISTRY_VERSION,
+                    "strategies": reg,
+                }))?
+            );
+        } else {
+            println!(
+                "FANG Strategy Registry ({}) — {} registered strategies",
+                crate::fang_engine::REGISTRY_VERSION,
+                reg.len()
+            );
+            for d in &reg {
+                println!(
+                    "- {} [{:?}] regimes={} | {}",
+                    d.id,
+                    d.family,
+                    d.supported_regimes
+                        .iter()
+                        .map(|r| r.label())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    d.activation_requirement
+                );
+            }
+        }
+        return Ok(());
+    }
+    if let Command::CognitionStats {
+        samples,
+        regime,
+        stop_loss_bps,
+        cost_bps,
+    } = &cli.cmd
+    {
+        let items =
+            crate::research::read_json::<Vec<crate::cognition_shadow::ShadowSample>>(samples)?;
+        let strategy_ids: Vec<String> = crate::fang_engine::default_strategy_registry()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        let ranking = crate::cognition_stats::rank_and_weight_ensemble(
+            chrono::Utc::now().timestamp_millis(),
+            regime,
+            crate::cognition_shadow::OutcomeSource::Simulated,
+            &strategy_ids,
+            &items,
+            &crate::cognition_shadow::ShadowPolicy::default(),
+            *stop_loss_bps,
+            *cost_bps,
+        )?;
+        let drift: Vec<_> = strategy_ids
+            .iter()
+            .map(|s| {
+                let seq: Vec<&crate::cognition_shadow::ShadowSample> =
+                    items.iter().filter(|x| &x.strategy == s).collect();
+                crate::cognition_stats::detect_strategy_deterioration(s, &seq, 5.0, 0.25)
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "ensemble": ranking,
+                "drift_alerts": drift,
+            }))?
+        );
+        return Ok(());
+    }
+    if let Command::OraclePortfolio {
+        dataset,
+        folds,
+        embargo_bars,
+    } = &cli.cmd
+    {
+        let ds = crate::research::read_json::<crate::oracle_research::MultiMarketDataset>(dataset)?;
+        let (ts, _) = ds.validate_and_fingerprint()?;
+        let fang_cfg = crate::fang_engine::UnifiedStrategyConfig::default();
+        let exec = crate::oracle_research::ExecutionModelConfig::default();
+        let portfolio = crate::oracle_research::simulate_portfolio(&ds, &fang_cfg, &exec)?;
+        let fold_count = (*folds).max(1);
+        let span = ts.len() / fold_count;
+        let test_bars = (span / 3).max(exec.warmup_bars + exec.latency_bars + 2);
+        let train_bars = ts
+            .len()
+            .saturating_sub(test_bars + *embargo_bars)
+            .max(exec.warmup_bars + 2);
+        let wf = if ts.len() >= train_bars + *embargo_bars + test_bars {
+            Some(crate::oracle_research::walk_forward_purged_cv(
+                &ds,
+                train_bars,
+                *embargo_bars,
+                test_bars,
+                test_bars,
+                &fang_cfg,
+                &exec,
+            )?)
+        } else {
+            None
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "portfolio": portfolio,
+                "walk_forward": wf,
+            }))?
+        );
+        return Ok(());
+    }
+    if let Command::GenesisNsga2 {
+        dataset,
+        train_bars,
+        embargo_bars,
+        population,
+        generations,
+        workers,
+        seed,
+    } = &cli.cmd
+    {
+        let ds = crate::research::read_json::<crate::oracle_research::MultiMarketDataset>(dataset)?;
+        let opts = crate::genesis_nsga2::Nsga2Options {
+            seed: *seed,
+            population: *population,
+            generations: *generations,
+            max_workers: *workers,
+            ..Default::default()
+        };
+        let rep =
+            crate::genesis_nsga2::run_nsga2_campaign(&ds, *train_bars, *embargo_bars, &opts, None)?;
+        println!("{}", serde_json::to_string_pretty(&rep)?);
+        return Ok(());
     }
     if let Command::BindHistory {
         db,
@@ -719,7 +896,12 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 .emergency_flatten(&cfg)
                 .await
         }
-        Command::SynapsePaper { .. } | Command::PaperService { .. } => {
+        Command::SynapsePaper { .. }
+        | Command::PaperService { .. }
+        | Command::FangRegistry { .. }
+        | Command::CognitionStats { .. }
+        | Command::OraclePortfolio { .. }
+        | Command::GenesisNsga2 { .. } => {
             unreachable!("handled above")
         }
     }

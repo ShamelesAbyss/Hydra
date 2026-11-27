@@ -335,6 +335,53 @@ impl HunterWorkspace {
         if let Some(error) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, error);
         }
+        ui.collapsing(
+            RichText::new("HUNTER Microstructure & Cross-Market Correlation (Derived)")
+                .strong()
+                .color(Color32::from_rgb(54, 205, 245)),
+            |ui| {
+                ui.label("Derived strictly from loaded snapshot/public radar observations (DataProvenance::DerivedMarketStat).");
+                if let Some(pub_rep) = &self.public_report {
+                    ui.monospace(format!(
+                        "Public Radar Loaded: {} ranked markets · {} selected · top={}",
+                        pub_rep.ranked.len(),
+                        pub_rep.watchlist.len(),
+                        pub_rep.watchlist.first().map(String::as_str).unwrap_or("none"),
+                    ));
+                    for item in pub_rep.ranked.iter().filter(|r| r.selected).take(5) {
+                        let o = &item.observation;
+                        let spread = o.impact_spread_bps.unwrap_or(0.0).max(0.0);
+                        let adv = (spread / 50.0).clamp(0.0, 1.0) * 0.5;
+                        ui.label(format!(
+                            "  {} | spread {:?} bps | fund_1h {:+.3} bps | OI ${:.2}M | adv_risk {:.2}",
+                            o.symbol,
+                            o.impact_spread_bps,
+                            o.funding_bps_1h,
+                            o.open_interest_usd / 1_000_000.0,
+                            adv
+                        ));
+                    }
+                } else if let Some(rep) = &self.report {
+                    ui.monospace(format!(
+                        "Snapshot Loaded: {} markets · watchlist=[{}]",
+                        rep.ranked.len(),
+                        rep.watchlist.join(", ")
+                    ));
+                    for item in rep.ranked.iter().filter(|r| r.selected).take(5) {
+                        let o = &item.observation;
+                        let adv = o
+                            .spread_bps
+                            .map(|s| (s / 50.0).clamp(0.0, 1.0) * 0.5);
+                        ui.label(format!(
+                            "  {} | spread {:?} bps | fund {:?} bps | depth ${:?} | adv_risk {:?}",
+                            o.symbol, o.spread_bps, o.funding_bps, o.depth_usd, adv
+                        ));
+                    }
+                } else {
+                    ui.label("No live radar or local snapshot loaded; L2 imbalance, Kyle lambda, and Pearson correlation matrices remain unset until market bars/books arrive.");
+                }
+            },
+        );
         ui.separator();
         let Some(report) = &self.report else {
             ui.heading("Inspect the opportunity set before selecting assets");

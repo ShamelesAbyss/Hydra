@@ -17,6 +17,7 @@ pub mod evolution;
 pub mod evolution_ui;
 pub mod execution;
 pub mod genesis;
+pub mod genesis_nsga2;
 pub mod history;
 pub mod hyperliquid_wire;
 pub mod learning;
@@ -25,6 +26,7 @@ pub mod ledger_hyperliquid;
 pub mod local_setup;
 pub mod monitoring;
 pub mod oracle;
+pub mod oracle_research;
 pub mod ownership;
 pub mod portfolio;
 pub mod position_context;
@@ -45,6 +47,7 @@ pub mod utils;
 
 pub mod execution_facts;
 pub mod hunter;
+pub mod hunter_microstructure;
 pub mod hunter_stream;
 pub mod intent_evidence;
 pub mod live_gate;
@@ -68,6 +71,8 @@ pub mod hunter_ui;
 pub mod oracle_validation;
 
 pub mod cognition_shadow;
+pub mod cognition_stats;
+pub mod fang_engine;
 pub mod fang_planner;
 pub mod portfolio_research;
 
