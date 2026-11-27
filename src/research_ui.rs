@@ -38,6 +38,8 @@ pub struct ResearchWorkspace {
     validation_mode: bool,
     validation_options_path: String,
     validation: Option<crate::oracle_validation::ValidationReport>,
+    dataset_interval_ms: i64,
+    dataset_audit: Option<Result<crate::oracle_validation::DatasetIntegrityReport, String>>,
     config_path: String,
     candles_path: String,
     oracle_options_path: String,
@@ -66,6 +68,8 @@ impl Default for ResearchWorkspace {
             validation_mode: false,
             validation_options_path: String::new(),
             validation: None,
+            dataset_interval_ms: 3_600_000,
+            dataset_audit: None,
             config_path: "config/strategies.toml".into(),
             candles_path: String::new(),
             oracle_options_path: String::new(),
@@ -177,6 +181,55 @@ impl ResearchWorkspace {
             }
             path(ui, "Strategy TOML", &mut self.config_path);
             path(ui, "Candles JSON", &mut self.candles_path);
+            if !optimizer {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Expected bar interval (ms):");
+                    ui.add(
+                        egui::DragValue::new(&mut self.dataset_interval_ms)
+                            .range(1_000..=86_400_000)
+                            .speed(1_000),
+                    );
+                    if ui.button("Audit Dataset Integrity & SHA-256").clicked() {
+                        let res = research::read_json::<Vec<Candle>>(Path::new(
+                            self.candles_path.trim(),
+                        ))
+                        .and_then(|bars| {
+                            crate::oracle_validation::audit_candle_dataset(
+                                &bars,
+                                self.dataset_interval_ms,
+                            )
+                        });
+                        self.dataset_audit =
+                            Some(res.map_err(|e| telemetry::redact_diagnostic(&format!("{e:#}"))));
+                    }
+                });
+                match &self.dataset_audit {
+                    Some(Ok(rep)) => {
+                        ui.label(
+                            RichText::new(format!(
+                                "Integrity: {} · {} bars · coverage {:.1}% · gaps {} · invalid OHLC {} · spikes {} · sha256={}…",
+                                if rep.integrity_ok { "PASS" } else { "ISSUES FOUND" },
+                                rep.bar_count,
+                                rep.coverage_fraction * 100.0,
+                                rep.missing_interval_gaps,
+                                rep.invalid_ohlc_bars,
+                                rep.extreme_return_spikes,
+                                &rep.dataset_sha256[..16]
+                            ))
+                            .monospace()
+                            .color(if rep.integrity_ok {
+                                Color32::from_rgb(58, 232, 165)
+                            } else {
+                                Color32::from_rgb(246, 188, 83)
+                            }),
+                        );
+                    }
+                    Some(Err(err)) => {
+                        ui.colored_label(Color32::LIGHT_RED, err);
+                    }
+                    None => {}
+                }
+            }
             if optimizer {
                 if ui.checkbox(&mut self.checkpoint_mode, "Resumable generation steps").changed() && self.checkpoint_mode {self.assessment_mode=false;}
                 if ui.checkbox(&mut self.assessment_mode,"Assess frozen candidates / later held-out data").changed() && self.assessment_mode {self.checkpoint_mode=false;}

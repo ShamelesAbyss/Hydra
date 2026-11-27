@@ -1,3 +1,26 @@
+## 1.7.0-alpha.29 — Five-Head Project Awakening leap (HUNTER, FANG, COGNITION, AEGIS & ORACLE)
+
+- **HUNTER (`src/hunter.rs`, `src/hunter_ui.rs`):** Add read-only public Hyperliquid perpetual
+  market acquisition (`metaAndAssetCtxs`, 15s timeout, 4 MiB cap, zero wallet credentials),
+  portfolio-aware diversification weighting for already-held symbols, deterministic watchlist
+  hysteresis, loopback HTTP tests, and a live public radar table inside the unified cockpit.
+- **FANG (`src/fang_planner.rs`, `src/diagnostics_ui.rs`):** Add bounded deterministic arithmetic/
+  geometric grid planner enforcing strict level caps (`1..=20`), checked-Decimal cumulative
+  notional ceilings, hard anti-Martingale multiplier bounds (`0.5..=1.5x`), weighted average
+  entry ladders, take-profit targets, protective stop floors, and interactive cockpit planner UI.
+- **COGNITION (`src/cognition_shadow.rs`, `src/diagnostics_ui.rs`):** Add zero-lookahead causal
+  market-regime inference (`TRENDING_UP`, `TRENDING_DOWN`, `MEAN_REVERTING_RANGE`,
+  `HIGH_VOLATILITY_TURBULENT`, `INSUFFICIENT_HISTORY`) from strictly completed candles with
+  prefix causality tests and interactive cockpit inspection.
+- **AEGIS (`src/portfolio_research.rs`, `src/diagnostics_ui.rs`):** Add checked-Decimal
+  liquidation-distance estimator and simultaneous adverse-shock margin stress matrix
+  (`-5%` to `-35%`) detecting maintenance-margin breaches, with interactive cockpit stress UI.
+- **ORACLE (`src/oracle_validation.rs`, `src/research_ui.rs`):** Add historical dataset integrity
+  auditor detecting timestamp reversals, missing-bar interval gaps, OHLC inversions, and extreme
+  single-bar spikes alongside deterministic FIPS 180-4 SHA-256 dataset fingerprinting in cockpit UI.
+- Preserve every financial safeguard, permanent GitHub compliance, disabled live defaults, and
+  Ashlan Haley Rapponotti's permanent memorial dedication.
+
 ## 1.7.0-alpha.28 — Leviathan Evolution native updater, restored README artwork & permanent GitHub compliance
 
 - Implement **LEVIATHAN EVOLUTION** integrated native update manager (`src/evolution.rs`,

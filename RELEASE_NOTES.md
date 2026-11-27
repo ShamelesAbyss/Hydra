@@ -1,55 +1,64 @@
-# HYDRA — Project Leviathan v1.7.0-alpha.28: Leviathan Evolution Native Updater, Restored Obsidian-Amethyst Identity & Standalone Windows Release
+# HYDRA — Project Leviathan v1.7.0-alpha.29: Five-Head Project Awakening Leap (HUNTER Public Radar, FANG Bounded Grids, COGNITION Regime Inference, AEGIS Stress Matrix & ORACLE Dataset Integrity)
 
 > **Engineering prerelease.** Trading remains disabled by default (`MODE: DORMANT`; `ENABLE_LIVE_TRADING=false`). Live unattended `AWAKENED` operation stays strictly gated until authoritative financial settlement, complete recovery, authenticated control IPC, and watchdog certification pass.
 
 ## Release Assets (Attached Below on This GitHub Release)
 
-All downloadable binaries, packages, source exports, and checksum manifests are attached directly to this GitHub Release:
+All downloadable binaries, portable packages, source exports, and checksum manifests are attached directly to this GitHub Release:
 
-- **`HYDRA-Leviathan-Windows-x64.exe`** — Primary standalone Windows x64 native WGPU graphical command center (automatic Glow fallback, clean-profile auto-init, visible startup diagnostics, Treasury & Offering, Leviathan Evolution updater). Double-click directly on Windows 10/11 without Rust, Python, PowerShell, CLI arguments, repository clone, or ZIP extraction.
-- **`hydra-1.7.0-alpha.28-x86_64-pc-windows-msvc.zip`** — Advanced Windows portable package containing `HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, headless/Ratatui `hydra.exe`, `config/`, guides, artwork, and memorial rules.
-- **`hydra-1.7.0-alpha.28-x86_64-unknown-linux-gnu.tar.gz`** — Verified Ubuntu x86_64 headless CLI package plus guides and assets.
-- **`hydra-1.7.0-alpha.28-source.zip`** — Exact-tag source export (excluding inherited legacy binaries).
-- **`hydra-1.7.0-alpha.28-SHA256SUMS.txt`** & **`hydra-1.7.0-alpha.28-linux-SHA256SUMS.txt`** — SHA-256 integrity manifests for all published files.
+- **`HYDRA-Leviathan-Windows-x64.exe`** — Primary standalone Windows x64 native WGPU graphical command center (automatic Glow fallback, clean-profile auto-init, visible startup diagnostics, Treasury & Offering, Leviathan Evolution updater, and all seven integrated head workspaces). Double-click directly on Windows 10/11 without Rust, Python, PowerShell, CLI arguments, repository clone, or ZIP extraction.
+- **`hydra-1.7.0-alpha.29-x86_64-pc-windows-msvc.zip`** — Advanced Windows portable package containing `HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, headless/Ratatui `hydra.exe`, `config/`, guides, artwork, and memorial rules.
+- **`hydra-1.7.0-alpha.29-x86_64-unknown-linux-gnu.tar.gz`** — Verified Ubuntu x86_64 headless CLI package plus guides and assets.
+- **`hydra-1.7.0-alpha.29-source.zip`** — Exact-tag source export (excluding inherited legacy binaries).
+- **`hydra-1.7.0-alpha.29-SHA256SUMS.txt`** & **`hydra-1.7.0-alpha.29-linux-SHA256SUMS.txt`** — SHA-256 integrity manifests for all published files.
 
 ## Installation & Launch
 
 ### Windows x64 (Standalone Graphical Executable)
-1. Download **`HYDRA-Leviathan-Windows-x64.exe`** and **`hydra-1.7.0-alpha.28-SHA256SUMS.txt`** from the Assets list below.
+1. Download **`HYDRA-Leviathan-Windows-x64.exe`** and **`hydra-1.7.0-alpha.29-SHA256SUMS.txt`** from the Assets list below.
 2. Verify integrity in PowerShell:
    ```powershell
    Get-FileHash .\HYDRA-Leviathan-Windows-x64.exe -Algorithm SHA256
    ```
 3. **Double-click `HYDRA-Leviathan-Windows-x64.exe`** (Windows SmartScreen may note the engineering prerelease binary is unsigned).
-4. On a clean Windows profile without an existing database, config, or wallet, Hydra safely initializes an empty dormant local history at `%LOCALAPPDATA%\Hydra\data\hydra.db` and launches into the living seven-headed WGPU sanctuary with trading disabled.
+4. On a clean Windows profile without an existing database, config, or wallet, Hydra initializes `%LOCALAPPDATA%\Hydra\data\hydra.db` automatically and opens directly into the living seven-headed WGPU sanctuary with trading disabled.
 5. Optional terminal flags: `--renderer glow`, `--renderer software`, `--fullscreen`, `--treasury`, `--updates`.
 
 ### Linux x86_64 Headless CLI
 ```sh
-sha256sum --check hydra-1.7.0-alpha.28-linux-SHA256SUMS.txt
-mkdir hydra-alpha28 && tar -xzf hydra-1.7.0-alpha.28-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha28
-cd hydra-alpha28 && ./hydra --version && ./hydra --no-banner config-check
+sha256sum --check hydra-1.7.0-alpha.29-linux-SHA256SUMS.txt
+mkdir hydra-alpha29 && tar -xzf hydra-1.7.0-alpha.29-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha29
+cd hydra-alpha29 && ./hydra --version && ./hydra --no-banner config-check
 ```
 
-## Major Changes in v1.7.0-alpha.28
+## Major Project Awakening Capabilities Added in v1.7.0-alpha.29
 
-### 1. LEVIATHAN EVOLUTION — Integrated Native Update Manager (`src/evolution.rs`, `src/evolution_ui.rs`)
-- **Unified Cockpit Integration:** Added a prominent **`CHECK FOR UPDATES`** button in the top command bar and a dedicated **`LEVIATHAN EVOLUTION`** (`Updates` / `Alt+U` / `--updates`) workspace tab inside the existing single unified window, pulsing the **GENESIS** head during real update checks and package downloads.
-- **GitHub Releases API & SemVer 2.0.0 Resolution:** Supports **Development (Prerelease)** and **Stable** channels, skips drafts, selects the correct OS/architecture package (`HYDRA-Leviathan-Windows-x64.exe` on Windows x64, `tar.gz` on Linux x64), displays release notes, and never misuses `/releases/latest` for prereleases.
-- **Pure-Rust FIPS 180-4 SHA-256 & `secp256k1` Signed Provenance:** Streams downloads with real byte progress and cancellation, verifies downloaded packages byte-for-byte against `SHA256SUMS.txt`, and supports cryptographic `secp256k1` ECDSA signed-manifest verification. Automatic installation stays strictly locked until pinned release-signing key infrastructure is configured.
-- **Trading-Safe Maintenance Gate, Staging, Backup & Rollback:** Refuses updates while `AWAKENED`/`GUARDIAN` mode is active, positions are open, or execution intents remain unresolved. Never touches `%LOCALAPPDATA%\Hydra\data\`, Treasury credentials, or risk policies, creates SHA-256-verified executable backups for rollback, logs durable update diagnostics, and never auto-resumes live trading after restart.
+### 1. HUNTER — Live Read-Only Public Hyperliquid Market Acquisition & Portfolio-Aware Ranking (`src/hunter.rs`, `src/hunter_ui.rs`)
+- Queries Hyperliquid's public read-only `/info` endpoint (`metaAndAssetCtxs`, bounded 15s timeout & 4 MiB response cap, zero wallet credentials or signing) to observe real perpetual mark/oracle prices, 24h notional volume, open interest, 1h funding rates, impact spreads, and max leverage.
+- Filters delisted/illiquid/wide-spread markets, ranks eligible instruments with configurable portfolio-aware diversification weighting for already-held symbols, and applies deterministic watchlist hysteresis.
+- Integrated directly into the **HUNTER** native cockpit tab via **`Fetch Live Public Hyperliquid Radar (Read-Only)`** with an interactive live perp table.
 
-### 2. Permanent GitHub Compliance & Restored README Presentation
-- **Restored Obsidian-Amethyst Identity:** Upgraded `docs/assets/leviathan-banner.svg` and `docs/assets/architecture.svg` to match the living seven-headed obsidian-amethyst dragon sanctuary, Amethyst Heart, Treasury, and Evolution architecture.
-- **Permanent Automated Compliance Gate (`.github/scripts/verify-github-compliance.ps1`, `.cursor/rules/github-compliance.mdc`):** Enforces across both CI workflows (`verify.yml` and `release.yml`) that `README.md` and repository documentation never contain direct executable/archive/checksum download links, `/releases/download/` URLs, shorteners, or mirrors, and verifies every `docs/assets/*` image path exists with exact casing.
+### 2. FANG — Bounded Deterministic Anti-Martingale Grid Planner (`src/fang_planner.rs`, `src/diagnostics_ui.rs`)
+- Computes deterministic arithmetic or geometric entry/take-profit grids using checked `Decimal` arithmetic strictly capped by `max_total_notional_usd`, bounded to `1..=20` rungs, and protected by a hard anti-Martingale multiplier ceiling (`0.5..=1.5x`; unbounded Martingale is structurally rejected).
+- Calculates exact per-level entry prices, notionals, quantities, cumulative exposure, weighted average entry prices, monotonic take-profit targets, and a protective stop floor beyond the deepest rung, with an interactive calculator inside the **FANG** cockpit tab.
 
-### 3. Standalone Distribution & Clean-Profile Hardening (Carried Forward & Published)
-- Ships the clean-profile `%LOCALAPPDATA%\Hydra` bootstrap, global panic hook, readable local crash logs, visible Win32 error dialog (`MessageBoxW`), `catch_unwind` WGPU→Glow fallback, and `1600 × 960` monitor-safe default window geometry introduced in `v1.7.0-alpha.27`, now published end-to-end via `.github/workflows/release.yml`.
+### 3. COGNITION — Zero-Lookahead Causal Market-Regime Inference (`src/cognition_shadow.rs`, `src/diagnostics_ui.rs`)
+- Infers market regimes (`TRENDING_UP`, `TRENDING_DOWN`, `MEAN_REVERTING_RANGE`, `HIGH_VOLATILITY_TURBULENT`, `INSUFFICIENT_HISTORY`) deterministically from strictly completed historical candles using Kaufman efficiency ratio and per-bar log-return standard deviation without future leakage.
+- Integrated into the **COGNITION** cockpit tab for interactive candle regime inspection.
+
+### 4. AEGIS — Checked-Decimal Liquidation Distance & Multi-Shock Margin Stress Matrix (`src/portfolio_research.rs`, `src/diagnostics_ui.rs`)
+- Computes conservative checked-`Decimal` gross leverage, maintenance margin requirements, estimated liquidation prices, percentage distance-to-liquidation buffers, and simultaneous adverse-shock stress scenarios (`-5%`, `-10%`, `-20%`, `-35%`) flagging maintenance-margin breaches.
+- Integrated directly into the **AEGIS** cockpit tab as an interactive stress simulator (strictly read-only; never releases live AEGIS risk holds).
+
+### 5. ORACLE — Historical Dataset Integrity & FIPS 180-4 SHA-256 Provenance Audit (`src/oracle_validation.rs`, `src/research_ui.rs`)
+- Audits OHLCV candle datasets for chronology reversals, duplicate timestamps, missing bar interval gaps, OHLC inversions, and extreme single-bar spikes while generating a deterministic 64-hex FIPS 180-4 SHA-256 content fingerprint for reproducible ORACLE/GENESIS research runs.
+- Integrated directly into the **ORACLE** cockpit tab via **`Audit Dataset Integrity & SHA-256`**.
 
 ## Verification, Security & Known Limitations
-- **Offline tests:** **457 passing offline tests** (`cargo test --locked --features desktop-wgpu --all-targets`), covering NIST FIPS 180-4 SHA-256 vectors, SemVer ordering, channel filtering, `secp256k1` signed-manifest verification and tamper rejection, maintenance gate enforcement, unsafe path rejection, and loopback download/staging/backup/rollback roundtrips.
-- **Checks & Audit:** `cargo fmt --check`, `cargo clippy --locked --all-targets`, Glow compatibility (`--features desktop`), `cargo audit` (0 vulnerability entries, 1 Chrono maintenance warning), `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass.
-- **Known limits:** Engineering prerelease only; Windows binaries are unsigned; automatic in-place update installation stays locked until pinned release-signing key infrastructure is configured; unattended `AWAKENED` live trading remains locked pending full settlement, recovery, authenticated control IPC, and watchdog certification (see `MILESTONE_MATRIX.md`).
+- **Offline tests:** **462 passing offline tests** (`cargo test --locked --features desktop-wgpu --all-targets`), adding regressions across HUNTER (loopback `metaAndAssetCtxs` & portfolio-aware ranking), FANG (long/short bounded grids & anti-Martingale enforcement), COGNITION (causal regime classification & prefix non-leakage), AEGIS (liquidation distance & multi-shock breach detection), and ORACLE (gap/inversion detection & SHA-256 stability).
+- **Prior Release Verified (`v1.7.0-alpha.28`):** CI release run `45976251961` succeeded and published all 6 assets; unauthenticated HTTPS download of `HYDRA-Leviathan-Windows-x64.exe` matched SHA-256 `62886752aa37e5f6ec3244b2502f16e112bf21238a6116a90ba70ca0616e2277` and launched cleanly on an isolated empty Windows profile with zero CLI arguments.
+- **Compliance & Audit:** `cargo fmt --check`, `cargo clippy --locked --all-targets`, Glow compatibility (`--features desktop`), `cargo audit` (0 vulnerability entries, 1 Chrono maintenance warning), `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass.
+- **Known limits:** Engineering prerelease only; Windows binaries are unsigned; automatic in-place update installation stays locked until pinned release-signing key infrastructure is configured; unattended `AWAKENED` live trading remains locked pending complete net settlement, recovery, authenticated control IPC, and watchdog certification (see `MILESTONE_MATRIX.md`).
 
 ---
 

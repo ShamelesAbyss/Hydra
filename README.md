@@ -16,7 +16,7 @@ Obsidian-glass command center · Dedicated OS-protected Treasury · Verified nat
 </div>
 
 > [!IMPORTANT]
-> **Engineering prerelease (`v1.7.0-alpha.28`). Unattended live-trading certification is incomplete.**
+> **Engineering prerelease (`v1.7.0-alpha.29`). Unattended live-trading certification is incomplete.**
 > Exchange integration exists and live execution defaults strictly disabled (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Unresolved orders and unknown net settlement block new exposure. No stable release exists yet; all prior alpha releases remain preserved unchanged as historical checkpoints.
 >
 > **Financial Risk Disclosure:** Cryptocurrency perpetual futures involve substantial risk of total capital loss. Entrust Leviathan only with a separate dedicated wallet funded solely with capital you are fully prepared to lose. No strategy, adaptive model, or backtest guarantees profit.
@@ -38,7 +38,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Track | Current Status | Contents in GitHub Releases |
 | :--- | :--- | :--- |
-| **Latest Development Release** | **`v1.7.0-alpha.28`** (engineering prerelease) | Standalone **`HYDRA-Leviathan-Windows-x64.exe`** (WGPU cockpit + Glow fallback), Windows portable ZIP (`HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, `hydra.exe`), Linux x86_64 headless `tar.gz`, exact-tag source ZIP, and SHA-256 checksum manifests |
+| **Latest Development Release** | **`v1.7.0-alpha.29`** (engineering prerelease) | Standalone **`HYDRA-Leviathan-Windows-x64.exe`** (WGPU cockpit + Glow fallback), Windows portable ZIP (`HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, `hydra.exe`), Linux x86_64 headless `tar.gz`, exact-tag source ZIP, and SHA-256 checksum manifests |
 | **Latest Stable Release** | *None yet* | Unattended live-trading certification remains in progress (see [Readiness](#readiness)) |
 | **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous Project Awakening development directly on `main` |
 
@@ -117,19 +117,19 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 <img src="docs/assets/hunter-workspace.png" width="100%" alt="Actual native HUNTER Radar workspace before loading a market snapshot" />
 
-*Implemented: offline approved-market eligibility, liquidity/cost/directionality ranking, and watchlist hysteresis. Next: autonomous public-data acquisition, WebSocket resilience, and portfolio-aware opportunity rotation.*
+*Implemented: read-only public Hyperliquid perpetual market acquisition (`metaAndAssetCtxs`) with portfolio-aware diversification ranking, plus offline approved-market eligibility, liquidity/cost/directionality ranking, and watchlist hysteresis inside the native Radar. Next: WebSocket streaming resilience and guarded planner-connected rotation.*
 
 <a id="fang"></a>
 <img src="docs/assets/head-fang.svg" width="100%" alt="02 FANG — Strategy and intent" />
 
-**Turn context into bounded intent.** Preserves divergence, momentum/breakout, and mean-reversion strategies alongside offline deterministic arbitration, ownership checks, exact external notional budgets, and a basic EMA Anchor research kernel. [Analytics guide](ANALYTICS.md).
+**Turn context into bounded intent.** Preserves divergence, momentum/breakout, and mean-reversion strategies alongside offline deterministic arbitration, ownership checks, exact external notional budgets, a basic EMA Anchor research kernel, and a **Bounded Deterministic Grid Planner** enforcing strict level limits (`1..=20`), checked-Decimal cumulative exposure caps, and an anti-Martingale multiplier ceiling (`<= 1.5x`). [Analytics guide](ANALYTICS.md).
 
-*Next: shared deterministic live/replay planner integration, multi-strategy net-position ownership, and bounded grid planning.*
+*Next: shared deterministic live/replay planner integration and multi-strategy net-position ownership.*
 
 <a id="cognition"></a>
 <img src="docs/assets/head-cognition.svg" width="100%" alt="03 COGNITION — Adaptive context" />
 
-**Remember with provenance.** Provides source-separated strategy/regime attribution, recency-weighted statistics, effective sample counts, strictly prior-outcome shadow-policy evaluation, and durable original entry-risk persistence across restarts. Unknown net outcomes remain excluded from learning and compounding. [Method & limits](ANALYTICS.md#cognition--strict-prior-outcome-shadow-evaluation).
+**Remember with provenance.** Provides source-separated strategy/regime attribution, recency-weighted statistics, effective sample counts, strictly prior-outcome shadow-policy evaluation, **zero-lookahead causal market-regime inference** (`TrendingUp`, `TrendingDown`, `MeanRevertingRange`, `HighVolatilityTurbulent`), and durable original entry-risk persistence across restarts. Unknown net outcomes remain excluded from learning and compounding. [Method & limits](ANALYTICS.md#cognition--strict-prior-outcome-shadow-evaluation).
 
 <img src="docs/assets/cognition-synthetic-workspace.png" width="100%" alt="Actual native COGNITION chart using an explicitly simulated synthetic rendering fixture" />
 
@@ -138,9 +138,9 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 <a id="aegis"></a>
 <img src="docs/assets/head-aegis.svg" width="100%" alt="04 AEGIS — Persistent risk authority" />
 
-**Protect the boundary.** Independent risk authority enforcing persistent equity high-water marks, drawdown breakers with explicit audited rearm, immutable risk policies, transactional pending-exposure reservations, scoped terminal-entry reconciliation, and offline portfolio concentration/correlation diagnostics. [Risk management](RISK_MANAGEMENT.md).
+**Protect the boundary.** Independent risk authority enforcing persistent equity high-water marks, drawdown breakers with explicit audited rearm, immutable risk policies, transactional pending-exposure reservations, scoped terminal-entry reconciliation, offline portfolio concentration/correlation diagnostics, and a **checked-Decimal liquidation-distance & multi-shock margin stress matrix** (`-5%` to `-35%` simultaneous adverse shocks). [Risk management](RISK_MANAGEMENT.md).
 
-*Only explicitly standard Hyperliquid account abstraction (`disabled`) is supported for valuation. Unknown, unified, and portfolio-margin modes fail closed. Next: native protective exchange orders, liquidation-distance checks, and stress scenarios.*
+*Only explicitly standard Hyperliquid account abstraction (`disabled`) is supported for valuation. Unknown, unified, and portfolio-margin modes fail closed. Next: native protective exchange orders and full live margin qualification.*
 
 <a id="nexus"></a>
 <img src="docs/assets/head-nexus.svg" width="100%" alt="05 NEXUS — Execution and evidence" />
@@ -152,7 +152,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 <a id="oracle"></a>
 <img src="docs/assets/head-oracle.svg" width="100%" alt="06 ORACLE — Historical simulation" />
 
-**Make the model explicit.** Deterministic single-instrument candle replay with next-bar entries, two-leg fees/slippage, conservative stop-first handling, adverse stop-gap pricing, and rolling disjoint held-out validation across explicit cost scenarios. [Simulation contract](BACKTESTING.md).
+**Make the model explicit.** Deterministic single-instrument candle replay with next-bar entries, two-leg fees/slippage, conservative stop-first handling, adverse stop-gap pricing, rolling disjoint held-out validation across explicit cost scenarios, and **historical dataset integrity & FIPS 180-4 SHA-256 provenance auditing** (detecting timestamp reversals, interval gaps, OHLC inversions, and return spikes). [Simulation contract](BACKTESTING.md).
 
 <img src="docs/assets/oracle-validation-workspace.png" width="100%" alt="Actual native ORACLE held-out validation workspace before dataset input" />
 
@@ -194,7 +194,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 ### Windows Native Application (`HYDRA-Leviathan-Windows-x64.exe`)
 
-1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the newest development release (`v1.7.0-alpha.28`).
+1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the newest development release (`v1.7.0-alpha.29`).
 2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and the release's **`SHA256SUMS.txt`** manifest.
 3. Verify the executable integrity before launching:
    ```powershell
@@ -209,9 +209,9 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 Obtain the Linux package and checksum manifest from [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases), verify, and extract:
 
 ```sh
-sha256sum --check hydra-1.7.0-alpha.28-linux-SHA256SUMS.txt
-mkdir hydra-alpha28 && tar -xzf hydra-1.7.0-alpha.28-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha28
-cd hydra-alpha28
+sha256sum --check hydra-1.7.0-alpha.29-linux-SHA256SUMS.txt
+mkdir hydra-alpha29 && tar -xzf hydra-1.7.0-alpha.29-x86_64-unknown-linux-gnu.tar.gz -C hydra-alpha29
+cd hydra-alpha29
 ./hydra --version
 ./hydra --no-banner config-check
 ```
@@ -250,7 +250,7 @@ Environment templates live in [`.env.example`](.env.example) and strategy parame
 
 | Verification Gate | Current Verified State |
 | :--- | :--- |
-| **Offline Regression Suite** | **457 passing offline tests** (`cargo test --locked --features desktop-wgpu --all-targets`), including Leviathan Evolution SHA-256 NIST vectors, SemVer, `secp256k1` signed-manifest verification, maintenance gates, and loopback staging/rollback |
+| **Offline Regression Suite** | **462 passing offline tests** (`cargo test --locked --features desktop-wgpu --all-targets`), covering Leviathan Evolution SHA-256/SemVer/`secp256k1` provenance, HUNTER loopback public acquisition, FANG bounded anti-Martingale grids, COGNITION causal regime inference, AEGIS margin stress, and ORACLE dataset integrity |
 | **Renderer & Fallback** | Verified native Windows 11 WGPU shader rendering (`--features desktop-wgpu`) plus Glow compatibility build (`--features desktop`) and `catch_unwind` fallback |
 | **Formatting, Clippy & Policy** | `cargo fmt --check`, `cargo clippy --locked --all-targets`, memorial verification, and automated GitHub compliance check pass |
 | **Dependency Audit** | `cargo audit` passes with **0 vulnerability entries** and 1 known Chrono maintenance warning (zero advisory ignores) |

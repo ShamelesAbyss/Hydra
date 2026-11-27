@@ -2,12 +2,12 @@
 
 ## Recovery identity
 
-- Version and current recovery tag: **v1.7.0-alpha.28** on `main`.
-- Exact release commit: `git rev-parse v1.7.0-alpha.28^{commit}`.
-- Previous recovery: v1.7.0-alpha.26 / v1.7.0-alpha.27.
+- Version and current recovery tag: **v1.7.0-alpha.29** on `main`.
+- Exact release commit: `git rev-parse v1.7.0-alpha.29^{commit}`.
+- Previous verified published release: **v1.7.0-alpha.28** (CI run `45976251961`, verified `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `62886752aa37e5f6ec3244b2502f16e112bf21238a6116a90ba70ca0616e2277`, independently downloaded & launched cleanly on isolated Windows profile with zero args).
 - Last verified stable release: none; alpha work is not certified for unattended trading.
-- Current phase: **Project Awakening — Restoration & Continuation** (**v1.7.0-alpha.28** delivers restored obsidian-amethyst README/artwork, permanent automated GitHub compliance enforcement, published standalone `HYDRA-Leviathan-Windows-x64.exe` release pipeline, and the integrated **LEVIATHAN EVOLUTION** native update manager), continuing immediately into the seven major milestones (HUNTER, FANG, COGNITION, AEGIS, NEXUS, ORACLE, GENESIS).
-- Development verification remains offline; no real exchange orders, credential probes or transfers.
+- Current phase: **Project Awakening — Multi-Head Subsystem Progression** (**v1.7.0-alpha.29** advances HUNTER public Hyperliquid radar & portfolio-aware ranking, FANG bounded anti-Martingale grid planning, COGNITION zero-lookahead causal regime inference, AEGIS checked-Decimal liquidation & multi-shock margin stress diagnostics, and ORACLE historical dataset integrity & SHA-256 provenance auditing — all integrated natively in the unified cockpit).
+- Development verification remains offline/loopback; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1
 

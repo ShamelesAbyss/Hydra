@@ -1,3 +1,35 @@
+# Release verification — 1.7.0-alpha.29
+
+All **462 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding five
+multi-head Project Awakening regression suites:
+
+- **HUNTER (`src/hunter.rs`):** Loopback HTTP `metaAndAssetCtxs` acquisition, delisted/illiquid
+  filtering, impact spread parsing, and portfolio-aware diversification ranking for already-held
+  symbols.
+- **FANG (`src/fang_planner.rs`):** Deterministic long/short geometric & arithmetic bounded grid
+  generation, exact Decimal cumulative cap enforcement, monotonic average entry/take-profit/stop
+  geometry, and strict rejection of Martingale multipliers `> 1.5` and level counts `> 20`.
+- **COGNITION (`src/cognition_shadow.rs`):** Zero-lookahead causal market-regime inference
+  (`TrendingUp`, `TrendingDown`, `MeanRevertingRange`, `HighVolatilityTurbulent`,
+  `InsufficientHistory`) and prefix causality verification proving future shocks cannot alter
+  prior inference.
+- **AEGIS (`src/portfolio_research.rs`):** Checked-Decimal liquidation price and distance-to-
+  liquidation buffer calculation, simultaneous adverse-shock stress scenarios (`-5%` to `-35%`),
+  maintenance-margin breach detection, and non-positive equity refusal.
+- **ORACLE (`src/oracle_validation.rs`):** Historical OHLCV dataset integrity auditing for
+  timestamp reversals, missing-bar gaps, OHLC inversions, extreme spikes, and stable FIPS 180-4
+  SHA-256 content fingerprinting.
+
+`cargo fmt --check`, `cargo clippy --locked --all-targets`, Glow compilation (`--features desktop`),
+`verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass.
+
+Prior release **`v1.7.0-alpha.28`** passed GitHub Actions release run `45976251961` and published
+all 6 release assets; independent unauthenticated HTTPS download of `HYDRA-Leviathan-Windows-x64.exe`
+verified SHA-256 `62886752aa37e5f6ec3244b2502f16e112bf21238a6116a90ba70ca0616e2277` and clean-profile
+zero-argument WGPU startup (`1600 × 960`, `MODE: DORMANT`, all 7 heads + Amethyst Heart +
+LEVIATHAN EVOLUTION + Ashlan memorial). No real exchange orders, live wallet credentials, or
+transfers were used.
+
 # Release verification — 1.7.0-alpha.28
 
 All **457 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding six

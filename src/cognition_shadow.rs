@@ -485,4 +485,228 @@ mod tests {
         value["future_field"] = true.into();
         assert!(serde_json::from_value::<ShadowRequest>(value).is_err());
     }
+
+    #[test]
+    fn causal_regime_inference_classifies_regimes_without_future_leakage() {
+        use crate::core::Candle;
+        use chrono::{TimeZone, Utc};
+
+        let make_candles = |closes: &[f64]| -> Vec<Candle> {
+            closes
+                .iter()
+                .enumerate()
+                .map(|(i, &c)| Candle {
+                    ts: Utc
+                        .timestamp_opt(1_700_000_000 + (i as i64) * 3600, 0)
+                        .unwrap(),
+                    open: c,
+                    high: c * 1.002,
+                    low: c * 0.998,
+                    close: c,
+                    volume: 100.0,
+                })
+                .collect()
+        };
+
+        let cfg = RegimeInferenceConfig::default();
+        // Insufficient history
+        let short = make_candles(&[100.0; 10]);
+        assert_eq!(
+            infer_regime(&short, &cfg).unwrap().regime,
+            InferredRegime::InsufficientHistory
+        );
+
+        // Steady uptrend -> TrendingUp
+        let up: Vec<f64> = (0..30).map(|i| 100.0 + i as f64 * 1.5).collect();
+        let up_bars = make_candles(&up);
+        let up_res = infer_regime(&up_bars, &cfg).unwrap();
+        assert_eq!(up_res.regime, InferredRegime::TrendingUp);
+        assert!(up_res.efficiency_ratio > 0.8);
+
+        // Steady downtrend -> TrendingDown
+        let down: Vec<f64> = (0..30).map(|i| 200.0 - i as f64 * 2.0).collect();
+        assert_eq!(
+            infer_regime(&make_candles(&down), &cfg).unwrap().regime,
+            InferredRegime::TrendingDown
+        );
+
+        // Tight oscillating range -> MeanRevertingRange
+        let range: Vec<f64> = (0..30)
+            .map(|i| if i % 2 == 0 { 100.0 } else { 100.6 })
+            .collect();
+        assert_eq!(
+            infer_regime(&make_candles(&range), &cfg).unwrap().regime,
+            InferredRegime::MeanRevertingRange
+        );
+
+        // Violent high-volatility swings -> HighVolatilityTurbulent
+        let wild: Vec<f64> = (0..30)
+            .map(|i| if i % 2 == 0 { 100.0 } else { 114.0 })
+            .collect();
+        assert_eq!(
+            infer_regime(&make_candles(&wild), &cfg).unwrap().regime,
+            InferredRegime::HighVolatilityTurbulent
+        );
+
+        // Prefix causality check: appending huge future crash must not alter earlier prefix inference.
+        let mut extended = up_bars.clone();
+        extended.push(Candle {
+            ts: Utc.timestamp_opt(1_700_000_000 + 30 * 3600, 0).unwrap(),
+            open: 10.0,
+            high: 10.0,
+            low: 10.0,
+            close: 10.0,
+            volume: 100.0,
+        });
+        let prefix_res = infer_regime(&extended[..30], &cfg).unwrap();
+        assert_eq!(prefix_res.regime, up_res.regime);
+        assert_eq!(prefix_res.efficiency_ratio, up_res.efficiency_ratio);
+    }
+}
+
+// ============================================================================
+// COGNITION Causal Market-Regime Inference (Zero-Lookahead Completed Bars)
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferredRegime {
+    TrendingUp,
+    TrendingDown,
+    MeanRevertingRange,
+    HighVolatilityTurbulent,
+    InsufficientHistory,
+}
+
+impl InferredRegime {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TrendingUp => "TRENDING_UP",
+            Self::TrendingDown => "TRENDING_DOWN",
+            Self::MeanRevertingRange => "MEAN_REVERTING_RANGE",
+            Self::HighVolatilityTurbulent => "HIGH_VOLATILITY_TURBULENT",
+            Self::InsufficientHistory => "INSUFFICIENT_HISTORY",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegimeInferenceConfig {
+    pub lookback_bars: usize,
+    /// Minimum Kaufman efficiency ratio (`0..=1`) to classify as directional trend.
+    pub trend_efficiency_threshold: f64,
+    /// Per-bar log-return standard deviation threshold above which regime is turbulent.
+    pub high_volatility_bar_std: f64,
+}
+
+impl Default for RegimeInferenceConfig {
+    fn default() -> Self {
+        Self {
+            lookback_bars: 24,
+            trend_efficiency_threshold: 0.42,
+            high_volatility_bar_std: 0.035,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegimeAssessment {
+    pub read_only: bool,
+    pub trading_authorized: bool,
+    pub regime: InferredRegime,
+    pub bars_evaluated: usize,
+    pub net_return_pct: f64,
+    pub efficiency_ratio: f64,
+    pub bar_log_return_std: f64,
+    pub as_of_ms: Option<i64>,
+}
+
+/// Infers market regime deterministically from strictly completed historical candles.
+/// Never reads wall clock, never leaks future bars, and never modifies live policy.
+pub fn infer_regime(
+    candles: &[crate::core::Candle],
+    cfg: &RegimeInferenceConfig,
+) -> Result<RegimeAssessment> {
+    ensure!(
+        (4..=10_000).contains(&cfg.lookback_bars),
+        "lookback_bars must be within 4..=10000"
+    );
+    ensure!(
+        cfg.trend_efficiency_threshold.is_finite()
+            && (0.0..=1.0).contains(&cfg.trend_efficiency_threshold)
+            && cfg.high_volatility_bar_std.is_finite()
+            && cfg.high_volatility_bar_std > 0.0,
+        "invalid regime inference thresholds"
+    );
+    ensure!(candles.len() <= 100_000, "candle budget exceeded");
+    for (i, c) in candles.iter().enumerate() {
+        ensure!(
+            c.close.is_finite() && c.close > 0.0 && (i == 0 || candles[i - 1].ts < c.ts),
+            "invalid or non-chronological candles for regime inference"
+        );
+    }
+
+    if candles.len() < cfg.lookback_bars {
+        return Ok(RegimeAssessment {
+            read_only: true,
+            trading_authorized: false,
+            regime: InferredRegime::InsufficientHistory,
+            bars_evaluated: candles.len(),
+            net_return_pct: 0.0,
+            efficiency_ratio: 0.0,
+            bar_log_return_std: 0.0,
+            as_of_ms: candles.last().map(|c| c.ts.timestamp_millis()),
+        });
+    }
+
+    let window = &candles[candles.len() - cfg.lookback_bars..];
+    let first = window.first().unwrap().close;
+    let last = window.last().unwrap().close;
+    let net_move = (last - first).abs();
+    let net_return_pct = ((last - first) / first) * 100.0;
+
+    let mut path_sum = 0.0;
+    let mut log_returns = Vec::with_capacity(window.len() - 1);
+    for pair in window.windows(2) {
+        path_sum += (pair[1].close - pair[0].close).abs();
+        log_returns.push((pair[1].close / pair[0].close).ln());
+    }
+    let efficiency_ratio = if path_sum > 1e-12 {
+        (net_move / path_sum).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let n = log_returns.len() as f64;
+    let mean = log_returns.iter().sum::<f64>() / n;
+    let var = if log_returns.len() > 1 {
+        log_returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0)
+    } else {
+        0.0
+    };
+    let bar_log_return_std = var.sqrt();
+
+    let regime = if bar_log_return_std >= cfg.high_volatility_bar_std {
+        InferredRegime::HighVolatilityTurbulent
+    } else if efficiency_ratio >= cfg.trend_efficiency_threshold {
+        if last >= first {
+            InferredRegime::TrendingUp
+        } else {
+            InferredRegime::TrendingDown
+        }
+    } else {
+        InferredRegime::MeanRevertingRange
+    };
+
+    Ok(RegimeAssessment {
+        read_only: true,
+        trading_authorized: false,
+        regime,
+        bars_evaluated: window.len(),
+        net_return_pct,
+        efficiency_ratio,
+        bar_log_return_std,
+        as_of_ms: Some(window.last().unwrap().ts.timestamp_millis()),
+    })
 }

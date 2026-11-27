@@ -300,6 +300,292 @@ pub fn ema_anchor(candles: &[Candle], side: Side, o: &EmaAnchorOptions) -> Resul
             "Suggestions are prices, not orders; completed-bar provenance and independent AEGIS/venue checks are caller responsibilities".into()] })
 }
 
+// ============================================================================
+// FANG Bounded Deterministic Grid Planner (Anti-Martingale / Hard-Cap Enforced)
+// ============================================================================
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GridSpacingMode {
+    Arithmetic,
+    Geometric,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoundedGridConfig {
+    pub symbol: String,
+    pub side: Side,
+    pub anchor_price: Decimal,
+    /// Step distance in basis points between consecutive grid rungs (`5..=2500`).
+    pub step_bps: Decimal,
+    /// Number of bounded entry rungs (`1..=20`).
+    pub levels: usize,
+    pub spacing: GridSpacingMode,
+    /// Hard cumulative quote notional budget across ALL grid rungs combined.
+    pub max_total_notional_usd: Decimal,
+    /// Per-level size multiplier strictly bounded to `0.5..=1.5` (no unbounded Martingale).
+    pub size_multiplier: Decimal,
+    /// Take-profit distance in basis points from cumulative weighted average entry (`10..=5000`).
+    pub take_profit_bps: Decimal,
+    /// Protective stop buffer in basis points beyond the deepest grid rung (`10..=5000`).
+    pub stop_buffer_bps: Decimal,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GridOrderLevel {
+    pub level_index: usize,
+    pub entry_price: Decimal,
+    pub level_notional_usd: Decimal,
+    pub level_quantity: Decimal,
+    pub cumulative_notional_usd: Decimal,
+    pub cumulative_quantity: Decimal,
+    pub weighted_avg_entry: Decimal,
+    pub take_profit_price: Decimal,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BoundedGridPlan {
+    pub research_only: bool,
+    pub execution_authorized: bool,
+    pub symbol: String,
+    pub side: Side,
+    pub spacing: GridSpacingMode,
+    pub levels: Vec<GridOrderLevel>,
+    pub total_planned_notional_usd: Decimal,
+    pub max_total_notional_usd: Decimal,
+    pub worst_case_avg_entry: Decimal,
+    pub protective_stop_price: Decimal,
+    pub max_grid_span_bps: Decimal,
+    pub limitations: Vec<String>,
+}
+
+/// Computes a bounded, deterministic entry/take-profit grid strictly capped by
+/// `max_total_notional_usd` and an anti-Martingale multiplier limit (`<= 1.5`).
+pub fn plan_bounded_grid(cfg: &BoundedGridConfig) -> Result<BoundedGridPlan> {
+    ensure!(
+        !cfg.symbol.trim().is_empty() && cfg.symbol.len() <= 64,
+        "invalid grid symbol"
+    );
+    ensure!(
+        (1..=20).contains(&cfg.levels),
+        "grid levels must be bounded between 1 and 20"
+    );
+    ensure!(
+        cfg.anchor_price > Decimal::ZERO,
+        "anchor_price must be positive"
+    );
+    let ten_k = Decimal::from(10_000u32);
+    ensure!(
+        cfg.step_bps >= Decimal::from(5u32) && cfg.step_bps <= Decimal::from(2_500u32),
+        "step_bps must be within 5..=2500 bps"
+    );
+    ensure!(
+        cfg.max_total_notional_usd > Decimal::ZERO,
+        "max_total_notional_usd must be positive"
+    );
+    let min_mult = Decimal::new(5, 1); // 0.5
+    let max_mult = Decimal::new(15, 1); // 1.5 (hard anti-Martingale ceiling)
+    ensure!(
+        cfg.size_multiplier >= min_mult && cfg.size_multiplier <= max_mult,
+        "size_multiplier must be within 0.5..=1.5 (unbounded Martingale is prohibited)"
+    );
+    ensure!(
+        cfg.take_profit_bps >= Decimal::from(10u32)
+            && cfg.take_profit_bps <= Decimal::from(5_000u32),
+        "take_profit_bps must be within 10..=5000 bps"
+    );
+    ensure!(
+        cfg.stop_buffer_bps >= Decimal::from(10u32)
+            && cfg.stop_buffer_bps <= Decimal::from(5_000u32),
+        "stop_buffer_bps must be within 10..=5000 bps"
+    );
+
+    // Compute normalized weights so the sum of all rungs stays <= max_total_notional_usd.
+    let mut weights = Vec::with_capacity(cfg.levels);
+    let mut w = Decimal::ONE;
+    let mut weight_sum = Decimal::ZERO;
+    for _ in 0..cfg.levels {
+        weights.push(w);
+        weight_sum = weight_sum
+            .checked_add(w)
+            .ok_or_else(|| anyhow::anyhow!("grid weight overflow"))?;
+        w = w
+            .checked_mul(cfg.size_multiplier)
+            .ok_or_else(|| anyhow::anyhow!("grid multiplier overflow"))?;
+    }
+
+    let step_frac = cfg
+        .step_bps
+        .checked_div(ten_k)
+        .ok_or_else(|| anyhow::anyhow!("step fraction error"))?;
+    let tp_frac = cfg
+        .take_profit_bps
+        .checked_div(ten_k)
+        .ok_or_else(|| anyhow::anyhow!("tp fraction error"))?;
+    let stop_frac = cfg
+        .stop_buffer_bps
+        .checked_div(ten_k)
+        .ok_or_else(|| anyhow::anyhow!("stop fraction error"))?;
+
+    let mut out_levels = Vec::with_capacity(cfg.levels);
+    let mut cum_notional = Decimal::ZERO;
+    let mut cum_qty = Decimal::ZERO;
+    let mut geo_price = cfg.anchor_price;
+
+    for (idx, weight) in weights.iter().enumerate() {
+        let entry_price = if idx == 0 {
+            cfg.anchor_price
+        } else {
+            match cfg.spacing {
+                GridSpacingMode::Arithmetic => {
+                    let offset = step_frac
+                        .checked_mul(Decimal::from(idx as u64))
+                        .ok_or_else(|| anyhow::anyhow!("arithmetic step overflow"))?;
+                    let factor = if cfg.side.is_buy() {
+                        Decimal::ONE.checked_sub(offset)
+                    } else {
+                        Decimal::ONE.checked_add(offset)
+                    }
+                    .ok_or_else(|| anyhow::anyhow!("grid factor overflow"))?;
+                    cfg.anchor_price
+                        .checked_mul(factor)
+                        .ok_or_else(|| anyhow::anyhow!("grid price overflow"))?
+                }
+                GridSpacingMode::Geometric => {
+                    let factor = if cfg.side.is_buy() {
+                        Decimal::ONE.checked_sub(step_frac)
+                    } else {
+                        Decimal::ONE.checked_add(step_frac)
+                    }
+                    .ok_or_else(|| anyhow::anyhow!("geometric factor overflow"))?;
+                    geo_price = geo_price
+                        .checked_mul(factor)
+                        .ok_or_else(|| anyhow::anyhow!("geometric price overflow"))?;
+                    geo_price
+                }
+            }
+        }
+        .round_dp(6);
+
+        ensure!(
+            entry_price > Decimal::ZERO,
+            "grid rung {} reached non-positive price; reduce levels or step_bps",
+            idx + 1
+        );
+
+        let raw_notional = cfg
+            .max_total_notional_usd
+            .checked_mul(*weight)
+            .and_then(|v| v.checked_div(weight_sum))
+            .ok_or_else(|| anyhow::anyhow!("grid notional overflow"))?
+            .round_dp(2);
+        // Clamp final rung so rounding never exceeds max_total_notional_usd.
+        let remaining_cap = cfg
+            .max_total_notional_usd
+            .checked_sub(cum_notional)
+            .unwrap_or(Decimal::ZERO);
+        let level_notional_usd = raw_notional.min(remaining_cap);
+        ensure!(
+            level_notional_usd > Decimal::ZERO,
+            "grid level notional rounded to zero"
+        );
+
+        let level_quantity = level_notional_usd
+            .checked_div(entry_price)
+            .ok_or_else(|| anyhow::anyhow!("level quantity overflow"))?
+            .round_dp(6);
+        ensure!(
+            level_quantity > Decimal::ZERO,
+            "level quantity rounded to zero"
+        );
+
+        cum_notional = cum_notional
+            .checked_add(level_notional_usd)
+            .ok_or_else(|| anyhow::anyhow!("cumulative notional overflow"))?;
+        cum_qty = cum_qty
+            .checked_add(level_quantity)
+            .ok_or_else(|| anyhow::anyhow!("cumulative quantity overflow"))?;
+        let weighted_avg_entry = cum_notional
+            .checked_div(cum_qty)
+            .ok_or_else(|| anyhow::anyhow!("average entry overflow"))?
+            .round_dp(6);
+        let tp_factor = if cfg.side.is_buy() {
+            Decimal::ONE.checked_add(tp_frac)
+        } else {
+            Decimal::ONE.checked_sub(tp_frac)
+        }
+        .ok_or_else(|| anyhow::anyhow!("take-profit factor overflow"))?;
+        let take_profit_price = weighted_avg_entry
+            .checked_mul(tp_factor)
+            .ok_or_else(|| anyhow::anyhow!("take-profit price overflow"))?
+            .round_dp(6);
+        ensure!(
+            take_profit_price > Decimal::ZERO,
+            "non-positive take-profit price"
+        );
+
+        out_levels.push(GridOrderLevel {
+            level_index: idx + 1,
+            entry_price,
+            level_notional_usd,
+            level_quantity,
+            cumulative_notional_usd: cum_notional,
+            cumulative_quantity: cum_qty,
+            weighted_avg_entry,
+            take_profit_price,
+        });
+    }
+
+    ensure!(
+        cum_notional <= cfg.max_total_notional_usd,
+        "cumulative grid notional exceeded AEGIS cap"
+    );
+
+    let deepest = out_levels.last().unwrap();
+    let stop_factor = if cfg.side.is_buy() {
+        Decimal::ONE.checked_sub(stop_frac)
+    } else {
+        Decimal::ONE.checked_add(stop_frac)
+    }
+    .ok_or_else(|| anyhow::anyhow!("stop factor overflow"))?;
+    let protective_stop_price = deepest
+        .entry_price
+        .checked_mul(stop_factor)
+        .ok_or_else(|| anyhow::anyhow!("stop price overflow"))?
+        .round_dp(6);
+    ensure!(
+        protective_stop_price > Decimal::ZERO,
+        "protective stop price fell to zero or below"
+    );
+
+    let span_bps = (deepest.entry_price - cfg.anchor_price)
+        .abs()
+        .checked_div(cfg.anchor_price)
+        .and_then(|r| r.checked_mul(ten_k))
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(2);
+
+    Ok(BoundedGridPlan {
+        research_only: true,
+        execution_authorized: false,
+        symbol: cfg.symbol.clone(),
+        side: cfg.side,
+        spacing: cfg.spacing,
+        worst_case_avg_entry: deepest.weighted_avg_entry,
+        total_planned_notional_usd: cum_notional,
+        max_total_notional_usd: cfg.max_total_notional_usd,
+        protective_stop_price,
+        max_grid_span_bps: span_bps,
+        levels: out_levels,
+        limitations: vec![
+            "Pure deterministic bounded grid planning kernel; no live order placement or signing authority.".into(),
+            "Hard anti-Martingale ceiling (multiplier <= 1.5) and strict max_total_notional_usd cap enforced; AEGIS must independently authorize live exposure.".into(),
+            "Exchange tick/lot rounding, margin/liquidation checks, and fee/funding impact remain separate execution-stage responsibilities.".into(),
+        ],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,5 +808,49 @@ mod tests {
         let mut bad = o;
         bad.offset_bps = f64::INFINITY;
         assert!(ema_anchor(&bars(&[100.0; 4]), Side::Long, &bad).is_err());
+    }
+
+    #[test]
+    fn bounded_grid_enforces_cap_anti_martingale_and_monotonic_geometry() {
+        let cfg = BoundedGridConfig {
+            symbol: "ETH".into(),
+            side: Side::Long,
+            anchor_price: Decimal::from(3000u32),
+            step_bps: Decimal::from(100u32), // 1%
+            levels: 5,
+            spacing: GridSpacingMode::Geometric,
+            max_total_notional_usd: Decimal::from(1000u32),
+            size_multiplier: Decimal::new(12, 1), // 1.2x bounded
+            take_profit_bps: Decimal::from(150u32),
+            stop_buffer_bps: Decimal::from(200u32),
+        };
+        let grid = plan_bounded_grid(&cfg).unwrap();
+        assert!(grid.research_only && !grid.execution_authorized);
+        assert_eq!(grid.levels.len(), 5);
+        assert!(grid.total_planned_notional_usd <= cfg.max_total_notional_usd);
+        for w in grid.levels.windows(2) {
+            assert!(w[1].entry_price < w[0].entry_price);
+            assert!(w[1].weighted_avg_entry < w[0].weighted_avg_entry);
+            assert!(w[1].take_profit_price > w[1].weighted_avg_entry);
+        }
+        assert!(grid.protective_stop_price < grid.levels.last().unwrap().entry_price);
+
+        // Short side geometry moves upward on entry rungs and downward on take-profit.
+        let mut short_cfg = cfg.clone();
+        short_cfg.side = Side::Short;
+        short_cfg.spacing = GridSpacingMode::Arithmetic;
+        let short_grid = plan_bounded_grid(&short_cfg).unwrap();
+        assert!(short_grid.levels[4].entry_price > short_grid.levels[0].entry_price);
+        assert!(short_grid.protective_stop_price > short_grid.levels[4].entry_price);
+        assert!(short_grid.levels[4].take_profit_price < short_grid.levels[4].weighted_avg_entry);
+
+        // Unbounded Martingale (> 1.5) and excessive level counts (> 20) are strictly rejected.
+        let mut bad_mult = cfg.clone();
+        bad_mult.size_multiplier = Decimal::from(2u32);
+        assert!(plan_bounded_grid(&bad_mult).is_err());
+
+        let mut bad_levels = cfg;
+        bad_levels.levels = 21;
+        assert!(plan_bounded_grid(&bad_levels).is_err());
     }
 }

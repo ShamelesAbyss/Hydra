@@ -1,9 +1,13 @@
-//! Offline market selection workspace. Never connects to a wallet or exchange.
+//! Market perception workspace (offline snapshots + read-only public Hyperliquid radar).
+//! Never accesses wallets, private keys, or order submission.
 use crate::{
-    hunter::{self, HunterPolicy, HunterReport, HunterRequest},
+    hunter::{
+        self, HunterPolicy, HunterReport, HunterRequest, PublicHunterPolicy, PublicHunterReport,
+        HYPERLIQUID_PUBLIC_INFO_URL,
+    },
     research, telemetry,
 };
-use eframe::egui::{self, Color32, Pos2, Sense, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, RichText, Sense, Stroke, Vec2};
 use std::{
     collections::BTreeSet,
     path::Path,
@@ -17,50 +21,220 @@ pub struct HunterWorkspace {
     selected_only: bool,
     receiver: Option<Receiver<Result<HunterReport, String>>>,
     report: Option<HunterReport>,
+    public_rx: Option<Receiver<Result<PublicHunterReport, String>>>,
+    public_report: Option<PublicHunterReport>,
+    public_error: Option<String>,
+    public_policy: PublicHunterPolicy,
     error: Option<String>,
 }
 impl HunterWorkspace {
     pub fn running(&self) -> bool {
-        self.receiver.is_some()
+        self.receiver.is_some() || self.public_rx.is_some()
     }
     pub fn report(&self) -> Option<&HunterReport> {
         self.report.as_ref()
     }
     pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.error.as_deref().or(self.public_error.as_deref())
     }
 
     pub fn poll(&mut self, ctx: &egui::Context) -> bool {
-        let result = self.receiver.as_ref().and_then(|rx| match rx.try_recv() {
+        let mut changed = false;
+        if let Some(result) = self.receiver.as_ref().and_then(|rx| match rx.try_recv() {
             Ok(value) => Some(value),
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => {
                 Some(Err("Snapshot worker ended without a report".into()))
             }
-        });
-        let Some(result) = result else {
-            return false;
-        };
-        self.receiver = None;
-        match result {
-            Ok(report) => {
-                self.report = Some(report);
-                self.error = None;
+        }) {
+            self.receiver = None;
+            match result {
+                Ok(report) => {
+                    self.report = Some(report);
+                    self.error = None;
+                }
+                Err(error) => {
+                    self.error = Some(error);
+                }
             }
-            Err(error) => {
-                self.error = Some(error);
-            }
+            changed = true;
         }
-        ctx.request_repaint();
-        true
+        if let Some(result) = self.public_rx.as_ref().and_then(|rx| match rx.try_recv() {
+            Ok(value) => Some(value),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(Err("Public radar worker ended without a report".into()))
+            }
+        }) {
+            self.public_rx = None;
+            match result {
+                Ok(report) => {
+                    self.public_report = Some(report);
+                    self.public_error = None;
+                }
+                Err(error) => {
+                    self.public_error = Some(error);
+                }
+            }
+            changed = true;
+        }
+        if changed {
+            ctx.request_repaint();
+        }
+        changed
     }
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.colored_label(
             Color32::from_rgb(54, 205, 245),
-            "OFFLINE SNAPSHOT / RESEARCH WATCHLIST",
+            "HUNTER RADAR · PUBLIC HYPERLIQUID DISCOVERY & OFFLINE SNAPSHOTS",
         );
-        ui.label("Eligibility, liquidity and execution costs. Scores are heuristics, never profit forecasts.");
-        ui.label("No trading authority, capital allocation or position rotation. Alt+1 through Alt+7 switches heads.");
+        ui.label("Eligibility, liquidity, open interest, impact spread, and funding costs. Scores are heuristics, never profit forecasts.");
+        ui.label("Read-only market perception: no wallet credentials, signing, capital allocation, or position rotation.");
+        ui.add_space(4.0);
+
+        // Live read-only public Hyperliquid acquisition bar
+        ui.add_enabled_ui(self.public_rx.is_none(), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button(
+                        RichText::new("Fetch Live Public Hyperliquid Radar (Read-Only)")
+                            .strong()
+                            .color(Color32::from_rgb(54, 205, 245)),
+                    )
+                    .clicked()
+                {
+                    let policy = self.public_policy.clone();
+                    let prev_watch = self
+                        .public_report
+                        .as_ref()
+                        .map(|r| r.watchlist.clone())
+                        .unwrap_or_default();
+                    let ctx = ui.ctx().clone();
+                    let (tx, rx) = mpsc::channel();
+                    self.public_rx = Some(rx);
+                    self.public_error = None;
+                    std::thread::Builder::new()
+                        .name("hydra-hunter-public".into())
+                        .spawn(move || {
+                            let res = hunter::fetch_hyperliquid_public_snapshot(
+                                HYPERLIQUID_PUBLIC_INFO_URL,
+                                &policy,
+                                &prev_watch,
+                                &BTreeSet::new(),
+                            )
+                            .map_err(|e| telemetry::redact_diagnostic(&format!("{e:#}")));
+                            let _ = tx.send(res);
+                            ctx.request_repaint();
+                        })
+                        .ok();
+                }
+                ui.label("Slots:");
+                ui.add(egui::DragValue::new(&mut self.public_policy.slots).range(1..=20));
+                ui.label("Min 24h Vol ($M):");
+                let mut vol_m = self.public_policy.min_volume_24h_usd / 1_000_000.0;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut vol_m)
+                            .range(0.1..=500.0)
+                            .speed(0.5),
+                    )
+                    .changed()
+                {
+                    self.public_policy.min_volume_24h_usd = vol_m * 1_000_000.0;
+                }
+            });
+        });
+        if self.public_rx.is_some() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Querying public Hyperliquid metaAndAssetCtxs (read-only)...");
+            });
+        }
+        if let Some(err) = &self.public_error {
+            ui.colored_label(Color32::LIGHT_RED, format!("Public radar error: {err}"));
+        }
+        if let Some(pub_rep) = &self.public_report {
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(format!(
+                    "PUBLIC RADAR ({}): {} perps / {} eligible / {} selected",
+                    pub_rep.acquired_at_rfc3339,
+                    pub_rep.total_markets,
+                    pub_rep.eligible_markets,
+                    pub_rep.watchlist.len()
+                ));
+                ui.colored_label(
+                    Color32::from_rgb(54, 205, 245),
+                    format!("Watchlist: {}", pub_rep.watchlist.join(" · ")),
+                );
+            });
+            egui::ScrollArea::vertical()
+                .id_salt("hunter-public-grid")
+                .max_height(210.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("hunter_public_table")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for h in [
+                                "Symbol",
+                                "Status",
+                                "Score",
+                                "Mark Px",
+                                "24h %",
+                                "24h Vol ($M)",
+                                "OI ($M)",
+                                "Spread bps",
+                                "Fund bps/h",
+                                "Max Lev",
+                            ] {
+                                ui.strong(h);
+                            }
+                            ui.end_row();
+                            for item in pub_rep.ranked.iter().take(40) {
+                                let o = &item.observation;
+                                ui.monospace(&o.symbol);
+                                ui.colored_label(
+                                    if item.selected {
+                                        Color32::from_rgb(54, 205, 245)
+                                    } else if item.eligible {
+                                        Color32::from_rgb(58, 232, 165)
+                                    } else {
+                                        Color32::GRAY
+                                    },
+                                    if item.selected {
+                                        "SELECTED"
+                                    } else if item.eligible {
+                                        "ELIGIBLE"
+                                    } else {
+                                        "FILTERED"
+                                    },
+                                );
+                                ui.monospace(
+                                    item.score
+                                        .map(|s| format!("{s:.1}"))
+                                        .unwrap_or_else(|| "—".into()),
+                                );
+                                ui.monospace(format!("{:.4}", o.mark_px));
+                                ui.monospace(
+                                    o.change_24h_pct
+                                        .map(|c| format!("{c:+.2}%"))
+                                        .unwrap_or_else(|| "—".into()),
+                                );
+                                ui.monospace(format!("{:.2}", o.volume_24h_usd / 1_000_000.0));
+                                ui.monospace(format!("{:.2}", o.open_interest_usd / 1_000_000.0));
+                                ui.monospace(
+                                    o.impact_spread_bps
+                                        .map(|s| format!("{s:.2}"))
+                                        .unwrap_or_else(|| "—".into()),
+                                );
+                                ui.monospace(format!("{:+.3}", o.funding_bps_1h));
+                                ui.monospace(format!("{}x", o.max_leverage));
+                                ui.end_row();
+                            }
+                        });
+                });
+            ui.separator();
+        }
         ui.add_enabled_ui(self.receiver.is_none(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Snapshot JSON");

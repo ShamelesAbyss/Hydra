@@ -1,16 +1,21 @@
 //! Native offline planning, confidence and portfolio analysis. No engine writes.
 use crate::{
+    cognition_shadow::{self, RegimeAssessment, RegimeInferenceConfig},
+    core::{Candle, Side},
     diagnostics::{self, DiagnosticKind, DiagnosticReport},
-    telemetry,
+    fang_planner::{self, BoundedGridConfig, BoundedGridPlan, GridSpacingMode},
+    portfolio_research::{self, MarginPositionInput, MarginStressReport},
+    research, telemetry,
 };
-use eframe::egui::{self, Color32, Pos2, Sense, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, RichText, Sense, Stroke, Vec2};
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use std::{
     path::Path,
+    str::FromStr,
     sync::mpsc::{self, Receiver},
 };
 
-#[derive(Default)]
 pub struct DiagnosticWorkspace {
     last_head: Option<usize>,
     path: String,
@@ -19,6 +24,65 @@ pub struct DiagnosticWorkspace {
     running_head: Option<usize>,
     report: Option<DiagnosticReport>,
     error: Option<String>,
+    // FANG bounded grid interactive controls
+    grid_symbol: String,
+    grid_long: bool,
+    grid_geometric: bool,
+    grid_anchor_px: String,
+    grid_step_bps: u32,
+    grid_levels: usize,
+    grid_cap_usd: String,
+    grid_mult_tenths: u32,
+    grid_tp_bps: u32,
+    grid_stop_bps: u32,
+    grid_plan: Option<Result<BoundedGridPlan, String>>,
+    // AEGIS liquidation & margin stress simulator controls
+    stress_equity: String,
+    stress_symbol: String,
+    stress_long: bool,
+    stress_qty: String,
+    stress_mark: String,
+    stress_mmr_pct: String,
+    stress_report: Option<Result<MarginStressReport, String>>,
+    // COGNITION causal market-regime inference controls
+    regime_candles_path: String,
+    regime_lookback: usize,
+    regime_result: Option<Result<RegimeAssessment, String>>,
+}
+
+impl Default for DiagnosticWorkspace {
+    fn default() -> Self {
+        Self {
+            last_head: None,
+            path: String::new(),
+            anchor: false,
+            receiver: None,
+            running_head: None,
+            report: None,
+            error: None,
+            grid_symbol: "ETH".into(),
+            grid_long: true,
+            grid_geometric: true,
+            grid_anchor_px: "3000".into(),
+            grid_step_bps: 100,
+            grid_levels: 5,
+            grid_cap_usd: "1000".into(),
+            grid_mult_tenths: 12,
+            grid_tp_bps: 150,
+            grid_stop_bps: 200,
+            grid_plan: None,
+            stress_equity: "2000".into(),
+            stress_symbol: "BTC".into(),
+            stress_long: true,
+            stress_qty: "0.05".into(),
+            stress_mark: "100000".into(),
+            stress_mmr_pct: "2.5".into(),
+            stress_report: None,
+            regime_candles_path: String::new(),
+            regime_lookback: 24,
+            regime_result: None,
+        }
+    }
 }
 impl DiagnosticWorkspace {
     pub fn running_head(&self) -> Option<usize> {
@@ -80,6 +144,14 @@ impl DiagnosticWorkspace {
             if self.anchor {
                 kind = DiagnosticKind::EmaAnchor;
             }
+            self.show_bounded_grid_planner(ui);
+            ui.separator();
+        } else if head == 2 {
+            self.show_cognition_regime_inference(ui);
+            ui.separator();
+        } else if head == 3 {
+            self.show_aegis_stress_simulator(ui);
+            ui.separator();
         }
         ui.add_enabled_ui(self.receiver.is_none(), |ui| {
             ui.horizontal(|ui| {
@@ -210,6 +282,264 @@ impl DiagnosticWorkspace {
                 limitations(ui,&r.limitations);
             },
         });
+    }
+
+    fn show_bounded_grid_planner(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing(
+            RichText::new("FANG Bounded Deterministic Grid Planner (Anti-Martingale / Hard-Cap)")
+                .strong()
+                .color(Color32::from_rgb(247, 95, 105)),
+            |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Symbol:");
+                    ui.add(egui::TextEdit::singleline(&mut self.grid_symbol).desired_width(64.0));
+                    ui.selectable_value(&mut self.grid_long, true, "LONG");
+                    ui.selectable_value(&mut self.grid_long, false, "SHORT");
+                    ui.selectable_value(&mut self.grid_geometric, true, "Geometric");
+                    ui.selectable_value(&mut self.grid_geometric, false, "Arithmetic");
+                    ui.label("Anchor $:");
+                    ui.add(egui::TextEdit::singleline(&mut self.grid_anchor_px).desired_width(72.0));
+                    ui.label("Cap $:");
+                    ui.add(egui::TextEdit::singleline(&mut self.grid_cap_usd).desired_width(72.0));
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Levels (1..20):");
+                    ui.add(egui::DragValue::new(&mut self.grid_levels).range(1..=20));
+                    ui.label("Step bps:");
+                    ui.add(egui::DragValue::new(&mut self.grid_step_bps).range(5..=2500));
+                    ui.label("Mult (0.5..1.5x):");
+                    ui.add(egui::DragValue::new(&mut self.grid_mult_tenths).range(5..=15));
+                    ui.label("TP bps:");
+                    ui.add(egui::DragValue::new(&mut self.grid_tp_bps).range(10..=5000));
+                    ui.label("Stop buf bps:");
+                    ui.add(egui::DragValue::new(&mut self.grid_stop_bps).range(10..=5000));
+                    if ui.button("Compute Bounded Grid").clicked() {
+                        let parsed = (|| -> anyhow::Result<BoundedGridPlan> {
+                            let cfg = BoundedGridConfig {
+                                symbol: self.grid_symbol.trim().to_string(),
+                                side: if self.grid_long { Side::Long } else { Side::Short },
+                                anchor_price: Decimal::from_str(self.grid_anchor_px.trim())?,
+                                step_bps: Decimal::from(self.grid_step_bps),
+                                levels: self.grid_levels,
+                                spacing: if self.grid_geometric {
+                                    GridSpacingMode::Geometric
+                                } else {
+                                    GridSpacingMode::Arithmetic
+                                },
+                                max_total_notional_usd: Decimal::from_str(self.grid_cap_usd.trim())?,
+                                size_multiplier: Decimal::new(self.grid_mult_tenths as i64, 1),
+                                take_profit_bps: Decimal::from(self.grid_tp_bps),
+                                stop_buffer_bps: Decimal::from(self.grid_stop_bps),
+                            };
+                            fang_planner::plan_bounded_grid(&cfg)
+                        })();
+                        self.grid_plan = Some(parsed.map_err(|e| format!("{e:#}")));
+                    }
+                });
+                match &self.grid_plan {
+                    Some(Ok(plan)) => {
+                        ui.label(
+                            RichText::new(format!(
+                                "Planned Notional: ${} / Cap ${} · Worst Avg Entry: {} · Hard Stop: {} · Span: {} bps (Research Only)",
+                                plan.total_planned_notional_usd,
+                                plan.max_total_notional_usd,
+                                plan.worst_case_avg_entry,
+                                plan.protective_stop_price,
+                                plan.max_grid_span_bps
+                            ))
+                            .monospace()
+                            .color(Color32::from_rgb(58, 232, 165)),
+                        );
+                        egui::Grid::new("fang_grid_levels").striped(true).show(ui, |ui| {
+                            for h in [
+                                "Rung", "Entry Px", "Notional $", "Qty", "Cum $", "Avg Entry",
+                                "Take-Profit",
+                            ] {
+                                ui.strong(h);
+                            }
+                            ui.end_row();
+                            for lv in &plan.levels {
+                                ui.monospace(format!("#{}", lv.level_index));
+                                ui.monospace(lv.entry_price.to_string());
+                                ui.monospace(lv.level_notional_usd.to_string());
+                                ui.monospace(lv.level_quantity.to_string());
+                                ui.monospace(lv.cumulative_notional_usd.to_string());
+                                ui.monospace(lv.weighted_avg_entry.to_string());
+                                ui.monospace(lv.take_profit_price.to_string());
+                                ui.end_row();
+                            }
+                        });
+                    }
+                    Some(Err(err)) => {
+                        ui.colored_label(Color32::LIGHT_RED, err);
+                    }
+                    None => {}
+                }
+            },
+        );
+    }
+
+    fn show_aegis_stress_simulator(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing(
+            RichText::new("AEGIS Liquidation Distance & Multi-Shock Margin Stress Matrix")
+                .strong()
+                .color(Color32::from_rgb(58, 232, 165)),
+            |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Equity $:");
+                    ui.add(egui::TextEdit::singleline(&mut self.stress_equity).desired_width(72.0));
+                    ui.label("Symbol:");
+                    ui.add(egui::TextEdit::singleline(&mut self.stress_symbol).desired_width(60.0));
+                    ui.selectable_value(&mut self.stress_long, true, "LONG");
+                    ui.selectable_value(&mut self.stress_long, false, "SHORT");
+                    ui.label("Qty:");
+                    ui.add(egui::TextEdit::singleline(&mut self.stress_qty).desired_width(64.0));
+                    ui.label("Mark $:");
+                    ui.add(egui::TextEdit::singleline(&mut self.stress_mark).desired_width(76.0));
+                    ui.label("MMR %:");
+                    ui.add(egui::TextEdit::singleline(&mut self.stress_mmr_pct).desired_width(48.0));
+                    if ui.button("Run Stress Matrix").clicked() {
+                        let res = (|| -> anyhow::Result<MarginStressReport> {
+                            let eq = Decimal::from_str(self.stress_equity.trim())?;
+                            let qty = Decimal::from_str(self.stress_qty.trim())?;
+                            let mark = Decimal::from_str(self.stress_mark.trim())?;
+                            let mmr_pct = Decimal::from_str(self.stress_mmr_pct.trim())?;
+                            let pos = MarginPositionInput {
+                                symbol: self.stress_symbol.trim().to_string(),
+                                is_long: self.stress_long,
+                                quantity: qty,
+                                entry_price: mark,
+                                mark_price: mark,
+                                maintenance_margin_rate: mmr_pct / Decimal::from(100u32),
+                            };
+                            let shocks = [
+                                Decimal::from(5u32),
+                                Decimal::from(10u32),
+                                Decimal::from(20u32),
+                                Decimal::from(35u32),
+                            ];
+                            portfolio_research::evaluate_margin_stress(eq, &[pos], &shocks)
+                        })();
+                        self.stress_report = Some(res.map_err(|e| format!("{e:#}")));
+                    }
+                });
+                match &self.stress_report {
+                    Some(Ok(rep)) => {
+                        ui.label(
+                            RichText::new(format!(
+                                "Equity: ${} · Notional: ${} · Gross Leverage: {}x · Maint Margin: ${}",
+                                rep.account_equity_usd,
+                                rep.total_notional_usd,
+                                rep.gross_leverage,
+                                rep.total_maintenance_margin_usd
+                            ))
+                            .monospace(),
+                        );
+                        for p in &rep.positions {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} {} · Est. Liq Px: {} ({}% buffer from mark)",
+                                    p.symbol,
+                                    p.side_label,
+                                    p.estimated_liquidation_price,
+                                    p.distance_to_liquidation_pct
+                                ))
+                                .monospace()
+                                .color(Color32::from_rgb(54, 205, 245)),
+                            );
+                        }
+                        egui::Grid::new("aegis_stress_grid").striped(true).show(ui, |ui| {
+                            for h in [
+                                "Adverse Shock",
+                                "Est. Loss $",
+                                "Stressed Equity $",
+                                "Margin Buffer $",
+                                "Status",
+                            ] {
+                                ui.strong(h);
+                            }
+                            ui.end_row();
+                            for s in &rep.scenarios {
+                                ui.monospace(format!("-{}%", s.adverse_shock_pct));
+                                ui.monospace(format!("-${}", s.estimated_loss_usd));
+                                ui.monospace(format!("${}", s.stressed_equity_usd));
+                                ui.monospace(format!("${}", s.margin_buffer_usd));
+                                ui.colored_label(
+                                    if s.maintenance_breached {
+                                        Color32::LIGHT_RED
+                                    } else {
+                                        Color32::from_rgb(58, 232, 165)
+                                    },
+                                    if s.maintenance_breached {
+                                        "MAINT BREACH"
+                                    } else {
+                                        "SURVIVES"
+                                    },
+                                );
+                                ui.end_row();
+                            }
+                        });
+                    }
+                    Some(Err(err)) => {
+                        ui.colored_label(Color32::LIGHT_RED, err);
+                    }
+                    None => {}
+                }
+            },
+        );
+    }
+
+    fn show_cognition_regime_inference(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing(
+            RichText::new("COGNITION Causal Market-Regime Inference (Zero-Lookahead)")
+                .strong()
+                .color(Color32::from_rgb(173, 133, 255)),
+            |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Candles JSON:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.regime_candles_path)
+                            .desired_width(340.0),
+                    );
+                    ui.label("Lookback bars:");
+                    ui.add(egui::DragValue::new(&mut self.regime_lookback).range(4..=500));
+                    if ui.button("Infer Regime").clicked() {
+                        let res = research::read_json::<Vec<Candle>>(Path::new(
+                            self.regime_candles_path.trim(),
+                        ))
+                        .and_then(|candles| {
+                            let cfg = RegimeInferenceConfig {
+                                lookback_bars: self.regime_lookback,
+                                ..Default::default()
+                            };
+                            cognition_shadow::infer_regime(&candles, &cfg)
+                        });
+                        self.regime_result =
+                            Some(res.map_err(|e| telemetry::redact_diagnostic(&format!("{e:#}"))));
+                    }
+                });
+                match &self.regime_result {
+                    Some(Ok(r)) => {
+                        ui.label(
+                            RichText::new(format!(
+                                "Inferred Regime: {} · Bars: {} · Efficiency: {:.3} · Net Return: {:+.2}% · Bar Log-Ret Std: {:.4}",
+                                r.regime.label(),
+                                r.bars_evaluated,
+                                r.efficiency_ratio,
+                                r.net_return_pct,
+                                r.bar_log_return_std
+                            ))
+                            .monospace()
+                            .color(Color32::from_rgb(173, 133, 255)),
+                        );
+                    }
+                    Some(Err(err)) => {
+                        ui.colored_label(Color32::LIGHT_RED, err);
+                    }
+                    None => {}
+                }
+            },
+        );
     }
 }
 fn limitations(ui: &mut egui::Ui, values: &[String]) {

@@ -203,3 +203,31 @@ All seven milestone rows reviewed. Delivered:
   4. **M1/M2/M4 Certification Track:** Complete round-trip fee/funding net settlement, stream/restart
      recovery, native protective orders, and authenticated local control IPC. No original major
      milestone is fully certified yet and no financial safeguard is weakened.
+
+### Alpha.29 — Five-Head Project Awakening Leap (HUNTER, FANG, COGNITION, AEGIS & ORACLE)
+
+All seven milestone rows reviewed. Delivered substantial independent acceptance increments across
+five subsystems with immediate unified native cockpit integration (**462 passing offline tests**):
+
+- **M5 HUNTER:** Read-only public Hyperliquid `metaAndAssetCtxs` acquisition (`src/hunter.rs`)
+  with portfolio-aware diversification penalty for already-held positions and live public radar
+  table in the cockpit (`src/hunter_ui.rs`). WebSocket streaming and planner-connected rotation
+  remain next.
+- **M4 FANG:** Checked-Decimal bounded deterministic arithmetic/geometric grid planner
+  (`src/fang_planner.rs`) enforcing `1..=20` level limits, hard cumulative notional cap,
+  anti-Martingale multiplier cap (`<= 1.5x`), monotonic take-profit, and protective stop floor,
+  with interactive cockpit grid UI (`src/diagnostics_ui.rs`). Live/replay shared planner wiring
+  remains next.
+- **M5 COGNITION:** Zero-lookahead causal market-regime inference (`src/cognition_shadow.rs`) from
+  completed candles with prefix causality tests and interactive cockpit inspection. Verified-net
+  live learning adaptation remains gated on M2 settlement.
+- **M4 AEGIS:** Checked-Decimal liquidation-distance estimator and simultaneous adverse-shock
+  margin stress matrix (`-5%` to `-35%`, `src/portfolio_research.rs`) with interactive cockpit
+  simulator (`src/diagnostics_ui.rs`). Native protective exchange orders and full live margin
+  certification remain next.
+- **M6 ORACLE:** Historical OHLCV dataset integrity & FIPS 180-4 SHA-256 provenance auditor
+  (`src/oracle_validation.rs`) detecting reversals, interval gaps, OHLC inversions, and return
+  spikes, wired directly into the ORACLE cockpit tab (`src/research_ui.rs`). Funding/partial-fill/
+  latency simulation and GENESIS NSGA-II remain next alongside the M1/M2/M3 live certification
+  track (round-trip net settlement, stream recovery, authenticated control IPC, watchdog). No
+  original major milestone is fully certified yet and no financial safeguard is weakened.

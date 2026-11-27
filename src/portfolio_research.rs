@@ -691,4 +691,220 @@ mod tests {
         r.returns = vec![series("AAA", &vec![0.1; 2049])];
         assert!(evaluate(&r).is_err());
     }
+
+    #[test]
+    fn aegis_margin_stress_computes_liquidation_distance_and_detects_breaches() {
+        let positions = vec![
+            MarginPositionInput {
+                symbol: "BTC".into(),
+                is_long: true,
+                quantity: Decimal::new(5, 2), // 0.05 BTC
+                entry_price: Decimal::from(100_000u32),
+                mark_price: Decimal::from(100_000u32), // $5,000 notional
+                maintenance_margin_rate: Decimal::new(25, 3), // 2.5%
+            },
+            MarginPositionInput {
+                symbol: "ETH".into(),
+                is_long: false,
+                quantity: Decimal::ONE,
+                entry_price: Decimal::from(3_000u32),
+                mark_price: Decimal::from(3_000u32), // $3,000 short notional
+                maintenance_margin_rate: Decimal::new(25, 3),
+            },
+        ];
+        let shocks = [
+            Decimal::from(5u32),
+            Decimal::from(10u32),
+            Decimal::from(20u32),
+            Decimal::from(35u32),
+        ];
+        let report = evaluate_margin_stress(Decimal::from(2_000u32), &positions, &shocks).unwrap();
+        assert!(report.research_only && !report.risk_release_authorized);
+        assert_eq!(report.total_notional_usd, Decimal::from(8_000u32));
+        assert_eq!(report.gross_leverage, Decimal::from(4u32));
+        // 4x gross leverage with $2,000 equity and $200 maintenance margin:
+        // -5% simultaneous adverse move -> -$400 PnL -> $1,600 equity (safe)
+        // -35% simultaneous adverse move -> -$2,800 PnL -> -$800 equity (maintenance breach!)
+        assert!(!report.scenarios[0].maintenance_breached);
+        assert!(report.scenarios[3].maintenance_breached);
+        assert!(report.positions[0].estimated_liquidation_price < Decimal::from(100_000u32));
+        assert!(report.positions[1].estimated_liquidation_price > Decimal::from(3_000u32));
+
+        // Non-positive equity is rejected.
+        assert!(evaluate_margin_stress(Decimal::ZERO, &positions, &shocks).is_err());
+    }
+}
+
+// ============================================================================
+// AEGIS Liquidation-Distance & Multi-Shock Margin Stress Diagnostics
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarginPositionInput {
+    pub symbol: String,
+    pub is_long: bool,
+    pub quantity: Decimal,
+    pub entry_price: Decimal,
+    pub mark_price: Decimal,
+    /// Maintenance margin fraction (e.g. `0.025` for 2.5% / 20x tier).
+    pub maintenance_margin_rate: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionLiquidationEstimate {
+    pub symbol: String,
+    pub side_label: String,
+    pub notional_usd: Decimal,
+    pub maintenance_margin_usd: Decimal,
+    pub estimated_liquidation_price: Decimal,
+    pub distance_to_liquidation_pct: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShockScenarioResult {
+    pub adverse_shock_pct: Decimal,
+    pub estimated_loss_usd: Decimal,
+    pub stressed_equity_usd: Decimal,
+    pub maintenance_margin_usd: Decimal,
+    pub margin_buffer_usd: Decimal,
+    pub maintenance_breached: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarginStressReport {
+    pub research_only: bool,
+    pub risk_release_authorized: bool,
+    pub account_equity_usd: Decimal,
+    pub total_notional_usd: Decimal,
+    pub gross_leverage: Decimal,
+    pub total_maintenance_margin_usd: Decimal,
+    pub positions: Vec<PositionLiquidationEstimate>,
+    pub scenarios: Vec<ShockScenarioResult>,
+    pub limitations: Vec<String>,
+}
+
+/// Evaluates checked-Decimal liquidation distance and simultaneous adverse-shock
+/// margin stress scenarios. Separate from live AEGIS enforcement.
+pub fn evaluate_margin_stress(
+    account_equity_usd: Decimal,
+    positions: &[MarginPositionInput],
+    adverse_shock_pcts: &[Decimal],
+) -> Result<MarginStressReport> {
+    ensure!(
+        account_equity_usd > Decimal::ZERO,
+        "account_equity_usd must be positive"
+    );
+    ensure!(
+        positions.len() <= 32,
+        "stress test position limit (32) exceeded"
+    );
+    ensure!(
+        adverse_shock_pcts.len() <= 16,
+        "stress test scenario limit (16) exceeded"
+    );
+
+    let hundred = Decimal::from(100u32);
+    let mut total_notional = Decimal::ZERO;
+    let mut total_maint = Decimal::ZERO;
+    let mut pos_notional_pairs = Vec::with_capacity(positions.len());
+
+    for p in positions {
+        ensure!(label_ok(&p.symbol), "invalid symbol in margin stress input");
+        ensure!(
+            p.quantity > Decimal::ZERO
+                && p.entry_price > Decimal::ZERO
+                && p.mark_price > Decimal::ZERO,
+            "position quantity and prices must be positive"
+        );
+        ensure!(
+            p.maintenance_margin_rate > Decimal::ZERO && p.maintenance_margin_rate < Decimal::ONE,
+            "maintenance_margin_rate must be within (0, 1)"
+        );
+        let notional = product(p.quantity, p.mark_price)?;
+        let maint = product(notional, p.maintenance_margin_rate)?;
+        total_notional = add(total_notional, notional)?;
+        total_maint = add(total_maint, maint)?;
+        pos_notional_pairs.push((p, notional, maint));
+    }
+
+    let gross_leverage = divide(total_notional, account_equity_usd)?.round_dp(4);
+    let mut estimates = Vec::with_capacity(positions.len());
+
+    // Cross-margin conservative cushion per position (shared equity minus total maintenance margin).
+    let free_cushion = account_equity_usd
+        .checked_sub(total_maint)
+        .unwrap_or(Decimal::ZERO);
+
+    for (p, notional, maint) in &pos_notional_pairs {
+        let delta_px = if free_cushion > Decimal::ZERO {
+            divide(free_cushion, p.quantity)?
+        } else {
+            Decimal::ZERO
+        };
+        let liq_px = if p.is_long {
+            p.mark_price
+                .checked_sub(delta_px)
+                .unwrap_or(Decimal::ZERO)
+                .max(Decimal::ZERO)
+        } else {
+            add(p.mark_price, delta_px)?
+        }
+        .round_dp(4);
+
+        let dist_pct = divide((p.mark_price - liq_px).abs(), p.mark_price)?
+            .checked_mul(hundred)
+            .ok_or_else(|| anyhow!("distance percentage overflow"))?
+            .round_dp(2);
+
+        estimates.push(PositionLiquidationEstimate {
+            symbol: p.symbol.clone(),
+            side_label: if p.is_long {
+                "LONG".into()
+            } else {
+                "SHORT".into()
+            },
+            notional_usd: notional.round_dp(2),
+            maintenance_margin_usd: maint.round_dp(2),
+            estimated_liquidation_price: liq_px,
+            distance_to_liquidation_pct: dist_pct,
+        });
+    }
+
+    let mut scenarios = Vec::with_capacity(adverse_shock_pcts.len());
+    for &shock_pct in adverse_shock_pcts {
+        ensure!(
+            shock_pct > Decimal::ZERO && shock_pct <= hundred,
+            "shock percentage must be within (0, 100]"
+        );
+        let shock_frac = divide(shock_pct, hundred)?;
+        // Conservative worst-case simultaneous adverse move against every open position.
+        let est_loss = product(total_notional, shock_frac)?.round_dp(2);
+        let stressed_equity = sub(account_equity_usd, est_loss)?.round_dp(2);
+        let margin_buffer = sub(stressed_equity, total_maint)?.round_dp(2);
+        let maintenance_breached = stressed_equity <= total_maint;
+        scenarios.push(ShockScenarioResult {
+            adverse_shock_pct: shock_pct,
+            estimated_loss_usd: est_loss,
+            stressed_equity_usd: stressed_equity,
+            maintenance_margin_usd: total_maint.round_dp(2),
+            margin_buffer_usd: margin_buffer,
+            maintenance_breached,
+        });
+    }
+
+    Ok(MarginStressReport {
+        research_only: true,
+        risk_release_authorized: false,
+        account_equity_usd: account_equity_usd.round_dp(2),
+        total_notional_usd: total_notional.round_dp(2),
+        gross_leverage,
+        total_maintenance_margin_usd: total_maint.round_dp(2),
+        positions: estimates,
+        scenarios,
+        limitations: vec![
+            "Conservative cross-margin stress approximation; exchange-specific tiered maintenance brackets, funding spikes, and ADL rules may liquidate earlier.".into(),
+            "Stress scenarios assume simultaneous adverse price movement across all positions (zero correlation benefit).".into(),
+            "Research diagnostic only; never releases live AEGIS holds or authorizes leverage.".into(),
+        ],
+    })
 }

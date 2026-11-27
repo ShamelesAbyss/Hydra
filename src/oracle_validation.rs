@@ -214,6 +214,28 @@ mod tests {
         value["train_and_deploy"] = serde_json::json!(true);
         assert!(serde_json::from_value::<ValidationOptions>(value).is_err());
     }
+
+    #[test]
+    fn dataset_integrity_audit_detects_gaps_ohlc_inversions_and_produces_stable_sha256() {
+        let clean = bars(20);
+        let a = audit_candle_dataset(&clean, 60_000).unwrap();
+        let b = audit_candle_dataset(&clean, 60_000).unwrap();
+        assert!(a.integrity_ok);
+        assert_eq!(a.missing_interval_gaps, 0);
+        assert_eq!(a.invalid_ohlc_bars, 0);
+        assert_eq!(a.dataset_sha256, b.dataset_sha256);
+        assert_eq!(a.dataset_sha256.len(), 64);
+
+        // Inject a missing-bar gap and an OHLC inversion (high < low).
+        let mut dirty = bars(10);
+        dirty[5].ts = dirty[4].ts + chrono::Duration::minutes(5);
+        dirty[7].high = dirty[7].low - 1.0;
+        let rep = audit_candle_dataset(&dirty, 60_000).unwrap();
+        assert!(!rep.integrity_ok);
+        assert_eq!(rep.missing_interval_gaps, 1);
+        assert_eq!(rep.invalid_ohlc_bars, 1);
+        assert_ne!(rep.dataset_sha256, a.dataset_sha256);
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -471,5 +493,130 @@ where
         unused_trailing_bars: candles.len() - ((fold_count - 1) * o.step_bars + window),
         scenarios,
         limitations,
+    })
+}
+
+// ============================================================================
+// ORACLE Historical Dataset Integrity & SHA-256 Provenance Audit
+// ============================================================================
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DatasetIntegrityReport {
+    pub bar_count: usize,
+    pub expected_interval_ms: i64,
+    pub first_bar_ms: Option<i64>,
+    pub last_bar_ms: Option<i64>,
+    pub coverage_fraction: f64,
+    pub duplicate_or_reversed_timestamps: usize,
+    pub missing_interval_gaps: usize,
+    pub invalid_ohlc_bars: usize,
+    pub extreme_return_spikes: usize,
+    pub dataset_sha256: String,
+    pub integrity_ok: bool,
+    pub findings: Vec<String>,
+}
+
+/// Audits historical OHLCV candle series for chronology, interval gaps, OHLC
+/// inversions, and extreme single-bar anomalies, returning a deterministic
+/// FIPS 180-4 SHA-256 content fingerprint for reproducible ORACLE/GENESIS runs.
+pub fn audit_candle_dataset(
+    candles: &[Candle],
+    expected_interval_ms: i64,
+) -> Result<DatasetIntegrityReport> {
+    ensure!(
+        expected_interval_ms > 0,
+        "expected_interval_ms must be positive"
+    );
+    ensure!(candles.len() <= 250_000, "dataset audit bar cap exceeded");
+
+    let mut duplicate_or_reversed_timestamps = 0usize;
+    let mut missing_interval_gaps = 0usize;
+    let mut invalid_ohlc_bars = 0usize;
+    let mut extreme_return_spikes = 0usize;
+    let mut findings = Vec::new();
+    let mut canonical_buf = Vec::with_capacity(candles.len() * 48);
+
+    for (i, c) in candles.iter().enumerate() {
+        let ts_ms = c.ts.timestamp_millis();
+        canonical_buf.extend_from_slice(&ts_ms.to_le_bytes());
+        for v in [c.open, c.high, c.low, c.close, c.volume] {
+            canonical_buf.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        let ohlc_ok = [c.open, c.high, c.low, c.close]
+            .iter()
+            .all(|p| p.is_finite() && *p > 0.0)
+            && c.volume.is_finite()
+            && c.volume >= 0.0
+            && c.low <= c.open.min(c.close)
+            && c.high >= c.open.max(c.close);
+        if !ohlc_ok {
+            invalid_ohlc_bars += 1;
+            if findings.len() < 16 {
+                findings.push(format!("Bar {i} failed OHLC/volume validity checks"));
+            }
+        }
+        if i > 0 {
+            let prev = &candles[i - 1];
+            let dt = ts_ms - prev.ts.timestamp_millis();
+            if dt <= 0 {
+                duplicate_or_reversed_timestamps += 1;
+                if findings.len() < 16 {
+                    findings.push(format!(
+                        "Bar {i} has non-monotonic timestamp delta ({dt} ms)"
+                    ));
+                }
+            } else if dt > expected_interval_ms {
+                missing_interval_gaps += 1;
+                if findings.len() < 16 {
+                    findings.push(format!(
+                        "Bar {i} has interval gap of {dt} ms (expected {expected_interval_ms} ms)"
+                    ));
+                }
+            }
+            if prev.close.is_finite() && prev.close > 0.0 && c.close.is_finite() && c.close > 0.0 {
+                let jump = ((c.close - prev.close) / prev.close).abs();
+                if jump > 0.50 {
+                    extreme_return_spikes += 1;
+                    if findings.len() < 16 {
+                        findings.push(format!(
+                            "Bar {i} has extreme single-bar move ({:.1}%)",
+                            jump * 100.0
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let first_bar_ms = candles.first().map(|c| c.ts.timestamp_millis());
+    let last_bar_ms = candles.last().map(|c| c.ts.timestamp_millis());
+    let coverage_fraction = match (first_bar_ms, last_bar_ms) {
+        (Some(start), Some(end)) if end > start => {
+            let expected_bars = ((end - start) / expected_interval_ms) as f64 + 1.0;
+            (candles.len() as f64 / expected_bars).clamp(0.0, 1.0)
+        }
+        (Some(_), Some(_)) => 1.0,
+        _ => 0.0,
+    };
+
+    let dataset_sha256 = crate::evolution::sha256_bytes(&canonical_buf);
+    let integrity_ok = !candles.is_empty()
+        && duplicate_or_reversed_timestamps == 0
+        && missing_interval_gaps == 0
+        && invalid_ohlc_bars == 0;
+
+    Ok(DatasetIntegrityReport {
+        bar_count: candles.len(),
+        expected_interval_ms,
+        first_bar_ms,
+        last_bar_ms,
+        coverage_fraction,
+        duplicate_or_reversed_timestamps,
+        missing_interval_gaps,
+        invalid_ohlc_bars,
+        extreme_return_spikes,
+        dataset_sha256,
+        integrity_ok,
+        findings,
     })
 }
