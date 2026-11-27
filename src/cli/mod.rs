@@ -198,6 +198,17 @@ pub enum Command {
         #[arg(long)]
         confirm: bool,
     },
+    /// Run the connected HUNTER->COGNITION->FANG->AEGIS->NEXUS paper simulation pipeline over local candles.
+    SynapsePaper {
+        #[arg(long)]
+        candles: std::path::PathBuf,
+        #[arg(long, default_value = "BTC")]
+        symbol: String,
+        #[arg(long, default_value = "10000")]
+        equity: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
@@ -214,6 +225,87 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             "{}",
             serde_json::to_string(&crate::hunter::evaluate(&request)?)?
         );
+        return Ok(());
+    }
+    if let Command::SynapsePaper {
+        candles,
+        symbol,
+        equity,
+        json,
+    } = &cli.cmd
+    {
+        let bars = crate::research::read_json::<Vec<crate::core::Candle>>(candles)?;
+        anyhow::ensure!(!bars.is_empty(), "candles input is empty");
+        let start_eq: rust_decimal::Decimal = equity
+            .parse()
+            .with_context(|| format!("invalid starting equity '{equity}'"))?;
+        let mut pipe = crate::paper_pipeline::SynapsePipeline::new(
+            crate::paper_pipeline::SynapsePipelineConfig {
+                starting_equity: start_eq,
+                ..Default::default()
+            },
+        )?;
+        let sym = symbol.trim().to_ascii_uppercase();
+        let mut hist = Vec::with_capacity(bars.len());
+        let mut last_marks = std::collections::BTreeMap::new();
+        for bar in bars {
+            let now_ms = bar.ts.timestamp_millis();
+            hist.push(bar.clone());
+            let mut candle_map = std::collections::BTreeMap::new();
+            candle_map.insert(sym.clone(), hist.clone());
+            let mut marks = std::collections::BTreeMap::new();
+            if let Ok(d) = rust_decimal::Decimal::try_from(bar.close) {
+                if d > rust_decimal::Decimal::ZERO {
+                    marks.insert(sym.clone(), d.round_dp(6));
+                }
+            }
+            last_marks = marks.clone();
+            let obs = crate::hunter::MarketObservation {
+                symbol: sym.clone(),
+                observed_at_ms: now_ms,
+                volume_24h_usd: Some((bar.volume * bar.close).max(2_000_000.0)),
+                depth_usd: Some(250_000.0),
+                spread_bps: Some(3.0),
+                volatility_pct: Some(2.5),
+                directionality: Some(0.68),
+                funding_bps: Some(1.0),
+                open_interest_usd: Some(8_000_000.0),
+                coverage_fraction: Some(1.0),
+                age_days: Some(90.0),
+                ema_ready: hist.len() >= 12,
+            };
+            pipe.step_cycle(now_ms, &[obs], &candle_map, &marks)?;
+        }
+        let report = serde_json::json!({
+            "schema_version": crate::synapse_bus::SYNAPSE_SCHEMA_VERSION,
+            "simulation_only": crate::paper_pipeline::SIMULATION_ONLY,
+            "trading_authorized": false,
+            "symbol": sym,
+            "cycles": pipe.cycle_count,
+            "events_emitted": pipe.bus.total_published(),
+            "starting_equity_usd": pipe.ledger.starting_equity.to_string(),
+            "mtm_equity_usd": pipe.ledger.mark_to_market_equity(&last_marks).round_dp(2).to_string(),
+            "realized_net_pnl_usd": pipe.ledger.realized_net_pnl_usd.round_dp(4).to_string(),
+            "fees_usd": pipe.ledger.total_fees_usd.round_dp(4).to_string(),
+            "closed_trades": pipe.ledger.closed_trades.len(),
+            "open_positions": pipe.ledger.open_positions.len(),
+            "breaker_reason": pipe.ledger.breaker_reason,
+        });
+        if *json {
+            println!("{}", serde_json::to_string(&report)?);
+        } else {
+            println!(
+                "SYNAPSE PAPER (SIMULATION ONLY) | {} cycles={} events={} equity=${} net_pnl=${} fees=${} closed={} open={}",
+                sym,
+                pipe.cycle_count,
+                pipe.bus.total_published(),
+                report["mtm_equity_usd"].as_str().unwrap_or("0"),
+                report["realized_net_pnl_usd"].as_str().unwrap_or("0"),
+                report["fees_usd"].as_str().unwrap_or("0"),
+                pipe.ledger.closed_trades.len(),
+                pipe.ledger.open_positions.len(),
+            );
+        }
         return Ok(());
     }
     if let Command::BindHistory {
@@ -513,6 +605,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 .emergency_flatten(&cfg)
                 .await
         }
+        Command::SynapsePaper { .. } => unreachable!("handled above"),
     }
 }
 

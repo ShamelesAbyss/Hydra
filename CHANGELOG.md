@@ -1,3 +1,23 @@
+## 1.10.0 — v1.10.0 | PROJECT SYNAPSE — CONNECTED INTELLIGENCE
+
+- **Versioned Synapse Nervous System Event Bus (`src/synapse_bus.rs`):**
+  Added schema-versioned (`SYNAPSE_SCHEMA_VERSION = 1`) bounded FIFO transport (capacity 512,
+  explicit drop-oldest accounting), typed `HeadId` & `DataProvenance` tagging, correlation IDs,
+  JSONL serialization/replay (`to_jsonl` / `from_jsonl`), and strongly typed cross-head payloads.
+- **Connected `SIMULATION_ONLY` Multi-Head Paper Pipeline (`src/paper_pipeline.rs`):**
+  Unified `HUNTER` (freshness & watchlist rotation) -> `COGNITION` (causal regime inference &
+  simulated-outcome shadow stats) -> `FANG` (shared `plan` arbitration + `ema_anchor` & aligned
+  trend structure gating) -> `AEGIS` (drawdown breaker, exposure ceilings, `-10%` margin stress,
+  and protective exit priority) -> `NEXUS` Paper (`PaperLedger` checked-`Decimal` fills/exits,
+  slippage & fees), plus `run_deterministic_demo_step` and bounded public-market worker
+  `spawn_public_paper_worker`.
+- **Native Overview Live Telemetry & Offline CLI (`src/cockpit.rs`, `src/cli/mod.rs`, `tests/synapse_pipeline.rs`):**
+  Wired live `SYNAPSE NERVOUS SYSTEM` paper-simulation controls (`Run Paper Cycle (Offline)`,
+  `Start / Stop Public Paper Stream`, `Reset Paper Ledger`), truthful metrics, and real bus-driven
+  3D head activity pulses into `Workspace::Overview`, added offline `hydra synapse-paper`, and
+  verified **485** desktop-wgpu / **439** headless offline tests while keeping `MODE: DORMANT`,
+  `ENABLE_LIVE_TRADING=false`, Glow fallback, and Ashlan's permanent memorial unchanged.
+
 ## 1.9.0 — v1.9.0 | PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS
 
 - **Hybrid World-Space + Native `egui` Spatial Interface (`src/leviathan_spatial.rs`, `src/leviathan_layout.rs`, `src/cockpit.rs`):**

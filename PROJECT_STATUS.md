@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current public release tag: **v1.9.0** (`v1.9.0 | PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS`) on `main`.
-- Exact release commit: `git rev-parse v1.9.0^{commit}`.
-- Previous verified public releases: **v1.8.0** (`v1.8.0 | PROJECT INCARNATION`, commit `7780f09`, `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `5aa37c17805af37b30151273d503042c2bdcc5a8241a83a523323c338b1df29f`), **v1.7.0** (`v1.7.0 | PROJECT LEVIATHAN`), and historical `v1.7.0-alpha.*` releases.
-- Public release status: **v1.9.0** completes **Project Synapse Phase I — Spatial Consciousness** (`draft: false`, `prerelease: false`, `make_latest: true`), concluding major graphics-first architecture work so engineering now advances directly into **Phase II — Connected Intelligence** (`HUNTER` streaming, `FANG` shared planner, `COGNITION`, `AEGIS`, and `NEXUS` paper execution) while unattended live-trading certification stays locked (`MODE: DORMANT`; `ENABLE_LIVE_TRADING=false`).
-- Current phase: **Public `v1.9.0` (`PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS`) & Road to HYDRA 2.0 (`ROADMAP_V2.md`)** — delivering the Hybrid World-Space + Native `egui` Spatial Interface, 360° orbital sanctuary exploration + outer cathedral colonnade + dorsal armor, 7 personality-paced aware heads with whole-body compensation, interchangeable `SPATIAL | CLASSIC` modes, and fixed safety controls while keeping Glow fallback and dormant guarantees intact.
+- Version and current public release tag: **v1.10.0** (`v1.10.0 | PROJECT SYNAPSE — CONNECTED INTELLIGENCE`) on `main`.
+- Exact release commit: `git rev-parse v1.10.0^{commit}`.
+- Previous verified public releases: **v1.9.0** (`v1.9.0 | PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS`, commit `bb455f9`, `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `69c7bd8b1cc51dae2b8cef6b41de28248bf3a89ac49980ed1c154fb6fefec5b9`), **v1.8.0** (`v1.8.0 | PROJECT INCARNATION`, commit `7780f09`), **v1.7.0**, and historical `v1.7.0-alpha.*` releases.
+- Public release status: **v1.10.0** delivers **Project Synapse Phase II — Connected Intelligence** (`draft: false`, `prerelease: false`, `make_latest: true`), connecting `HUNTER -> COGNITION -> FANG -> AEGIS -> NEXUS (Paper)` over a versioned typed Nervous System event bus (`src/synapse_bus.rs`, `src/paper_pipeline.rs`), `hydra synapse-paper`, and `Workspace::Overview` live telemetry & head energy pulses while preserving the finalized `v1.9.0` 3D PBR Spatial Consciousness sanctuary and keeping unattended live trading locked (`MODE: DORMANT`; `ENABLE_LIVE_TRADING=false`).
+- Current phase: **Public `v1.10.0` (`PROJECT SYNAPSE — CONNECTED INTELLIGENCE`) & Road to HYDRA 2.0 (`ROADMAP_V2.md`)** — advancing directly toward **Phase III+ Settlement, Stream/Restart Recovery, Authenticated Local Control IPC, Native Protective Orders & Watchdog Certification** while preserving Glow fallback and zero-network offline guarantees.
 - Development verification remains offline/loopback; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1

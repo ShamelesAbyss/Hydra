@@ -1,3 +1,9 @@
+# Release verification — 1.10.0
+
+All **485 offline desktop-wgpu all-target tests pass** (across 33 test suites: 273 lib unit tests + integration/doc suites) and all **439 offline headless all-target tests pass** (across 32 test suites: 227 lib unit tests + integration/doc suites, including `tests/synapse_pipeline.rs` 2/2), adding coverage for the versioned `SynapseBus` bounded event ring and JSONL replay (`src/synapse_bus.rs`), reproducible connected 5-head `SIMULATION_ONLY` paper execution, stale-market rejection, drawdown breaker protection with permitted exits (`src/paper_pipeline.rs`), and zero-config offline `hydra synapse-paper` CLI execution (`src/cli/mod.rs`).
+
+`cargo fmt --check`, `cargo check --locked --features desktop --all-targets` (0 warnings), `cargo clippy --locked --all-targets`, `cargo clippy --locked --features desktop-wgpu --all-targets`, `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass. Prior release **`v1.9.0`** passed CI runs `46014147524` / `46014158071` and verified `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `69c7bd8b1cc51dae2b8cef6b41de28248bf3a89ac49980ed1c154fb6fefec5b9`. No real exchange orders, live wallet credentials, or transfers were used.
+
 # Release verification — 1.9.0
 
 All **478 offline desktop-wgpu all-target tests pass** (across 32 test suites) and all **432 offline headless all-target tests pass** (across 31 test suites), adding coverage for pole-safe `CameraBasis` billboard frames, 360° `OrbitState` bounds and thorax/floor collision avoidance, `AwarenessPose` skull separation (`src/leviathan_3d_math.rs`), seven-personality critically damped springs and dwell hysteresis (`src/leviathan_awareness.rs`), `SpatialPreferences` sanitization/roundtrip, and safe-zone memorial preservation (`src/leviathan_spatial.rs`).

@@ -61,6 +61,71 @@ enum Workspace {
 }
 type SnapshotResponse = (PathBuf, Result<TelemetrySnapshot, String>);
 
+struct SynapseCockpitState {
+    pipeline: crate::paper_pipeline::SynapsePipeline,
+    worker: Option<crate::paper_pipeline::PublicPaperWorkerHandle>,
+    ledger: crate::paper_pipeline::PaperLedger,
+    recent_events: Vec<crate::synapse_bus::SynapseEvent>,
+    last_summary: Option<crate::paper_pipeline::CycleSummary>,
+    total_bus_events: u64,
+    status: String,
+    error: Option<String>,
+}
+
+impl Default for SynapseCockpitState {
+    fn default() -> Self {
+        let cfg = crate::paper_pipeline::SynapsePipelineConfig::default();
+        let ledger = crate::paper_pipeline::PaperLedger::new(cfg.starting_equity)
+            .expect("default positive paper equity");
+        let pipeline =
+            crate::paper_pipeline::SynapsePipeline::new(cfg).expect("default synapse pipeline");
+        Self {
+            pipeline,
+            worker: None,
+            ledger,
+            recent_events: Vec::new(),
+            last_summary: None,
+            total_bus_events: 0,
+            status: "IDLE · OFFLINE / SIMULATION ONLY".into(),
+            error: None,
+        }
+    }
+}
+
+impl SynapseCockpitState {
+    fn poll(
+        &mut self,
+        ctx: &egui::Context,
+        frame_start: Instant,
+        research_changed_at: &mut [Option<Instant>; 7],
+    ) {
+        let mut updates = Vec::new();
+        if let Some(worker) = &self.worker {
+            while let Ok(u) = worker.rx.try_recv() {
+                updates.push(u);
+            }
+        }
+        if !updates.is_empty() {
+            for u in updates {
+                if u.summary.is_some() {
+                    self.last_summary = u.summary;
+                }
+                self.ledger = u.ledger;
+                self.recent_events = u.recent_events;
+                self.total_bus_events = u.total_bus_events;
+                self.status = u.stream_status;
+                self.error = u.error;
+                for (i, trig) in u.triggered_heads.iter().enumerate() {
+                    if *trig {
+                        research_changed_at[i] = Some(frame_start);
+                    }
+                }
+            }
+            ctx.request_repaint();
+        }
+    }
+}
+
 pub struct Cockpit {
     started: Instant,
     last_frame: Option<Instant>,
@@ -94,6 +159,7 @@ pub struct Cockpit {
     spatial_blocker_rects: Vec<egui::Rect>,
     research_changed_at: [Option<Instant>; 7],
     offering_pulse_at: Option<Instant>,
+    synapse: SynapseCockpitState,
 
     treasury: crate::treasury_ui::TreasuryWorkspace,
     evolution: crate::evolution_ui::EvolutionWorkspace,
@@ -240,6 +306,7 @@ impl Cockpit {
             spatial_blocker_rects: Vec::new(),
             research_changed_at: [None; 7],
             offering_pulse_at: None,
+            synapse: SynapseCockpitState::default(),
 
             treasury: crate::treasury_ui::TreasuryWorkspace::default(),
             evolution: crate::evolution_ui::EvolutionWorkspace::default(),
@@ -736,6 +803,10 @@ impl Cockpit {
             return;
         }
         let Some(data) = self.snapshot.clone() else {
+            if self.workspace == Workspace::Overview {
+                ui.add_space(10.0);
+                self.synapse_section(ui);
+            }
             ui.add_space(6.0);
             ui.heading("Connect to your local engine history");
             ui.label(
@@ -922,10 +993,164 @@ impl Cockpit {
             );
         }
         ui.add_space(12.0);
+        self.synapse_section(ui);
+        ui.add_space(12.0);
         equity_chart(ui, data);
         ui.add_space(12.0);
         ui.heading("Latest persisted decisions");
         signals(ui, data, "");
+    }
+
+    fn synapse_section(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                section_title(
+                    ui,
+                    "SYNAPSE NERVOUS SYSTEM  ·  SIMULATION ONLY (NO REAL FUNDS)",
+                    AMETHYST,
+                );
+                pill(ui, &self.synapse.status, if self.synapse.error.is_some() { AMBER } else { CYAN });
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button("Run Paper Cycle (Offline)")
+                    .on_hover_text("Execute one deterministic HUNTER -> COGNITION -> FANG -> AEGIS -> NEXUS simulated cycle offline")
+                    .clicked()
+                {
+                    let before = self.synapse.pipeline.bus.total_published();
+                    match self.synapse.pipeline.run_deterministic_demo_step() {
+                        Ok(summary) => {
+                            let now = Instant::now();
+                            for ev in self.synapse.pipeline.bus.all_chronological() {
+                                if ev.event_id > before {
+                                    self.research_changed_at[ev.head.index()] = Some(now);
+                                }
+                            }
+                            self.synapse.ledger = self.synapse.pipeline.ledger.clone();
+                            self.synapse.recent_events = self.synapse.pipeline.bus.recent(16);
+                            self.synapse.total_bus_events =
+                                self.synapse.pipeline.bus.total_published();
+                            self.synapse.status = format!(
+                                "OFFLINE SIMULATION · cycle {} · {} events",
+                                summary.cycle, self.synapse.total_bus_events
+                            );
+                            self.synapse.error = None;
+                            self.synapse.last_summary = Some(summary);
+                        }
+                        Err(e) => {
+                            self.synapse.error = Some(format!("{e:#}"));
+                        }
+                    }
+                }
+                let streaming = self.synapse.worker.is_some();
+                if ui
+                    .button(if streaming {
+                        "Stop Public Paper Stream"
+                    } else {
+                        "Start Public Paper Stream"
+                    })
+                    .on_hover_text("Stream read-only public Hyperliquid /info data into simulated paper trading (zero wallet keys or live orders)")
+                    .clicked()
+                {
+                    if streaming {
+                        self.synapse.worker = None;
+                        self.synapse.status = "PUBLIC STREAM STOPPED · SIMULATION ONLY".into();
+                    } else {
+                        match crate::paper_pipeline::spawn_public_paper_worker(
+                            crate::hunter::HYPERLIQUID_PUBLIC_INFO_URL.to_string(),
+                            self.synapse.ledger.starting_equity,
+                            5,
+                        ) {
+                            Ok(handle) => {
+                                self.synapse.worker = Some(handle);
+                                self.synapse.status = "CONNECTING PUBLIC SIMULATION…".into();
+                                self.synapse.error = None;
+                            }
+                            Err(e) => {
+                                self.synapse.error = Some(format!("{e:#}"));
+                            }
+                        }
+                    }
+                }
+                if ui.small_button("Reset Paper Ledger").clicked() {
+                    self.synapse.worker = None;
+                    self.synapse = SynapseCockpitState::default();
+                }
+            });
+            if let Some(ref err) = self.synapse.error {
+                ui.colored_label(AMBER, format!("Synapse status notice: {err}"));
+            }
+            ui.horizontal_wrapped(|ui| {
+                metric(
+                    ui,
+                    "Simulated Equity",
+                    &format!("${:.2}", self.synapse.ledger.cash_equity),
+                    HEADS[5].2,
+                );
+                metric(
+                    ui,
+                    "Allocated Exposure",
+                    &format!("${:.2}", self.synapse.ledger.allocated_exposure()),
+                    HEADS[3].2,
+                );
+                metric(
+                    ui,
+                    "Realized Net PnL (Sim)",
+                    &format!("${:.4}", self.synapse.ledger.realized_net_pnl_usd),
+                    if self.synapse.ledger.realized_net_pnl_usd >= rust_decimal::Decimal::ZERO {
+                        EMERALD
+                    } else {
+                        AMBER
+                    },
+                );
+                metric(
+                    ui,
+                    "Sim Fees Paid",
+                    &format!("${:.4}", self.synapse.ledger.total_fees_usd),
+                    MUTED,
+                );
+                metric(
+                    ui,
+                    "Sim Open / Closed",
+                    &format!(
+                        "{} / {}",
+                        self.synapse.ledger.open_positions.len(),
+                        self.synapse.ledger.closed_trades.len()
+                    ),
+                    CYAN,
+                );
+            });
+            if let Some(ref brk) = self.synapse.ledger.breaker_reason {
+                ui.colored_label(AMBER, format!("AEGIS Simulation Breaker: {brk}"));
+            }
+            if !self.synapse.recent_events.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(format!(
+                        "Recent Nervous System Events ({} total)",
+                        self.synapse.total_bus_events
+                    ))
+                    .monospace()
+                    .small()
+                    .color(MUTED),
+                );
+                for ev in self.synapse.recent_events.iter().take(6) {
+                    let col = HEADS[ev.head.index()].2;
+                    ui.label(
+                        RichText::new(format!(
+                            "#{} [{}] {} · {}",
+                            ev.event_id,
+                            ev.head.label(),
+                            ev.correlation_id,
+                            ev.payload.summary()
+                        ))
+                        .monospace()
+                        .small()
+                        .color(col),
+                    );
+                }
+            }
+        });
     }
     fn head_states(&self) -> [crate::leviathan_state::HeadState; 7] {
         use crate::leviathan_state::{HeadInputs, HeadState};
@@ -1966,6 +2191,8 @@ impl eframe::App for Cockpit {
         if evo_events.genesis_pulse {
             self.research_changed_at[6] = Some(frame_start);
         }
+        self.synapse
+            .poll(ui.ctx(), frame_start, &mut self.research_changed_at);
         if ui
             .ctx()
             .input(|i| i.modifiers.alt && i.key_pressed(egui::Key::T))

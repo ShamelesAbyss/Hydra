@@ -48,8 +48,10 @@ pub mod hunter;
 pub mod intent_evidence;
 
 pub mod order_status;
+pub mod paper_pipeline;
 
 pub mod status_history;
+pub mod synapse_bus;
 
 pub mod signer_nonce;
 mod signing_preparation;

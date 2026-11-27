@@ -296,3 +296,20 @@ All seven milestone rows reviewed against Project Synapse master directive:
   versioned internal event architecture) followed by Phase III–V settlement, recovery, IPC, and
   watchdog certification. Live-trading defaults (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`) and
   Windows DPAPI vs. Unix `0700`/`0600` owner-only filesystem permission distinctions stay explicit.
+
+### v1.10.0 — Project Synapse Phase II ("Connected Intelligence")
+
+All seven milestone rows reviewed against Project Synapse Phase II:
+
+- **M3 / M4 / M5 / M7 Connected Nervous System & `SIMULATION_ONLY` Paper Engine (`src/synapse_bus.rs`,
+  `src/paper_pipeline.rs`, `src/cli/mod.rs`, `src/cockpit.rs`, `tests/synapse_pipeline.rs`):**
+  Unified `HUNTER` -> `COGNITION` -> `FANG` (`plan_candidates` + `ema_anchor` + aligned trend
+  structure) -> `AEGIS` (drawdown breaker + exposure caps + `-10%` margin stress) -> `NEXUS` Paper
+  (`PaperLedger` checked-`Decimal` fills/exits, slippage/fees) across the schema-versioned
+  `SynapseBus` (capacity 512, JSONL replay), exposed `hydra synapse-paper` offline CLI and live
+  `Workspace::Overview` paper-simulation controls & real bus-driven 3D head pulses, and passed
+  **485** desktop-wgpu tests / **439** headless tests with zero external crate additions.
+- **Explicit Live-Certification Boundary Unchanged:** Paper execution is permanently bounded by
+  `SIMULATION_ONLY = true`; unattended `AWAKENED` live execution remains locked pending complete
+  round-trip fee/funding net settlement, stream/restart recovery, native protective exchange orders,
+  authenticated local control IPC, watchdog supervision, and release-signing key infrastructure.
