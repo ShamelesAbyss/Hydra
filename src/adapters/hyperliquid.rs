@@ -153,6 +153,14 @@ impl HyperliquidAdapter {
     }
 
     pub async fn new(cfg: &AppConfig) -> Result<Self> {
+        if cfg.live_trading {
+            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                crate::live_gate::ExecutionChannel::VenueAdapterDirect,
+                cfg.live_trading,
+                true,
+            );
+            crate::live_gate::require_certified_live_execution(&req)?;
+        }
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
@@ -269,6 +277,14 @@ impl HyperliquidAdapter {
         journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
     ) -> Result<super::OrderReceipt> {
         anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
+        if crate::live_gate::is_production_exchange_url(&self.base_url) {
+            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                crate::live_gate::ExecutionChannel::VenueAdapterDirect,
+                self.live_authorized,
+                false,
+            );
+            crate::live_gate::require_certified_live_execution(&req)?;
+        }
         if let Some(journal) = journal {
             journal.verify_intent(intent)?;
         }
@@ -568,6 +584,10 @@ fn parse_order_receipt(
 impl VenueAdapter for HyperliquidAdapter {
     fn kind(&self) -> VenueKind {
         VenueKind::Hyperliquid
+    }
+
+    fn is_production_venue(&self) -> bool {
+        crate::live_gate::is_production_exchange_url(&self.base_url)
     }
 
     async fn ping(&self) -> Result<()> {

@@ -45,10 +45,14 @@ pub mod utils;
 
 pub mod execution_facts;
 pub mod hunter;
+pub mod hunter_stream;
 pub mod intent_evidence;
+pub mod live_gate;
 
 pub mod order_status;
 pub mod paper_pipeline;
+pub mod paper_service;
+pub mod paper_store;
 
 pub mod status_history;
 pub mod synapse_bus;

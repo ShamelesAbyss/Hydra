@@ -8,11 +8,11 @@
 //!   and monotonic event sequence ID so simulated paper events can never impersonate
 //!   certified live execution.
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-pub const SYNAPSE_SCHEMA_VERSION: u32 = 1;
+pub const SYNAPSE_SCHEMA_VERSION: u32 = 2;
 pub const DEFAULT_BUS_CAPACITY: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -56,6 +56,10 @@ impl HeadId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DataProvenance {
+    AuthoritativeExchange,
+    DerivedMarketStat,
+    SimulationAssumption,
+    SyntheticTestFixture,
     PublicMarket,
     CausalInference,
     DeterministicPlan,
@@ -204,6 +208,8 @@ impl SynapsePayload {
 pub struct SynapseEvent {
     pub schema_version: u32,
     pub event_id: u64,
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub correlation_id: String,
     pub timestamp_ms: i64,
     pub head: HeadId,
@@ -211,9 +217,26 @@ pub struct SynapseEvent {
     pub payload: SynapsePayload,
 }
 
+impl SynapseEvent {
+    /// Returns `true` for durable decision/execution/fault events that must be persisted
+    /// rather than treated as purely lossy decorative telemetry.
+    pub fn is_critical(&self) -> bool {
+        matches!(
+            self.payload,
+            SynapsePayload::FangPlanEvaluated { .. }
+                | SynapsePayload::AegisDecision { .. }
+                | SynapsePayload::NexusPaperExecution { .. }
+                | SynapsePayload::OracleValidation { .. }
+                | SynapsePayload::GenesisProposal { .. }
+                | SynapsePayload::PipelineFault { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SynapseBus {
     capacity: usize,
+    session_id: Option<String>,
     next_event_id: u64,
     dropped_events: u64,
     events: VecDeque<SynapseEvent>,
@@ -228,14 +251,27 @@ impl Default for SynapseBus {
 
 impl SynapseBus {
     pub fn new(capacity: usize) -> Self {
+        Self::with_session(capacity, None)
+    }
+
+    pub fn with_session(capacity: usize, session_id: Option<String>) -> Self {
         let cap = capacity.clamp(16, 8192);
         Self {
             capacity: cap,
+            session_id,
             next_event_id: 1,
             dropped_events: 0,
             events: VecDeque::with_capacity(cap.min(256)),
             latest_by_head: Default::default(),
         }
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    pub fn set_session_id(&mut self, session_id: Option<String>) {
+        self.session_id = session_id;
     }
 
     pub fn publish(
@@ -251,6 +287,7 @@ impl SynapseBus {
         let ev = SynapseEvent {
             schema_version: SYNAPSE_SCHEMA_VERSION,
             event_id,
+            session_id: self.session_id.clone(),
             correlation_id: correlation_id.into(),
             timestamp_ms,
             head,
@@ -313,6 +350,12 @@ impl SynapseBus {
             }
             let ev: SynapseEvent = serde_json::from_str(trimmed)
                 .with_context(|| format!("decode synapse event line {}", idx + 1))?;
+            ensure!(
+                (1..=SYNAPSE_SCHEMA_VERSION).contains(&ev.schema_version),
+                "unsupported synapse schema version {} on line {}",
+                ev.schema_version,
+                idx + 1
+            );
             out.push(ev);
         }
         Ok(out)

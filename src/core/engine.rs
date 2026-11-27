@@ -67,6 +67,14 @@ impl Engine {
         dash: Option<SharedDash>,
     ) -> Result<Self> {
         crate::execution::authorized_live(cfg.live_trading, live_override)?;
+        if cfg.live_trading {
+            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                crate::live_gate::ExecutionChannel::ProductionEngine,
+                cfg.live_trading,
+                live_override,
+            );
+            crate::live_gate::require_certified_live_execution(&req)?;
+        }
         let ownership = if cfg.live_trading {
             let account = crate::ownership::configured_account(&cfg)?
                 .context("live trading requires an account identity")?;

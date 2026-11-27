@@ -1,3 +1,28 @@
+## 1.11.0 — v1.11.0 | PROJECT ASCENDANCY — TRUSTWORTHY INGESTION, DURABLE PAPER & EXECUTION GATE
+
+- **Authoritative `PendingCertification` Live Gate (`src/live_gate.rs`, `tests/live_gate_adversarial.rs`):**
+  Enforced one fail-closed `PendingCertification` gate across `Engine::new`, `ExecutionEngine::submit`
+  (when targeting a non-loopback production venue), `HyperliquidAdapter::new`,
+  `HyperliquidAdapter::submit_order_impl`, `StateManager::emergency_flatten`, and
+  `Treasury::ReadinessReport`, plus adversarial offline tests proving no flag or constructor bypasses it.
+- **Genuine HUNTER WebSocket & REST Snapshot Ingestion (`src/hunter_stream.rs`):**
+  Implemented `tokio-tungstenite` (`rustls-tls-webpki-roots`) public Hyperliquid ingestion
+  (`l2Book`, `trades`, `candle`, `activeAssetCtx`, REST fallback during reconnects, heartbeat
+  `ping`/`pong`, bounded duplicate `tid` filtering, out-of-order tracking, separated completed
+  candles, explicit `exchange_ts_ms` vs `received_at_ms`, derived metrics returning `None` when
+  `< 12` completed bars, and `watchlist ∪ held_positions` continuous monitoring).
+- **Fabricated Input Elimination & Hardened `SynapseBus` / Paper Admission (`src/synapse_bus.rs`, `src/paper_pipeline.rs`):**
+  Upgraded `SynapseBus` to schema v2 (`AuthoritativeExchange`, `DerivedMarketStat`,
+  `SimulationAssumption`, `SyntheticTestFixture`, `session_id`, `is_critical()`), removed the
+  hardcoded GUI paper worker approximations, added `checked_mark_to_market_equity` fail-closed
+  missing-mark halts, post-fill notional/fee validation, and `apply_simulated_funding`.
+- **Isolated Durable SQLite Paper Store & Independent Engine Service (`src/paper_store.rs`, `src/paper_service.rs`, `src/cli/mod.rs`, `src/cockpit.rs`):**
+  Added dedicated SQLite `paper_sessions.db` separating `public_paper`, `offline_demo`, and
+  `historical_replay` sessions with crash/restart recovery and confirmation-gated resets, OS-locked
+  headless `paper-service` with authenticated local loopback IPC (`paper-control/`), `hydra paper-service`
+  CLI, and persistent Cockpit client controls, verified across **496** desktop-wgpu / **450** headless tests
+  while preserving Glow fallback, `MODE: DORMANT`, GitHub compliance, and Ashlan's permanent memorial.
+
 ## 1.10.0 — v1.10.0 | PROJECT SYNAPSE — CONNECTED INTELLIGENCE
 
 - **Versioned Synapse Nervous System Event Bus (`src/synapse_bus.rs`):**

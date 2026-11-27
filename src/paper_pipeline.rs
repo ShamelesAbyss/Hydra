@@ -17,20 +17,15 @@ use crate::core::{Candle, Side, Signal};
 use crate::fang_planner::{
     ema_anchor, plan as plan_candidates, EmaAnchorOptions, PlanCandidate, PlanningBudget,
 };
-use crate::hunter::{
-    evaluate as evaluate_hunter, fetch_hyperliquid_public_snapshot, HunterPolicy, HunterRequest,
-    MarketObservation, PublicHunterPolicy,
-};
+use crate::hunter::{evaluate as evaluate_hunter, HunterPolicy, HunterRequest, MarketObservation};
+use crate::hunter_stream::ObservedMarketSnapshot;
 use crate::portfolio_research::{evaluate_margin_stress, MarginPositionInput};
-use crate::synapse_bus::{DataProvenance, HeadId, SynapseBus, SynapseEvent, SynapsePayload};
+use crate::synapse_bus::{DataProvenance, HeadId, SynapseBus, SynapsePayload};
 use anyhow::{ensure, Context, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
-use std::time::{Duration, Instant};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const SIMULATION_ONLY: bool = true;
 
@@ -73,6 +68,8 @@ pub struct PaperLedger {
     pub open_positions: BTreeMap<String, PaperPosition>,
     pub closed_trades: Vec<PaperClosedTrade>,
     pub total_fees_usd: Decimal,
+    #[serde(default)]
+    pub total_funding_usd: Decimal,
     pub realized_net_pnl_usd: Decimal,
     pub high_water_equity: Decimal,
     pub max_drawdown_ratio: Decimal,
@@ -92,6 +89,7 @@ impl PaperLedger {
             open_positions: BTreeMap::new(),
             closed_trades: Vec::new(),
             total_fees_usd: Decimal::ZERO,
+            total_funding_usd: Decimal::ZERO,
             realized_net_pnl_usd: Decimal::ZERO,
             high_water_equity: starting_equity,
             max_drawdown_ratio: Decimal::ZERO,
@@ -105,10 +103,39 @@ impl PaperLedger {
             .fold(Decimal::ZERO, |acc, p| acc + p.notional)
     }
 
+    /// Computes exact unrealized PnL, returning an error if any open position lacks a valid positive mark.
+    pub fn checked_unrealized_pnl(&self, marks: &BTreeMap<String, Decimal>) -> Result<Decimal> {
+        let mut total = Decimal::ZERO;
+        for (sym, pos) in &self.open_positions {
+            let mark = marks
+                .get(sym)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("missing mark price for open position {sym}"))?;
+            ensure!(
+                mark > Decimal::ZERO,
+                "non-positive mark price for open position {sym}"
+            );
+            let diff = match pos.side {
+                Side::Long => mark - pos.entry_price,
+                Side::Short => pos.entry_price - mark,
+            };
+            total += diff * pos.qty;
+        }
+        Ok(total)
+    }
+
+    /// Computes exact mark-to-market equity; fails closed when any open position mark is missing/invalid.
+    pub fn checked_mark_to_market_equity(
+        &self,
+        marks: &BTreeMap<String, Decimal>,
+    ) -> Result<Decimal> {
+        Ok(self.cash_equity + self.checked_unrealized_pnl(marks)?)
+    }
+
     pub fn unrealized_pnl(&self, marks: &BTreeMap<String, Decimal>) -> Decimal {
         let mut total = Decimal::ZERO;
         for (sym, pos) in &self.open_positions {
-            let Some(&mark) = marks.get(sym) else {
+            let Some(&mark) = marks.get(sym).filter(|m| **m > Decimal::ZERO) else {
                 continue;
             };
             let diff = match pos.side {
@@ -122,6 +149,36 @@ impl PaperLedger {
 
     pub fn mark_to_market_equity(&self, marks: &BTreeMap<String, Decimal>) -> Decimal {
         self.cash_equity + self.unrealized_pnl(marks)
+    }
+
+    /// Applies an hourly simulated funding settlement (`funding_bps_1h`) to an open position
+    /// proportional to `elapsed_hours`. Positive funding costs longs / credits shorts.
+    pub fn apply_simulated_funding(
+        &mut self,
+        symbol: &str,
+        funding_bps_1h: f64,
+        elapsed_hours: f64,
+        mark_px: Decimal,
+    ) -> Option<Decimal> {
+        if !funding_bps_1h.is_finite() || !elapsed_hours.is_finite() || elapsed_hours <= 0.0 {
+            return None;
+        }
+        let pos = self.open_positions.get(symbol)?;
+        if mark_px <= Decimal::ZERO {
+            return None;
+        }
+        let rate_dec = Decimal::try_from((funding_bps_1h / 10_000.0) * elapsed_hours)
+            .ok()?
+            .round_dp(8);
+        let base_ntl = (pos.qty * mark_px).round_dp(4);
+        let cash_delta = match pos.side {
+            Side::Long => -(base_ntl * rate_dec).round_dp(6),
+            Side::Short => (base_ntl * rate_dec).round_dp(6),
+        };
+        self.cash_equity += cash_delta;
+        self.total_funding_usd += cash_delta;
+        self.realized_net_pnl_usd += cash_delta;
+        Some(cash_delta)
     }
 
     pub fn current_drawdown_ratio(&self, marks: &BTreeMap<String, Decimal>) -> Decimal {
@@ -228,14 +285,53 @@ impl SynapsePipeline {
         candles: &BTreeMap<String, Vec<Candle>>,
         marks: &BTreeMap<String, Decimal>,
     ) -> Result<CycleSummary> {
+        self.step_cycle_with_provenance(
+            now_ms,
+            DataProvenance::AuthoritativeExchange,
+            markets,
+            candles,
+            marks,
+        )
+    }
+
+    pub fn step_cycle_with_provenance(
+        &mut self,
+        now_ms: i64,
+        market_provenance: DataProvenance,
+        markets: &[MarketObservation],
+        candles: &BTreeMap<String, Vec<Candle>>,
+        marks: &BTreeMap<String, Decimal>,
+    ) -> Result<CycleSummary> {
         self.cycle_count = self.cycle_count.saturating_add(1);
         let correlation_id = format!("synapse-{:06}", self.cycle_count);
         let before_events = self.bus.total_published();
 
         // 1. Settle protective exits first (permits exits even if AEGIS entry breaker is latched).
         let closed_this_cycle = self.evaluate_exits(now_ms, &correlation_id, marks)?;
-        self.ledger
-            .update_drawdown(marks, self.config.max_drawdown_ratio);
+        let mut missing_marks_halt = false;
+        let _mtm_eq = match self.ledger.checked_mark_to_market_equity(marks) {
+            Ok(eq) => {
+                self.ledger
+                    .update_drawdown(marks, self.config.max_drawdown_ratio);
+                eq
+            }
+            Err(err) => {
+                missing_marks_halt = true;
+                self.bus.publish(
+                    &correlation_id,
+                    now_ms,
+                    HeadId::Aegis,
+                    DataProvenance::OperationalFault,
+                    SynapsePayload::PipelineFault {
+                        stage: "aegis_mark_validation".into(),
+                        message: format!(
+                            "New entries halted; open position mark unavailable: {err}"
+                        ),
+                    },
+                );
+                self.ledger.cash_equity
+            }
+        };
 
         // 2. HUNTER — market surveillance, stale-data rejection, and watchlist rotation.
         let mut stale_rejected = 0usize;
@@ -248,7 +344,11 @@ impl SynapsePipeline {
         let approved_set: BTreeSet<String> = markets.iter().map(|m| m.symbol.clone()).collect();
         let hunter_req = HunterRequest {
             as_of_ms: now_ms,
-            source: "synapse_pipeline_public_simulation".into(),
+            source: match market_provenance {
+                DataProvenance::SyntheticTestFixture => "synapse_synthetic_fixture".into(),
+                DataProvenance::HistoricalValidation => "synapse_historical_replay".into(),
+                _ => "synapse_observed_market_feed".into(),
+            },
             approved: approved_set.clone(),
             excluded: BTreeSet::new(),
             current_watchlist: self.watchlist.clone(),
@@ -274,14 +374,14 @@ impl SynapsePipeline {
             &correlation_id,
             now_ms,
             HeadId::Hunter,
-            DataProvenance::PublicMarket,
+            market_provenance,
             SynapsePayload::HunterObservation {
                 watchlist: self.watchlist.clone(),
                 eligible_count,
                 top_symbol: top_assessment.map(|a| a.observation.symbol.clone()),
                 top_score: top_assessment.and_then(|a| a.score),
                 stale_rejected,
-                stream_healthy: eligible_count > 0,
+                stream_healthy: eligible_count > 0 && !missing_marks_halt,
             },
         );
 
@@ -500,9 +600,39 @@ impl SynapsePipeline {
         let mut approved_entries = 0usize;
         for cand in &plan_rep.selected {
             let sym = &cand.signal.symbol;
-            let cur_eq = self.ledger.mark_to_market_equity(marks);
+            let cur_eq = self
+                .ledger
+                .checked_mark_to_market_equity(marks)
+                .unwrap_or(Decimal::ZERO);
             let cur_alloc = self.ledger.allocated_exposure();
-            let projected_alloc = cur_alloc + cand.requested_notional;
+            let slip_frac = self.config.slippage_bps / Decimal::from(10_000u32);
+            let fee_frac = self.config.fee_bps / Decimal::from(10_000u32);
+            let post_fill_metrics = marks
+                .get(sym)
+                .copied()
+                .filter(|p| *p > Decimal::ZERO)
+                .or_else(|| decimal_positive(cand.reference_price))
+                .and_then(|ref_px| {
+                    let fill_px = match cand.signal.side {
+                        Side::Long => (ref_px * (Decimal::ONE + slip_frac)).round_dp(6),
+                        Side::Short => (ref_px * (Decimal::ONE - slip_frac)).round_dp(6),
+                    };
+                    if fill_px <= Decimal::ZERO {
+                        return None;
+                    }
+                    let qty = (cand.requested_notional / fill_px).round_dp(6);
+                    if qty <= Decimal::ZERO {
+                        return None;
+                    }
+                    let actual_notional = (fill_px * qty).round_dp(4);
+                    let fee_usd = (actual_notional * fee_frac).round_dp(4);
+                    Some((fill_px, qty, actual_notional, fee_usd))
+                });
+
+            let projected_alloc = cur_alloc
+                + post_fill_metrics
+                    .map(|(_, _, ntl, fee)| ntl + fee)
+                    .unwrap_or(cand.requested_notional);
             let projected_ratio = if cur_eq > Decimal::ZERO {
                 (projected_alloc / cur_eq).round_dp(4)
             } else {
@@ -515,58 +645,79 @@ impl SynapsePipeline {
             });
 
             let mut stress_ok = true;
-            if let Some(mark_px) = decimal_positive(cand.reference_price) {
-                let qty = (cand.requested_notional / mark_px).round_dp(6);
-                if qty > Decimal::ZERO && cur_eq > Decimal::ZERO {
-                    let mut stress_inputs: Vec<MarginPositionInput> = self
-                        .ledger
-                        .open_positions
-                        .values()
-                        .map(|p| MarginPositionInput {
-                            symbol: p.symbol.clone(),
-                            is_long: p.side == Side::Long,
-                            quantity: p.qty,
-                            entry_price: p.entry_price,
-                            mark_price: marks.get(&p.symbol).copied().unwrap_or(p.entry_price),
-                            maintenance_margin_rate: Decimal::new(25, 3),
-                        })
-                        .collect();
-                    stress_inputs.push(MarginPositionInput {
-                        symbol: sym.clone(),
-                        is_long: cand.signal.side == Side::Long,
-                        quantity: qty,
-                        entry_price: mark_px,
-                        mark_price: mark_px,
-                        maintenance_margin_rate: Decimal::new(25, 3),
-                    });
-                    if let Ok(rep) =
-                        evaluate_margin_stress(cur_eq, &stress_inputs, &[Decimal::from(10u32)])
-                    {
-                        if rep.scenarios.iter().any(|s| s.maintenance_breached) {
+            if let (Some((fill_px, qty, _, _)), true) = (post_fill_metrics, !missing_marks_halt) {
+                if cur_eq > Decimal::ZERO {
+                    let mut stress_inputs = Vec::new();
+                    for p in self.ledger.open_positions.values() {
+                        if let Some(&mp) = marks.get(&p.symbol).filter(|m| **m > Decimal::ZERO) {
+                            stress_inputs.push(MarginPositionInput {
+                                symbol: p.symbol.clone(),
+                                is_long: p.side == Side::Long,
+                                quantity: p.qty,
+                                entry_price: p.entry_price,
+                                mark_price: mp,
+                                maintenance_margin_rate: Decimal::new(5, 2),
+                            });
+                        } else {
+                            stress_ok = false;
+                            break;
+                        }
+                    }
+                    if stress_ok {
+                        stress_inputs.push(MarginPositionInput {
+                            symbol: sym.clone(),
+                            is_long: cand.signal.side == Side::Long,
+                            quantity: qty,
+                            entry_price: fill_px,
+                            mark_price: fill_px,
+                            maintenance_margin_rate: Decimal::new(5, 2),
+                        });
+                        if let Ok(rep) =
+                            evaluate_margin_stress(cur_eq, &stress_inputs, &[Decimal::from(10u32)])
+                        {
+                            if rep.scenarios.iter().any(|s| s.maintenance_breached) {
+                                stress_ok = false;
+                            }
+                        } else {
                             stress_ok = false;
                         }
-                    } else {
-                        stress_ok = false;
                     }
+                } else {
+                    stress_ok = false;
                 }
             } else {
                 stress_ok = false;
             }
 
-            let (approved, reason) = if let Some(ref b) = self.ledger.breaker_reason {
+            let (approved, reason) = if missing_marks_halt {
+                (
+                    false,
+                    "Held open position lacks valid mark price; new entries blocked".into(),
+                )
+            } else if let Some(ref b) = self.ledger.breaker_reason {
                 (false, format!("Breaker latched: {b}"))
             } else if !stale_ok {
                 (false, "Market observation stale or missing".into())
+            } else if post_fill_metrics.is_none() {
+                (
+                    false,
+                    "Post-fill quantity rounded to zero or mark invalid".into(),
+                )
             } else if self.ledger.open_positions.contains_key(sym) {
                 (false, "Position already held for symbol".into())
             } else if projected_ratio > self.config.max_total_exposure_ratio {
-                (false, "Total exposure ceiling exceeded".into())
-            } else if cand.requested_notional > self.config.max_market_notional {
-                (false, "Per-market notional cap exceeded".into())
+                (false, "Post-fill exposure ceiling exceeded".into())
+            } else if post_fill_metrics
+                .is_some_and(|(_, _, actual_ntl, _)| actual_ntl > self.config.max_market_notional)
+            {
+                (false, "Post-fill per-market notional cap exceeded".into())
             } else if !stress_ok {
                 (false, "AEGIS -10% adverse shock maintenance breach".into())
             } else {
-                (true, "Within AEGIS paper policy & -10% stress floor".into())
+                (
+                    true,
+                    "Within AEGIS paper policy & -10% stress floor (SimulationAssumption)".into(),
+                )
             };
 
             self.bus.publish(
@@ -580,28 +731,13 @@ impl SynapsePipeline {
                     approved,
                     reason,
                     exposure_ratio: projected_ratio.to_string(),
-                    breaker_latched: self.ledger.breaker_reason.is_some(),
+                    breaker_latched: self.ledger.breaker_reason.is_some() || missing_marks_halt,
                 },
             );
 
             if approved {
-                let ref_px = marks
-                    .get(sym)
-                    .copied()
-                    .or_else(|| decimal_positive(cand.reference_price))
-                    .context("missing valid reference price")?;
-                let slip_frac = self.config.slippage_bps / Decimal::from(10_000u32);
-                let fill_px = match cand.signal.side {
-                    Side::Long => (ref_px * (Decimal::ONE + slip_frac)).round_dp(6),
-                    Side::Short => (ref_px * (Decimal::ONE - slip_frac)).round_dp(6),
-                };
-                if fill_px <= Decimal::ZERO {
-                    continue;
-                }
-                let qty = (cand.requested_notional / fill_px).round_dp(6);
-                let notional = (fill_px * qty).round_dp(4);
-                let fee_frac = self.config.fee_bps / Decimal::from(10_000u32);
-                let fee_usd = (notional * fee_frac).round_dp(4);
+                let (fill_px, qty, notional, fee_usd) = post_fill_metrics
+                    .ok_or_else(|| anyhow::anyhow!("approved post-fill metrics missing"))?;
                 let stop_px = match cand.signal.side {
                     Side::Long => {
                         (fill_px * (Decimal::ONE - self.config.stop_loss_pct)).round_dp(6)
@@ -618,6 +754,9 @@ impl SynapsePipeline {
                         (fill_px * (Decimal::ONE - self.config.take_profit_pct)).round_dp(6)
                     }
                 };
+                if stop_px <= Decimal::ZERO || tp_px <= Decimal::ZERO {
+                    continue;
+                }
                 self.ledger.cash_equity -= fee_usd;
                 self.ledger.total_fees_usd += fee_usd;
                 self.ledger.realized_net_pnl_usd -= fee_usd;
@@ -848,7 +987,69 @@ impl SynapsePipeline {
             });
         }
         let candles = self.demo_candles.clone();
-        self.step_cycle(base_ms + 60_000, &markets, &candles, &marks)
+        self.step_cycle_with_provenance(
+            base_ms + 60_000,
+            DataProvenance::SyntheticTestFixture,
+            &markets,
+            &candles,
+            &marks,
+        )
+    }
+
+    /// Evaluates genuinely observed WebSocket/REST market snapshots (`HunterMarketState`)
+    /// without fabricating missing L2 depth, spreads, completed candles, or market age.
+    /// Any incomplete or stale snapshot stays ineligible rather than receiving placeholder numbers.
+    pub fn step_cycle_from_observed(
+        &mut self,
+        now_ms: i64,
+        snapshots: &[ObservedMarketSnapshot],
+    ) -> Result<CycleSummary> {
+        let mut marks = BTreeMap::new();
+        let mut candles_map = BTreeMap::new();
+        let mut markets = Vec::new();
+        for snap in snapshots {
+            if let Some(d) = decimal_positive(snap.mark_px) {
+                marks.insert(snap.symbol.clone(), d);
+            }
+            if !snap.completed_candles.is_empty() {
+                candles_map.insert(snap.symbol.clone(), snap.completed_candles.clone());
+            }
+            let obs_ts = snap.exchange_ts_ms.unwrap_or(snap.received_at_ms);
+            let age_days = if snap.is_stale
+                || snap.depth_usd.is_none()
+                || snap.spread_bps.is_none()
+                || snap.directionality.is_none()
+                || snap.coverage_fraction.is_none()
+                || snap.completed_candles.len() < 12
+            {
+                None
+            } else {
+                // Hyperliquid metaAndAssetCtxs does not report instrument listing date;
+                // require minimum completed candle history instead of inventing an arbitrary age.
+                Some(snap.completed_candles.len() as f64 / 24.0)
+            };
+            markets.push(MarketObservation {
+                symbol: snap.symbol.clone(),
+                observed_at_ms: obs_ts,
+                volume_24h_usd: snap.volume_24h_usd,
+                depth_usd: snap.depth_usd,
+                spread_bps: snap.spread_bps,
+                volatility_pct: snap.volatility_pct,
+                directionality: snap.directionality,
+                funding_bps: snap.funding_bps_1h,
+                open_interest_usd: snap.open_interest_usd,
+                coverage_fraction: snap.coverage_fraction,
+                age_days,
+                ema_ready: snap.completed_candles.len() >= 12,
+            });
+        }
+        self.step_cycle_with_provenance(
+            now_ms,
+            DataProvenance::AuthoritativeExchange,
+            &markets,
+            &candles_map,
+            &marks,
+        )
     }
 }
 
@@ -866,191 +1067,6 @@ fn decimal_positive(v: f64) -> Option<Decimal> {
 #[inline]
 fn f64_from_decimal(d: Decimal) -> f64 {
     d.to_string().parse::<f64>().unwrap_or(0.0)
-}
-
-// ============================================================================
-// Bounded Background Public Market Paper-Simulation Poller
-// ============================================================================
-
-#[derive(Debug, Clone)]
-pub struct PublicPaperWorkerUpdate {
-    pub summary: Option<CycleSummary>,
-    pub ledger: PaperLedger,
-    pub recent_events: Vec<SynapseEvent>,
-    pub triggered_heads: [bool; 7],
-    pub total_bus_events: u64,
-    pub stream_status: String,
-    pub error: Option<String>,
-}
-
-pub struct PublicPaperWorkerHandle {
-    stop: Arc<AtomicBool>,
-    pub rx: mpsc::Receiver<PublicPaperWorkerUpdate>,
-}
-
-impl Drop for PublicPaperWorkerHandle {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-    }
-}
-
-pub fn spawn_public_paper_worker(
-    info_url: String,
-    starting_equity: Decimal,
-    poll_interval_s: u64,
-) -> Result<PublicPaperWorkerHandle> {
-    let stop = Arc::new(AtomicBool::new(false));
-    let stop_worker = Arc::clone(&stop);
-    let (tx, rx) = mpsc::sync_channel::<PublicPaperWorkerUpdate>(4);
-    let base_interval = Duration::from_secs(poll_interval_s.clamp(2, 60));
-
-    std::thread::Builder::new()
-        .name("hydra-synapse-public-paper".into())
-        .spawn(move || {
-            let mut pipe = match SynapsePipeline::new(SynapsePipelineConfig {
-                starting_equity,
-                ..Default::default()
-            }) {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.try_send(PublicPaperWorkerUpdate {
-                        summary: None,
-                        ledger: PaperLedger::new(Decimal::from(10_000u32)).expect("default"),
-                        recent_events: Vec::new(),
-                        triggered_heads: [false; 7],
-                        total_bus_events: 0,
-                        stream_status: "FAULTED".into(),
-                        error: Some(format!("Init failed: {e}")),
-                    });
-                    return;
-                }
-            };
-
-            let mut hist: BTreeMap<String, VecDeque<Candle>> = BTreeMap::new();
-            let mut consecutive_failures = 0u32;
-
-            while !stop_worker.load(Ordering::Relaxed) {
-                let held: BTreeSet<String> = pipe.ledger.open_positions.keys().cloned().collect();
-                let mut triggered = [false; 7];
-                let mut wait_dur = base_interval;
-
-                match fetch_hyperliquid_public_snapshot(
-                    &info_url,
-                    &PublicHunterPolicy::default(),
-                    &pipe.watchlist,
-                    &held,
-                ) {
-                    Ok(report) => {
-                        consecutive_failures = 0;
-                        let now_ms = Utc::now().timestamp_millis();
-                        let now_dt =
-                            DateTime::from_timestamp_millis(now_ms).unwrap_or_else(Utc::now);
-                        let mut markets = Vec::new();
-                        let mut marks = BTreeMap::new();
-                        let mut candles_map = BTreeMap::new();
-
-                        for assessment in &report.ranked {
-                            let obs = &assessment.observation;
-                            if obs.mark_px <= 0.0 || !obs.mark_px.is_finite() {
-                                continue;
-                            }
-                            if let Some(d) = decimal_positive(obs.mark_px) {
-                                marks.insert(obs.symbol.clone(), d);
-                            }
-                            let dq = hist.entry(obs.symbol.clone()).or_default();
-                            let prev_px = dq.back().map(|c| c.close).unwrap_or(obs.mark_px);
-                            let safe_ts = dq
-                                .back()
-                                .map(|c| c.ts + ChronoDuration::milliseconds(1))
-                                .filter(|t| *t > now_dt)
-                                .unwrap_or(now_dt);
-                            dq.push_back(Candle {
-                                ts: safe_ts,
-                                open: prev_px,
-                                high: prev_px.max(obs.mark_px),
-                                low: prev_px.min(obs.mark_px),
-                                close: obs.mark_px,
-                                volume: obs.volume_24h_usd.max(0.0),
-                            });
-                            while dq.len() > 64 {
-                                dq.pop_front();
-                            }
-                            candles_map.insert(obs.symbol.clone(), dq.iter().cloned().collect());
-                            markets.push(MarketObservation {
-                                symbol: obs.symbol.clone(),
-                                observed_at_ms: now_ms,
-                                volume_24h_usd: Some(obs.volume_24h_usd),
-                                depth_usd: Some((obs.open_interest_usd * 0.05).max(10_000.0)),
-                                spread_bps: obs.impact_spread_bps.or(Some(8.0)),
-                                volatility_pct: obs.change_24h_pct.map(|c| c.abs()),
-                                directionality: Some(0.55),
-                                funding_bps: Some(obs.funding_bps_1h),
-                                open_interest_usd: Some(obs.open_interest_usd),
-                                coverage_fraction: Some(1.0),
-                                age_days: Some(90.0),
-                                ema_ready: dq.len() >= 12,
-                            });
-                        }
-
-                        let before_id = pipe.bus.total_published();
-                        match pipe.step_cycle(now_ms, &markets, &candles_map, &marks) {
-                            Ok(summary) => {
-                                for ev in pipe.bus.all_chronological() {
-                                    if ev.event_id > before_id {
-                                        triggered[ev.head.index()] = true;
-                                    }
-                                }
-                                let _ = tx.try_send(PublicPaperWorkerUpdate {
-                                    summary: Some(summary),
-                                    ledger: pipe.ledger.clone(),
-                                    recent_events: pipe.bus.recent(24),
-                                    triggered_heads: triggered,
-                                    total_bus_events: pipe.bus.total_published(),
-                                    stream_status: format!(
-                                        "PUBLIC SIMULATION CONNECTED · {} markets",
-                                        markets.len()
-                                    ),
-                                    error: None,
-                                });
-                            }
-                            Err(e) => {
-                                let _ = tx.try_send(PublicPaperWorkerUpdate {
-                                    summary: None,
-                                    ledger: pipe.ledger.clone(),
-                                    recent_events: pipe.bus.recent(24),
-                                    triggered_heads: [false; 7],
-                                    total_bus_events: pipe.bus.total_published(),
-                                    stream_status: "PIPELINE ERROR".into(),
-                                    error: Some(format!("{e}")),
-                                });
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        consecutive_failures = consecutive_failures.saturating_add(1);
-                        let backoff_s = (2u64 << consecutive_failures.min(4)).min(30);
-                        wait_dur = Duration::from_secs(backoff_s);
-                        let _ = tx.try_send(PublicPaperWorkerUpdate {
-                            summary: None,
-                            ledger: pipe.ledger.clone(),
-                            recent_events: pipe.bus.recent(24),
-                            triggered_heads: [false; 7],
-                            total_bus_events: pipe.bus.total_published(),
-                            stream_status: format!("RECONNECT BACKOFF ({backoff_s}s)"),
-                            error: Some(format!("{e}")),
-                        });
-                    }
-                }
-
-                let sleep_start = Instant::now();
-                while sleep_start.elapsed() < wait_dur && !stop_worker.load(Ordering::Relaxed) {
-                    std::thread::sleep(Duration::from_millis(120));
-                }
-            }
-        })
-        .context("spawn public paper simulation thread")?;
-
-    Ok(PublicPaperWorkerHandle { stop, rx })
 }
 
 #[cfg(test)]

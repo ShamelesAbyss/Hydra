@@ -62,66 +62,161 @@ enum Workspace {
 type SnapshotResponse = (PathBuf, Result<TelemetrySnapshot, String>);
 
 struct SynapseCockpitState {
-    pipeline: crate::paper_pipeline::SynapsePipeline,
-    worker: Option<crate::paper_pipeline::PublicPaperWorkerHandle>,
-    ledger: crate::paper_pipeline::PaperLedger,
+    store: Option<crate::paper_store::PaperStore>,
+    service_root: Option<PathBuf>,
+    active_kind: crate::paper_store::PaperSessionKind,
+    public_session: Option<crate::paper_store::PaperSessionSummary>,
+    demo_session: Option<crate::paper_store::PaperSessionSummary>,
+    ipc_status: Option<crate::paper_service::PaperControlResponse>,
     recent_events: Vec<crate::synapse_bus::SynapseEvent>,
-    last_summary: Option<crate::paper_pipeline::CycleSummary>,
-    total_bus_events: u64,
+    last_seen_event_seq: u64,
+    last_poll: Instant,
+    confirm_reset_target: Option<String>,
     status: String,
     error: Option<String>,
 }
 
 impl Default for SynapseCockpitState {
     fn default() -> Self {
-        let cfg = crate::paper_pipeline::SynapsePipelineConfig::default();
-        let ledger = crate::paper_pipeline::PaperLedger::new(cfg.starting_equity)
-            .expect("default positive paper equity");
-        let pipeline =
-            crate::paper_pipeline::SynapsePipeline::new(cfg).expect("default synapse pipeline");
-        Self {
-            pipeline,
-            worker: None,
-            ledger,
+        let service_root = crate::paper_store::PaperStore::default_root().ok();
+        let store = crate::paper_store::PaperStore::open_default().ok();
+        let mut s = Self {
+            store,
+            service_root,
+            active_kind: crate::paper_store::PaperSessionKind::PublicPaper,
+            public_session: None,
+            demo_session: None,
+            ipc_status: None,
             recent_events: Vec::new(),
-            last_summary: None,
-            total_bus_events: 0,
-            status: "IDLE · OFFLINE / SIMULATION ONLY".into(),
+            last_seen_event_seq: 0,
+            last_poll: Instant::now() - Duration::from_secs(5),
+            confirm_reset_target: None,
+            status: "IDLE · DURABLE SIMULATION STORE".into(),
             error: None,
-        }
+        };
+        s.refresh_from_store(Instant::now(), &mut [None; 7]);
+        s
     }
 }
 
 impl SynapseCockpitState {
+    fn active_session(&self) -> Option<&crate::paper_store::PaperSessionSummary> {
+        match self.active_kind {
+            crate::paper_store::PaperSessionKind::PublicPaper => self.public_session.as_ref(),
+            crate::paper_store::PaperSessionKind::OfflineDemo => self.demo_session.as_ref(),
+            crate::paper_store::PaperSessionKind::HistoricalReplay => None,
+        }
+    }
+
+    fn refresh_from_store(
+        &mut self,
+        frame_start: Instant,
+        research_changed_at: &mut [Option<Instant>; 7],
+    ) {
+        let Some(ref store) = self.store else {
+            self.status = "PAPER STORE UNAVAILABLE".into();
+            return;
+        };
+        match store.get_or_create_session(
+            crate::paper_store::PaperSessionKind::PublicPaper,
+            "Public Market Paper",
+            crate::paper_pipeline::SynapsePipelineConfig::default(),
+        ) {
+            Ok(s) => self.public_session = Some(s),
+            Err(e) => self.error = Some(format!("Public paper store: {e:#}")),
+        }
+        match store.get_or_create_session(
+            crate::paper_store::PaperSessionKind::OfflineDemo,
+            "Offline Synthetic Demo",
+            crate::paper_pipeline::SynapsePipelineConfig::default(),
+        ) {
+            Ok(s) => self.demo_session = Some(s),
+            Err(e) => self.error = Some(format!("Demo store: {e:#}")),
+        }
+
+        let active_id = self.active_session().map(|s| s.session_id.clone());
+        let active_kind = self.active_kind;
+        if let Some(sid) = active_id {
+            if let Ok(evs) = store.load_recent_events(&sid, 12) {
+                let mut newest = self.last_seen_event_seq;
+                for ev in &evs {
+                    if ev.event_id > self.last_seen_event_seq {
+                        research_changed_at[ev.head.index()] = Some(frame_start);
+                    }
+                    newest = newest.max(ev.event_id);
+                }
+                self.last_seen_event_seq = newest;
+                self.recent_events = evs;
+            }
+            if active_kind == crate::paper_store::PaperSessionKind::PublicPaper {
+                if let Some(ref root) = self.service_root {
+                    match crate::paper_service::PaperServiceClient::send_command(
+                        root,
+                        &sid,
+                        crate::paper_service::PaperControlCommand::Status,
+                    ) {
+                        Ok(resp) => {
+                            self.status = if resp.paused {
+                                format!(
+                                    "SERVICE PAUSED (PID {}) · cycle {}",
+                                    resp.pid, resp.cycle_count
+                                )
+                            } else if resp.stream_connected {
+                                format!(
+                                    "WS STREAM LIVE (PID {}) · cycle {}",
+                                    resp.pid, resp.cycle_count
+                                )
+                            } else if resp.fallback_rest_active {
+                                format!(
+                                    "REST FALLBACK (PID {}) · cycle {}",
+                                    resp.pid, resp.cycle_count
+                                )
+                            } else {
+                                format!(
+                                    "SERVICE ACTIVE (PID {}) · cycle {}",
+                                    resp.pid, resp.cycle_count
+                                )
+                            };
+                            self.ipc_status = Some(resp);
+                        }
+                        Err(_) => {
+                            self.ipc_status = None;
+                            if let Some(s) = self.active_session() {
+                                self.status = format!(
+                                    "{} · {} (cycle {})",
+                                    s.kind.label(),
+                                    s.status.as_str().to_uppercase(),
+                                    s.cycle_count
+                                );
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.ipc_status = None;
+                if let Some(s) = self.active_session() {
+                    self.status = format!(
+                        "SYNTHETIC FIXTURE · cycle {} ({} stored)",
+                        s.cycle_count,
+                        s.status.as_str()
+                    );
+                }
+            }
+        }
+    }
+
     fn poll(
         &mut self,
         ctx: &egui::Context,
         frame_start: Instant,
         research_changed_at: &mut [Option<Instant>; 7],
     ) {
-        let mut updates = Vec::new();
-        if let Some(worker) = &self.worker {
-            while let Ok(u) = worker.rx.try_recv() {
-                updates.push(u);
+        if frame_start.duration_since(self.last_poll) >= Duration::from_millis(850) {
+            self.last_poll = frame_start;
+            self.refresh_from_store(frame_start, research_changed_at);
+            if self.ipc_status.is_some() {
+                ctx.request_repaint_after(Duration::from_millis(900));
             }
-        }
-        if !updates.is_empty() {
-            for u in updates {
-                if u.summary.is_some() {
-                    self.last_summary = u.summary;
-                }
-                self.ledger = u.ledger;
-                self.recent_events = u.recent_events;
-                self.total_bus_events = u.total_bus_events;
-                self.status = u.stream_status;
-                self.error = u.error;
-                for (i, trig) in u.triggered_heads.iter().enumerate() {
-                    if *trig {
-                        research_changed_at[i] = Some(frame_start);
-                    }
-                }
-            }
-            ctx.request_repaint();
         }
     }
 }
@@ -1006,142 +1101,302 @@ impl Cockpit {
             ui.horizontal_wrapped(|ui| {
                 section_title(
                     ui,
-                    "SYNAPSE NERVOUS SYSTEM  ·  SIMULATION ONLY (NO REAL FUNDS)",
+                    "SYNAPSE NERVOUS SYSTEM  ·  DURABLE PAPER CLIENT (SIMULATION ONLY)",
                     AMETHYST,
                 );
-                pill(ui, &self.synapse.status, if self.synapse.error.is_some() { AMBER } else { CYAN });
+                pill(
+                    ui,
+                    &self.synapse.status,
+                    if self.synapse.error.is_some() { AMBER } else { CYAN },
+                );
             });
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .button("Run Paper Cycle (Offline)")
-                    .on_hover_text("Execute one deterministic HUNTER -> COGNITION -> FANG -> AEGIS -> NEXUS simulated cycle offline")
-                    .clicked()
-                {
-                    let before = self.synapse.pipeline.bus.total_published();
-                    match self.synapse.pipeline.run_deterministic_demo_step() {
-                        Ok(summary) => {
-                            let now = Instant::now();
-                            for ev in self.synapse.pipeline.bus.all_chronological() {
-                                if ev.event_id > before {
-                                    self.research_changed_at[ev.head.index()] = Some(now);
-                                }
-                            }
-                            self.synapse.ledger = self.synapse.pipeline.ledger.clone();
-                            self.synapse.recent_events = self.synapse.pipeline.bus.recent(16);
-                            self.synapse.total_bus_events =
-                                self.synapse.pipeline.bus.total_published();
-                            self.synapse.status = format!(
-                                "OFFLINE SIMULATION · cycle {} · {} events",
-                                summary.cycle, self.synapse.total_bus_events
-                            );
-                            self.synapse.error = None;
-                            self.synapse.last_summary = Some(summary);
-                        }
-                        Err(e) => {
-                            self.synapse.error = Some(format!("{e:#}"));
-                        }
-                    }
-                }
-                let streaming = self.synapse.worker.is_some();
-                if ui
-                    .button(if streaming {
-                        "Stop Public Paper Stream"
-                    } else {
-                        "Start Public Paper Stream"
-                    })
-                    .on_hover_text("Stream read-only public Hyperliquid /info data into simulated paper trading (zero wallet keys or live orders)")
-                    .clicked()
-                {
-                    if streaming {
-                        self.synapse.worker = None;
-                        self.synapse.status = "PUBLIC STREAM STOPPED · SIMULATION ONLY".into();
-                    } else {
-                        match crate::paper_pipeline::spawn_public_paper_worker(
-                            crate::hunter::HYPERLIQUID_PUBLIC_INFO_URL.to_string(),
-                            self.synapse.ledger.starting_equity,
-                            5,
-                        ) {
-                            Ok(handle) => {
-                                self.synapse.worker = Some(handle);
-                                self.synapse.status = "CONNECTING PUBLIC SIMULATION…".into();
-                                self.synapse.error = None;
-                            }
-                            Err(e) => {
-                                self.synapse.error = Some(format!("{e:#}"));
-                            }
-                        }
-                    }
-                }
-                if ui.small_button("Reset Paper Ledger").clicked() {
-                    self.synapse.worker = None;
-                    self.synapse = SynapseCockpitState::default();
-                }
-            });
-            if let Some(ref err) = self.synapse.error {
-                ui.colored_label(AMBER, format!("Synapse status notice: {err}"));
-            }
-            ui.horizontal_wrapped(|ui| {
-                metric(
-                    ui,
-                    "Simulated Equity",
-                    &format!("${:.2}", self.synapse.ledger.cash_equity),
-                    HEADS[5].2,
-                );
-                metric(
-                    ui,
-                    "Allocated Exposure",
-                    &format!("${:.2}", self.synapse.ledger.allocated_exposure()),
-                    HEADS[3].2,
-                );
-                metric(
-                    ui,
-                    "Realized Net PnL (Sim)",
-                    &format!("${:.4}", self.synapse.ledger.realized_net_pnl_usd),
-                    if self.synapse.ledger.realized_net_pnl_usd >= rust_decimal::Decimal::ZERO {
-                        EMERALD
-                    } else {
-                        AMBER
-                    },
-                );
-                metric(
-                    ui,
-                    "Sim Fees Paid",
-                    &format!("${:.4}", self.synapse.ledger.total_fees_usd),
-                    MUTED,
-                );
-                metric(
-                    ui,
-                    "Sim Open / Closed",
-                    &format!(
-                        "{} / {}",
-                        self.synapse.ledger.open_positions.len(),
-                        self.synapse.ledger.closed_trades.len()
+                for (kind, label) in [
+                    (
+                        crate::paper_store::PaperSessionKind::PublicPaper,
+                        "Public Market Paper Service",
                     ),
-                    CYAN,
-                );
+                    (
+                        crate::paper_store::PaperSessionKind::OfflineDemo,
+                        "Offline Synthetic Demo (Fixture)",
+                    ),
+                ] {
+                    if ui
+                        .selectable_label(self.synapse.active_kind == kind, label)
+                        .clicked()
+                    {
+                        self.synapse.active_kind = kind;
+                        self.synapse.last_seen_event_seq = 0;
+                        self.synapse.confirm_reset_target = None;
+                        self.synapse
+                            .refresh_from_store(Instant::now(), &mut self.research_changed_at);
+                    }
+                }
             });
-            if let Some(ref brk) = self.synapse.ledger.breaker_reason {
-                ui.colored_label(AMBER, format!("AEGIS Simulation Breaker: {brk}"));
-            }
-            if !self.synapse.recent_events.is_empty() {
-                ui.add_space(4.0);
+
+            if let Some(sess) = self.synapse.active_session().cloned() {
                 ui.label(
                     RichText::new(format!(
-                        "Recent Nervous System Events ({} total)",
-                        self.synapse.total_bus_events
+                        "Session {} · {} · cycle {} · strategy={} · DB={}",
+                        sess.session_id,
+                        sess.kind.label(),
+                        sess.cycle_count,
+                        sess.strategy_version,
+                        self.synapse
+                            .store
+                            .as_ref()
+                            .map(|s| s.db_path().display().to_string())
+                            .unwrap_or_else(|| "unavailable".into())
                     ))
                     .monospace()
                     .small()
                     .color(MUTED),
                 );
+                ui.horizontal_wrapped(|ui| {
+                    match self.synapse.active_kind {
+                        crate::paper_store::PaperSessionKind::PublicPaper => {
+                            let running = self.synapse.ipc_status.is_some();
+                            let paused = self
+                                .synapse
+                                .ipc_status
+                                .as_ref()
+                                .is_some_and(|r| r.paused);
+                            if !running {
+                                if ui
+                                    .button("Start Detached Paper Service")
+                                    .on_hover_text("Start independent headless paper engine service with WebSocket ingestion (survives cockpit close)")
+                                    .clicked()
+                                {
+                                    if let (Some(ref store), Some(ref root)) =
+                                        (&self.synapse.store, &self.synapse.service_root)
+                                    {
+                                        match crate::paper_service::PaperServiceClient::spawn_detached(
+                                            root,
+                                            store.db_path(),
+                                            &sess.session_id,
+                                            5,
+                                        ) {
+                                            Ok(pid) => {
+                                                self.synapse.status = format!("STARTED DETACHED SERVICE (PID {pid})");
+                                                self.synapse.error = None;
+                                            }
+                                            Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                        }
+                                    }
+                                }
+                            } else {
+                                if ui
+                                    .button(if paused { "Resume Service" } else { "Pause Service" })
+                                    .clicked()
+                                {
+                                    if let Some(ref root) = self.synapse.service_root {
+                                        let cmd = if paused {
+                                            crate::paper_service::PaperControlCommand::Resume
+                                        } else {
+                                            crate::paper_service::PaperControlCommand::Pause
+                                        };
+                                        match crate::paper_service::PaperServiceClient::send_command(
+                                            root,
+                                            &sess.session_id,
+                                            cmd,
+                                        ) {
+                                            Ok(_) => self.synapse.error = None,
+                                            Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                        }
+                                    }
+                                }
+                                if ui.button("Stop Service").clicked() {
+                                    if let Some(ref root) = self.synapse.service_root {
+                                        match crate::paper_service::PaperServiceClient::send_command(
+                                            root,
+                                            &sess.session_id,
+                                            crate::paper_service::PaperControlCommand::Stop,
+                                        ) {
+                                            Ok(_) => self.synapse.error = None,
+                                            Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                        }
+                                    }
+                                }
+                            }
+                            if ui.small_button("New Public Session").clicked() {
+                                if let Some(ref store) = self.synapse.store {
+                                    match store.create_session(
+                                        crate::paper_store::PaperSessionKind::PublicPaper,
+                                        "Public Market Paper",
+                                        crate::paper_pipeline::SynapsePipelineConfig::default(),
+                                    ) {
+                                        Ok(ns) => {
+                                            self.synapse.public_session = Some(ns);
+                                            self.synapse.last_seen_event_seq = 0;
+                                            self.synapse.error = None;
+                                        }
+                                        Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                    }
+                                }
+                            }
+                        }
+                        crate::paper_store::PaperSessionKind::OfflineDemo => {
+                            if ui
+                                .button("Run 1 Demo Cycle (SYNTHETIC FIXTURE)")
+                                .on_hover_text("Advance isolated offline synthetic fixture session in paper_sessions.db (not public market data)")
+                                .clicked()
+                            {
+                                if let Some(ref store) = self.synapse.store {
+                                    match store.load_pipeline(&sess.session_id) {
+                                        Ok(mut pipe) => {
+                                            let prev_closed = pipe.ledger.closed_trades.len();
+                                            let before_ev = pipe.bus.total_published();
+                                            match pipe.run_deterministic_demo_step() {
+                                                Ok(sum) => {
+                                                    let new_evs: Vec<_> = pipe
+                                                        .bus
+                                                        .all_chronological()
+                                                        .filter(|e| e.event_id > before_ev)
+                                                        .cloned()
+                                                        .collect();
+                                                    let mut demo_marks = std::collections::BTreeMap::new();
+                                                    for (sym, pos) in &pipe.ledger.open_positions {
+                                                        demo_marks.insert(sym.clone(), pos.entry_price);
+                                                    }
+                                                    if let Err(e) = store.commit_cycle(
+                                                        &sess.session_id,
+                                                        &pipe,
+                                                        &sum,
+                                                        prev_closed,
+                                                        &new_evs,
+                                                        &demo_marks,
+                                                        crate::synapse_bus::DataProvenance::SyntheticTestFixture,
+                                                        None,
+                                                    ) {
+                                                        self.synapse.error = Some(format!("{e:#}"));
+                                                    } else {
+                                                        self.synapse.error = None;
+                                                        self.synapse.refresh_from_store(
+                                                            Instant::now(),
+                                                            &mut self.research_changed_at,
+                                                        );
+                                                    }
+                                                }
+                                                Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                            }
+                                        }
+                                        Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                    }
+                                }
+                            }
+                        }
+                        crate::paper_store::PaperSessionKind::HistoricalReplay => {}
+                    }
+
+                    if self.synapse.ipc_status.is_none() {
+                        if ui.small_button("Archive Session").clicked() {
+                            if let Some(ref store) = self.synapse.store {
+                                match store.archive_session(&sess.session_id) {
+                                    Ok(()) => self.synapse.refresh_from_store(
+                                        Instant::now(),
+                                        &mut self.research_changed_at,
+                                    ),
+                                    Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                }
+                            }
+                        }
+                        if self.synapse.confirm_reset_target.as_deref() == Some(&sess.session_id) {
+                            if ui
+                                .button(RichText::new("Confirm Destructive Reset").color(AMBER))
+                                .clicked()
+                            {
+                                if let Some(ref store) = self.synapse.store {
+                                    let token = format!("CONFIRM_RESET:{}", sess.session_id);
+                                    match store.reset_session_confirmed(&sess.session_id, &token) {
+                                        Ok(_) => {
+                                            self.synapse.confirm_reset_target = None;
+                                            self.synapse.last_seen_event_seq = 0;
+                                            self.synapse.error = None;
+                                            self.synapse.refresh_from_store(
+                                                Instant::now(),
+                                                &mut self.research_changed_at,
+                                            );
+                                        }
+                                        Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                    }
+                                }
+                            }
+                            if ui.small_button("Cancel").clicked() {
+                                self.synapse.confirm_reset_target = None;
+                            }
+                        } else if ui.small_button("Reset Session…").clicked() {
+                            self.synapse.confirm_reset_target = Some(sess.session_id.clone());
+                        }
+                    }
+                });
+
+                if let Some(ref err) = self.synapse.error {
+                    ui.colored_label(AMBER, format!("Synapse status notice: {err}"));
+                }
+                ui.horizontal_wrapped(|ui| {
+                    metric(
+                        ui,
+                        "Simulated Equity",
+                        &format!("${:.2}", sess.mtm_equity_usd),
+                        HEADS[5].2,
+                    );
+                    metric(
+                        ui,
+                        "Allocated Exposure",
+                        &format!("${:.2}", sess.ledger.allocated_exposure()),
+                        HEADS[3].2,
+                    );
+                    metric(
+                        ui,
+                        "Realized Net PnL (Sim)",
+                        &format!("${:.4}", sess.ledger.realized_net_pnl_usd),
+                        if sess.ledger.realized_net_pnl_usd >= rust_decimal::Decimal::ZERO {
+                            EMERALD
+                        } else {
+                            AMBER
+                        },
+                    );
+                    metric(
+                        ui,
+                        "Fees / Funding (Sim)",
+                        &format!(
+                            "${:.3} / ${:.3}",
+                            sess.ledger.total_fees_usd, sess.ledger.total_funding_usd
+                        ),
+                        MUTED,
+                    );
+                    metric(
+                        ui,
+                        "Sim Open / Closed",
+                        &format!(
+                            "{} / {}",
+                            sess.ledger.open_positions.len(),
+                            sess.ledger.closed_trades.len()
+                        ),
+                        CYAN,
+                    );
+                });
+                if let Some(ref brk) = sess.ledger.breaker_reason {
+                    ui.colored_label(AMBER, format!("AEGIS Simulation Breaker: {brk}"));
+                }
+            }
+            if !self.synapse.recent_events.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("Persisted Synapse Nervous System Events")
+                        .monospace()
+                        .small()
+                        .color(MUTED),
+                );
                 for ev in self.synapse.recent_events.iter().take(6) {
                     let col = HEADS[ev.head.index()].2;
                     ui.label(
                         RichText::new(format!(
-                            "#{} [{}] {} · {}",
+                            "#{} [{}] {} · {:?} · {}",
                             ev.event_id,
                             ev.head.label(),
                             ev.correlation_id,
+                            ev.provenance,
                             ev.payload.summary()
                         ))
                         .monospace()

@@ -125,6 +125,14 @@ impl ExecutionEngine {
                 message: "dry-run: ENABLE_LIVE_TRADING=false; no exchange write".into(),
             });
         }
+        if venue.is_production_venue() {
+            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                crate::live_gate::ExecutionChannel::ProductionEngine,
+                self.live,
+                false,
+            );
+            crate::live_gate::require_certified_live_execution(&req)?;
+        }
         let reconciled = if !intent.reduce_only {
             self.reconciliation_evidence(venue).await?
         } else {

@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, Utc};
 use hydra::core::Candle;
 use hydra::hunter::MarketObservation;
 use hydra::paper_pipeline::{SynapsePipeline, SynapsePipelineConfig, SIMULATION_ONLY};
-use hydra::synapse_bus::{HeadId, SynapseBus};
+use hydra::synapse_bus::{DataProvenance, HeadId, SynapseBus};
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use std::process::Command;
@@ -65,6 +65,30 @@ fn connected_multi_head_paper_pipeline_is_reproducible_and_emits_typed_bus() {
     let jsonl = pipe.bus.to_jsonl().unwrap();
     let decoded = SynapseBus::from_jsonl(&jsonl).unwrap();
     assert_eq!(decoded.len(), pipe.bus.len());
+
+    // Missing mark for an existing open position must fail closed on new entries.
+    if let Some(_open_sym) = pipe.ledger.open_positions.keys().next().cloned() {
+        let missing_marks = BTreeMap::new();
+        let before_open = pipe.ledger.open_positions.len();
+        let sum = pipe
+            .step_cycle(
+                (base_ts + Duration::minutes(25)).timestamp_millis(),
+                &[],
+                &candle_map,
+                &missing_marks,
+            )
+            .unwrap();
+        assert_eq!(sum.approved_entries, 0);
+        assert_eq!(pipe.ledger.open_positions.len(), before_open);
+        let latest_aegis = pipe.bus.latest_for_head(HeadId::Aegis).unwrap();
+        assert_eq!(latest_aegis.provenance, DataProvenance::OperationalFault);
+    }
+
+    // Synthetic demo cycles must explicitly carry SyntheticTestFixture provenance.
+    let mut demo = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+    demo.run_deterministic_demo_step().unwrap();
+    let demo_hunter = demo.bus.latest_for_head(HeadId::Hunter).unwrap();
+    assert_eq!(demo_hunter.provenance, DataProvenance::SyntheticTestFixture);
 }
 
 #[test]

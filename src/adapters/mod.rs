@@ -25,6 +25,11 @@ pub struct OrderReceipt {
 pub trait VenueAdapter: Send + Sync {
     fn kind(&self) -> VenueKind;
 
+    /// Returns `true` if this adapter targets a non-loopback real exchange endpoint.
+    fn is_production_venue(&self) -> bool {
+        false
+    }
+
     /// Live/best-effort health ping.
     async fn ping(&self) -> Result<()>;
 

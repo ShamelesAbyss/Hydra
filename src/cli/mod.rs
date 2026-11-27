@@ -209,6 +209,105 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Manage independent durable SQLite paper-trading sessions and headless engine service.
+    PaperService {
+        #[command(subcommand)]
+        action: PaperServiceAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PaperServiceAction {
+    /// Create a durable isolated paper-trading session.
+    Create {
+        #[arg(long, default_value = "Public Market Paper")]
+        label: String,
+        #[arg(long, default_value = "public_paper")]
+        kind: String,
+        #[arg(long, default_value = "10000")]
+        equity: String,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+    /// List persisted paper sessions.
+    List {
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+    /// Run a paper session foreground service until Ctrl+C or authenticated IPC stop.
+    Run {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+        #[arg(long, default_value_t = 5)]
+        interval_s: u64,
+        #[arg(long)]
+        ws_url: Option<String>,
+        #[arg(long)]
+        info_url: Option<String>,
+    },
+    /// Launch a detached background paper engine service process.
+    Start {
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+        #[arg(long, default_value_t = 5)]
+        interval_s: u64,
+    },
+    /// Query status (SQLite + live authenticated IPC heartbeat if running).
+    Status {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+    /// Pause an active paper service via authenticated local IPC.
+    Pause {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+    },
+    /// Resume a paused paper service via authenticated local IPC.
+    Resume {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+    },
+    /// Stop an active paper service gracefully via authenticated local IPC.
+    Stop {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+    },
+    /// Archive a stopped paper session cleanly.
+    Archive {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+    /// Reset a non-running paper session (requires `--confirm CONFIRM_RESET:<session_id>`).
+    Reset {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        confirm: String,
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
 }
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
@@ -274,11 +373,18 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 age_days: Some(90.0),
                 ema_ready: hist.len() >= 12,
             };
-            pipe.step_cycle(now_ms, &[obs], &candle_map, &marks)?;
+            pipe.step_cycle_with_provenance(
+                now_ms,
+                crate::synapse_bus::DataProvenance::HistoricalValidation,
+                &[obs],
+                &candle_map,
+                &marks,
+            )?;
         }
         let report = serde_json::json!({
             "schema_version": crate::synapse_bus::SYNAPSE_SCHEMA_VERSION,
             "simulation_only": crate::paper_pipeline::SIMULATION_ONLY,
+            "provenance": "historical_validation_simulation",
             "trading_authorized": false,
             "symbol": sym,
             "cycles": pipe.cycle_count,
@@ -307,6 +413,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             );
         }
         return Ok(());
+    }
+    if let Command::PaperService { action } = &cli.cmd {
+        return handle_paper_service_cli(action).await;
     }
     if let Command::BindHistory {
         db,
@@ -605,8 +714,180 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 .emergency_flatten(&cfg)
                 .await
         }
-        Command::SynapsePaper { .. } => unreachable!("handled above"),
+        Command::SynapsePaper { .. } | Command::PaperService { .. } => {
+            unreachable!("handled above")
+        }
     }
+}
+
+async fn handle_paper_service_cli(action: &PaperServiceAction) -> Result<()> {
+    let open_store = |db: Option<&std::path::PathBuf>| -> Result<crate::paper_store::PaperStore> {
+        match db {
+            Some(p) => crate::paper_store::PaperStore::open(p),
+            None => crate::paper_store::PaperStore::open_default(),
+        }
+    };
+    let resolve_root = |root: Option<&std::path::PathBuf>| -> Result<std::path::PathBuf> {
+        match root {
+            Some(r) => Ok(r.clone()),
+            None => crate::paper_store::PaperStore::default_root(),
+        }
+    };
+
+    match action {
+        PaperServiceAction::Create {
+            label,
+            kind,
+            equity,
+            db,
+        } => {
+            let store = open_store(db.as_ref())?;
+            let k = crate::paper_store::PaperSessionKind::from_db(kind)?;
+            let start_eq: rust_decimal::Decimal = equity
+                .parse()
+                .with_context(|| format!("invalid starting equity '{equity}'"))?;
+            let cfg = crate::paper_pipeline::SynapsePipelineConfig {
+                starting_equity: start_eq,
+                ..Default::default()
+            };
+            let s = store.create_session(k, label, cfg)?;
+            println!("{}", serde_json::to_string_pretty(&s)?);
+        }
+        PaperServiceAction::List { kind, db } => {
+            let store = open_store(db.as_ref())?;
+            let filter = kind
+                .as_deref()
+                .map(crate::paper_store::PaperSessionKind::from_db)
+                .transpose()?;
+            let list = store.list_sessions(filter)?;
+            println!("{}", serde_json::to_string_pretty(&list)?);
+        }
+        PaperServiceAction::Run {
+            session,
+            root,
+            db,
+            interval_s,
+            ws_url,
+            info_url,
+        } => {
+            let store = open_store(db.as_ref())?;
+            let svc_root = resolve_root(root.as_ref())?;
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let stop_sig = stop.clone();
+            let _ = ctrlc::set_handler(move || {
+                stop_sig.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+            let res = crate::paper_service::run_paper_session_service(
+                crate::paper_service::PaperServiceConfig {
+                    root: svc_root,
+                    store,
+                    session_id: session.clone(),
+                    ws_url: ws_url
+                        .clone()
+                        .unwrap_or_else(|| crate::hunter_stream::HYPERLIQUID_PUBLIC_WS_URL.into()),
+                    info_url: info_url
+                        .clone()
+                        .unwrap_or_else(|| crate::hunter::HYPERLIQUID_PUBLIC_INFO_URL.into()),
+                    tick_interval_s: *interval_s,
+                    max_ticks: None,
+                },
+                stop,
+            )
+            .await?;
+            println!("{}", serde_json::to_string_pretty(&res)?);
+        }
+        PaperServiceAction::Start {
+            session,
+            root,
+            db,
+            interval_s,
+        } => {
+            let store = open_store(db.as_ref())?;
+            let svc_root = resolve_root(root.as_ref())?;
+            let sid = match session {
+                Some(s) => s.clone(),
+                None => {
+                    store
+                        .get_or_create_session(
+                            crate::paper_store::PaperSessionKind::PublicPaper,
+                            "Public Market Paper",
+                            Default::default(),
+                        )?
+                        .session_id
+                }
+            };
+            let pid = crate::paper_service::PaperServiceClient::spawn_detached(
+                &svc_root,
+                store.db_path(),
+                &sid,
+                *interval_s,
+            )?;
+            println!(
+                "{}",
+                serde_json::json!({"started": true, "session_id": sid, "pid": pid, "simulation_only": true})
+            );
+        }
+        PaperServiceAction::Status { session, root, db } => {
+            let store = open_store(db.as_ref())?;
+            let svc_root = resolve_root(root.as_ref())?;
+            let summary = store.get_session(session)?;
+            let live = crate::paper_service::PaperServiceClient::send_command(
+                &svc_root,
+                session,
+                crate::paper_service::PaperControlCommand::Status,
+            )
+            .ok();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "session": summary,
+                    "live_ipc": live,
+                }))?
+            );
+        }
+        PaperServiceAction::Pause { session, root } => {
+            let svc_root = resolve_root(root.as_ref())?;
+            let resp = crate::paper_service::PaperServiceClient::send_command(
+                &svc_root,
+                session,
+                crate::paper_service::PaperControlCommand::Pause,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+        PaperServiceAction::Resume { session, root } => {
+            let svc_root = resolve_root(root.as_ref())?;
+            let resp = crate::paper_service::PaperServiceClient::send_command(
+                &svc_root,
+                session,
+                crate::paper_service::PaperControlCommand::Resume,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+        PaperServiceAction::Stop { session, root } => {
+            let svc_root = resolve_root(root.as_ref())?;
+            let resp = crate::paper_service::PaperServiceClient::send_command(
+                &svc_root,
+                session,
+                crate::paper_service::PaperControlCommand::Stop,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+        PaperServiceAction::Archive { session, db } => {
+            let store = open_store(db.as_ref())?;
+            store.archive_session(session)?;
+            println!("{}", serde_json::json!({"archived": session}));
+        }
+        PaperServiceAction::Reset {
+            session,
+            confirm,
+            db,
+        } => {
+            let store = open_store(db.as_ref())?;
+            let reset = store.reset_session_confirmed(session, confirm)?;
+            println!("{}", serde_json::to_string_pretty(&reset)?);
+        }
+    }
+    Ok(())
 }
 
 mod commands {

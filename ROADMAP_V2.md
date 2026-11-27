@@ -1,29 +1,21 @@
 # Road to HYDRA 2.0 — Project Leviathan Long-Term Roadmap
 
-**HYDRA v1.8.0 (`PROJECT INCARNATION`)** delivered the 96-bone articulated 3D skeletal and Cook-Torrance GGX PBR Native WGPU Leviathan sanctuary, **`v1.9.0` (`PROJECT SYNAPSE — PHASE I: SPATIAL CONSCIOUSNESS`)** completed the final authorized major graphical architecture enhancement, and **`v1.10.0` (`PROJECT SYNAPSE — PHASE II: CONNECTED INTELLIGENCE`)** unifies `HUNTER -> COGNITION -> FANG -> AEGIS -> NEXUS (Paper)` across a versioned typed Nervous System event bus (`src/synapse_bus.rs`, `src/paper_pipeline.rs`) with live cockpit Overview controls and `hydra synapse-paper`. Major graphics-first development is concluded; remaining development focuses strictly on interconnected autonomous intelligence, financial certification, recovery, and operational hardening.
+**HYDRA v1.8.0 (`PROJECT INCARNATION`)** delivered the articulated 3D skeletal WGPU PBR Leviathan sanctuary, **`v1.9.0` (`PROJECT SYNAPSE — PHASE I: SPATIAL CONSCIOUSNESS`)** concluded the authorized graphical architecture work, **`v1.10.0` (`PROJECT SYNAPSE — PHASE II`)** established an initial offline cross-head paper pipeline, and **`v1.11.0` (`PROJECT ASCENDANCY M1`)** corrects the Connected Intelligence foundation with genuine Hyperliquid WebSocket/L2 ingestion (`src/hunter_stream.rs`), elimination of fabricated market inputs, isolated SQLite `paper_sessions.db` (`src/paper_store.rs`), an independent OS-locked + authenticated-IPC headless `paper-service` (`src/paper_service.rs`), and a fail-closed `PendingCertification` gate across all production execution paths (`src/live_gate.rs`). Major graphical redesign remains frozen; remaining work focuses strictly on operational truth, strategy unification, settlement, recovery, and qualification.
 
-**`v2.0.0` is reserved for a genuinely substantial engineering and operational milestone — complete interconnected quantitative autonomy, settlement certification, authenticated IPC, and extended paper-trading validation — not another purely graphical redesign.**
+**`v2.0.0` is reserved strictly for genuine operational and architectural acceptance — complete cross-consumer strategy parity, statistical calibration, authoritative net settlement and recovery, exchange-native protective orders, authenticated live-engine control IPC, and extended paper-trading qualification — never another purely visual milestone.**
 
 ---
 
 ## Iterative `v1.x` Public Release Lifecycle
 
-### `v1.7.x` — Public Foundation, Reliability & Research Depth
-- **Distribution & Signing Infrastructure:** Configure dedicated offline/CI `secp256k1` release-signing keys and pinned public-key verification so **LEVIATHAN EVOLUTION** can safely unlock authenticated in-place updates with atomic rollback.
-- **HUNTER WebSocket Resilience:** Real-time public Hyperliquid L2 order-book and trade-stream ingestion with sequence-gap detection, exponential reconnect backoff, and live depth/spread telemetry.
-- **FANG Shared Deterministic Planner:** Wire the deterministic arbitration & bounded grid planner directly into both live dry-run and ORACLE replay engines with fixture-verified parity.
-- **ORACLE Execution Fidelity:** Add historical funding-rate replay, partial-fill & queue-slippage models, latency injection, and multi-asset portfolio backtesting.
+### `v1.11.x` — Project Ascendancy Phase I–II (Trustworthy Ingestion, Durable Paper & Unified Intelligence)
+- **Delivered in `v1.11.0`:** Genuine Hyperliquid WebSocket (`l2Book`, `trades`, `candle`, `activeAssetCtx`) + REST snapshot/fallback (`src/hunter_stream.rs`), Synapse schema v2 strict provenance, fail-closed missing-mark admission, isolated SQLite `paper_sessions.db`, detached OS-locked + authenticated-IPC `paper-service`, and universal `PendingCertification` execution gating (`src/live_gate.rs`).
+- **Next in `v1.12.x`:** Unify authoritative FANG planning across live engine, ORACLE replay, and Paper pipeline with fixture-parity tests; replace remaining COGNITION heuristics with empirical sample/regime calibration and drift detection; upgrade ORACLE with observed bid/ask, spread/slippage, funding, partial-fill, latency, and walk-forward train/select/test validation alongside GENESIS constraint-aware NSGA-II.
 
-### `v1.8.x` — Authoritative Financial Settlement & Authenticated Control IPC
-- **NEXUS Complete Settlement (M2 Gate):** Authoritative round-trip fee, rebate, funding, and external deposit/withdrawal reconciliation; resolve unknown net-PnL holds solely from verified exchange cash-flow proof.
-- **Broad Restart & Stream Recovery (M1/M2 Gate):** Authoritative cloid/OID order-status reconciliation across disconnect/restart windows with deterministic recovery classification.
-- **Authenticated Local Control IPC (M3 Gate):** OS-scoped authenticated IPC channel between the headless Rust trading engine and the native cockpit, unlocking real-time engine heartbeats, live mode transitions, and audited AEGIS breaker rearm without placing signing keys in the UI process.
-- **AEGIS Protective Exchange Orders (M4 Gate):** Native exchange-side reduce-only stop-loss orders, dynamic leverage/margin tier validation, and real-time liquidation-distance breakers.
-
-### `v1.9.x` — Extended Paper Certification, Watchdog Supervision & Evolutionary Search
-- **GENESIS Multi-Objective Evolution (M6):** Constraint-aware NSGA-II search, parallel CPU worker pools, reproducible experiment ledgers, and walk-forward train/select/test validation pipelines.
-- **COGNITION Calibrated Adaptive Policies (M5):** Regime-conditioned confidence calibration driven strictly by verified settled net outcomes (never unverified estimates) with overfitting resistance and independent AEGIS veto authority.
-- **Autonomous Watchdog & Operational Hardening:** External process supervision daemon, automatic network-drop graceful degradation into `GUARDIAN` mode, persistent operational audit logs, and extended multi-week paper-trading soak certification.
+### `v1.13.x+` — Project Ascendancy Phase III–IV (Financial Settlement, Recovery, IPC & Paper Certification)
+- **NEXUS Financial Truth & Recovery (M1/M2 Gate):** Complete round-trip entry/exit fee, rebate, funding, and external cash-flow attribution; partial-fill & ambiguous-submission recovery; WebSocket/REST consistency reconciliation; exchange-native protective reduce-only stop-loss architecture (offline/mock transports).
+- **Authenticated Live Engine IPC & Watchdog (M3 Gate):** Extend OS-scoped authenticated control IPC to the main engine (`hydra run`) and wire complete AEGIS liquidation-distance / concentration / stale-mark enforcement.
+- **Extended Paper-Trading Qualification & Distribution Security:** Run multi-day/multi-week continuous public-market `paper-service` qualification campaigns recording uptime, costs, funding, drawdown, and fault recovery; configure dedicated offline/CI `secp256k1` release-signing keys for LEVIATHAN EVOLUTION.
 
 ---
 

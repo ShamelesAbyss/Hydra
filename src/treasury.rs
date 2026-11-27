@@ -100,8 +100,13 @@ impl ProtectionBackend {
     pub const fn label(self) -> &'static str {
         match self {
             Self::WindowsDpapiCurrentUser => "Windows DPAPI (OS Current-User Encrypted)",
-            Self::UnixOwnerOnly0600 => "Unix Owner-Only Storage (chmod 0700/0600)",
+            Self::UnixOwnerOnly0600 => {
+                "Unix Owner-Only Permissions (chmod 0700/0600 — NOT ENCRYPTED AT REST)"
+            }
         }
+    }
+    pub const fn is_encrypted_at_rest(self) -> bool {
+        matches!(self, Self::WindowsDpapiCurrentUser)
     }
 }
 
@@ -1038,7 +1043,7 @@ impl ReadinessReport {
         checks.push(ReadinessCheck {
             name: "Financial Settlement & Unattended Certification",
             state: GateState::PendingCertification,
-            detail: "Authoritative net fee/funding settlement, full restart/stream recovery, authenticated control IPC, and watchdog supervision remain pending in MILESTONE_MATRIX.md.".into(),
+            detail: crate::live_gate::certification_summary(),
         });
 
         let can_awaken = checks.iter().all(|c| c.state == GateState::Passed);

@@ -313,3 +313,23 @@ All seven milestone rows reviewed against Project Synapse Phase II:
   `SIMULATION_ONLY = true`; unattended `AWAKENED` live execution remains locked pending complete
   round-trip fee/funding net settlement, stream/restart recovery, native protective exchange orders,
   authenticated local control IPC, watchdog supervision, and release-signing key infrastructure.
+
+### v1.11.0 — Project Ascendancy Milestone 1 (Trustworthy Ingestion, Durable Paper & Execution Gate)
+
+All seven milestone rows reviewed accurately against source & Project Ascendancy directive (Phase II
+Connected Intelligence was only preliminary in `v1.10.0` and is hereby corrected, not overclaimed):
+
+- **M1 / M2 / M3 Authoritative Execution Gate (`src/live_gate.rs`, `src/core/engine.rs`, `src/execution/mod.rs`, `src/adapters/hyperliquid.rs`, `src/state/mod.rs`, `src/treasury.rs`, `tests/live_gate_adversarial.rs`):**
+  Unified all real-money entry points behind one fail-closed `PendingCertification` check and verified
+  offline adversarial refusal across constructors, engine, adapter, flatten, CLI, and readiness checks.
+- **M5 / M3 / M7 Genuine HUNTER Streaming, Durable `PaperStore` & Independent `PaperService` (`src/hunter_stream.rs`, `src/paper_store.rs`, `src/paper_service.rs`, `src/synapse_bus.rs` v2, `src/paper_pipeline.rs`, `src/cli/mod.rs`, `src/cockpit.rs`):**
+  Replaced GUI-owned fake-metric polling with real WebSocket `l2Book`/`trades`/`candle`/`activeAssetCtx` +
+  REST fallback ingestion (`watchlist ∪ held_positions`), eliminated fabricated depth/spread/directionality/
+  coverage/age placeholders, added checked missing-mark halts & post-fill exposure validation, created
+  isolated SQLite `paper_sessions.db` + OS-locked & authenticated-IPC detached `paper-service`, and passed
+  **496** desktop-wgpu / **450** headless tests (0-vuln `cargo audit`).
+- **Remaining Ascendancy Certification & Unification Work:** Cross-consumer FANG strategy parity
+  (`Engine`/`ORACLE`/`Paper`), COGNITION statistical calibration replacing heuristics, NEXUS complete
+  fee/funding net settlement & WebSocket/REST recovery, ORACLE realistic bid/ask/partial/latency
+  simulation & walk-forward, GENESIS NSGA-II integration, authenticated live-engine control IPC,
+  and multi-week paper qualification campaigns remain open before any limited live pilot.
