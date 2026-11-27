@@ -369,6 +369,45 @@ impl DiagnosticWorkspace {
                                 ui.end_row();
                             }
                         });
+                        if !plan.levels.is_empty() {
+                            let max_notional = plan
+                                .levels
+                                .iter()
+                                .filter_map(|l| l.level_notional_usd.to_f32())
+                                .fold(1.0_f32, f32::max)
+                                .max(1e-3);
+                            let h_px = (plan.levels.len() as f32 * 15.0 + 16.0).clamp(48.0, 220.0);
+                            let (rect, _) = ui.allocate_exact_size(
+                                Vec2::new(ui.available_width().max(260.0), h_px),
+                                Sense::hover(),
+                            );
+                            let p = ui.painter_at(rect);
+                            p.rect_filled(rect, 5, Color32::from_rgb(12, 14, 24));
+                            let pad = 8.0;
+                            for (i, lv) in plan.levels.iter().enumerate() {
+                                let y = rect.top() + pad + i as f32 * 15.0;
+                                let w_frac = (lv.level_notional_usd.to_f32().unwrap_or(0.0)
+                                    / max_notional)
+                                    .clamp(0.05, 1.0);
+                                let bar_w = (rect.width() - 160.0).max(40.0) * w_frac;
+                                let bar_rect = egui::Rect::from_min_size(
+                                    Pos2::new(rect.left() + 145.0, y + 1.0),
+                                    Vec2::new(bar_w, 10.0),
+                                );
+                                p.rect_filled(
+                                    bar_rect,
+                                    2.0,
+                                    Color32::from_rgba_unmultiplied(247, 95, 105, 175),
+                                );
+                                p.text(
+                                    Pos2::new(rect.left() + 8.0, y + 6.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!("#{} @ {}", lv.level_index, lv.entry_price),
+                                    egui::FontId::monospace(10.0),
+                                    Color32::from_rgb(220, 226, 244),
+                                );
+                            }
+                        }
                     }
                     Some(Err(err)) => {
                         ui.colored_label(Color32::LIGHT_RED, err);
@@ -479,6 +518,43 @@ impl DiagnosticWorkspace {
                                 ui.end_row();
                             }
                         });
+                        if !rep.scenarios.is_empty() {
+                            let eq_f = rep.account_equity_usd.to_f32().unwrap_or(1.0).max(1.0);
+                            let h_px = (rep.scenarios.len() as f32 * 18.0 + 16.0).clamp(48.0, 140.0);
+                            let (rect, _) = ui.allocate_exact_size(
+                                Vec2::new(ui.available_width().max(260.0), h_px),
+                                Sense::hover(),
+                            );
+                            let p = ui.painter_at(rect);
+                            p.rect_filled(rect, 5, Color32::from_rgb(12, 14, 24));
+                            for (i, s) in rep.scenarios.iter().enumerate() {
+                                let y = rect.top() + 8.0 + i as f32 * 18.0;
+                                let eq_frac = (s.stressed_equity_usd.to_f32().unwrap_or(0.0)
+                                    / eq_f)
+                                    .clamp(0.0, 1.0);
+                                let col = if s.maintenance_breached {
+                                    Color32::from_rgb(247, 95, 105)
+                                } else {
+                                    Color32::from_rgb(58, 232, 165)
+                                };
+                                let bar_w = (rect.width() - 130.0).max(40.0) * eq_frac;
+                                p.rect_filled(
+                                    egui::Rect::from_min_size(
+                                        Pos2::new(rect.left() + 115.0, y + 2.0),
+                                        Vec2::new(bar_w.max(3.0), 11.0),
+                                    ),
+                                    2.0,
+                                    col.gamma_multiply(0.85),
+                                );
+                                p.text(
+                                    Pos2::new(rect.left() + 8.0, y + 7.5),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!("-{}% shock", s.adverse_shock_pct),
+                                    egui::FontId::monospace(10.0),
+                                    Color32::from_rgb(218, 224, 242),
+                                );
+                            }
+                        }
                     }
                     Some(Err(err)) => {
                         ui.colored_label(Color32::LIGHT_RED, err);

@@ -100,6 +100,29 @@ pub fn native_options(
         let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
         // Explicit project preference; real adapter identity is observed at creation.
         setup.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+        // Request optional GPU timestamp queries only when supported by the host adapter
+        // so weaker or downlevel adapters never fail initialization.
+        setup.device_descriptor = std::sync::Arc::new(|adapter| {
+            let base_limits = if adapter.get_info().backend == eframe::wgpu::Backend::Gl {
+                eframe::wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                eframe::wgpu::Limits::default()
+            };
+            let supported = adapter.features();
+            let required_features = if supported.contains(eframe::wgpu::Features::TIMESTAMP_QUERY) {
+                eframe::wgpu::Features::TIMESTAMP_QUERY
+            } else {
+                eframe::wgpu::Features::empty()
+            };
+            eframe::wgpu::DeviceDescriptor {
+                label: Some("hydra_leviathan_wgpu_device"),
+                required_features,
+                required_limits: base_limits.using_resolution(adapter.limits()),
+                memory_hints: eframe::wgpu::MemoryHints::Performance,
+                trace: eframe::wgpu::Trace::Off,
+                experimental_features: eframe::wgpu::ExperimentalFeatures::disabled(),
+            }
+        });
         if backend == Backend::Software {
             setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, surface| {
                 adapters.iter()

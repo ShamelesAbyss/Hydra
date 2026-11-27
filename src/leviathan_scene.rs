@@ -15,11 +15,13 @@ pub enum SceneQuality {
     Medium,
     High,
     Ultra,
+    Cinematic,
 }
 
 impl SceneQuality {
     pub fn step_down(self) -> Self {
         match self {
+            Self::Cinematic => Self::Ultra,
             Self::Ultra => Self::High,
             Self::High => Self::Medium,
             Self::Medium => Self::Low,
@@ -33,6 +35,7 @@ impl SceneQuality {
             Self::Medium => 1,
             Self::High => 2,
             Self::Ultra => 3,
+            Self::Cinematic => 4,
         };
         if rank(self) >= rank(target) {
             return target;
@@ -41,7 +44,8 @@ impl SceneQuality {
             Self::Low => Self::Medium,
             Self::Medium => Self::High,
             Self::High => Self::Ultra,
-            Self::Ultra => Self::Ultra,
+            Self::Ultra => Self::Cinematic,
+            Self::Cinematic => Self::Cinematic,
         }
     }
 }
@@ -70,6 +74,8 @@ pub struct SceneInput<'a> {
     /// Never positive unless real local wallet validation or venue verification completed.
     pub offering_glow: f32,
     pub operational_mode: crate::treasury::OperationalMode,
+    pub focus_head: Option<usize>,
+    pub camera: Option<crate::leviathan_3d_math::LeviathanCamera>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -278,7 +284,7 @@ fn glow_ex(
         SceneQuality::Low => 1,
         SceneQuality::Medium => 4,
         SceneQuality::High => 6,
-        SceneQuality::Ultra => 7,
+        SceneQuality::Ultra | SceneQuality::Cinematic => 7,
     };
     let s = strength.clamp(0.0, 2.5);
     for layer in (1..=layers).rev() {
@@ -445,7 +451,7 @@ fn atmosphere(
                 SceneQuality::Low => 0,
                 SceneQuality::Medium => 1,
                 SceneQuality::High => 2,
-                SceneQuality::Ultra => 3,
+                SceneQuality::Ultra | SceneQuality::Cinematic => 3,
             },
             heart_uv: crate::leviathan_shader::pos_to_uv(rect, c.xy(600.0, 622.0)),
             heart_pulse: pulse,
@@ -929,7 +935,7 @@ fn neck(p: &egui::Painter, c: Canvas, pose: HeadPose, index: usize, input: &Scen
         SceneQuality::Low => 22,
         SceneQuality::Medium => 36,
         SceneQuality::High => 54,
-        SceneQuality::Ultra => 60,
+        SceneQuality::Ultra | SceneQuality::Cinematic => 60,
     };
     let points: Vec<_> = (0..=detail)
         .map(|i| cubic(pose.neck, i as f32 / detail as f32))
@@ -2207,6 +2213,152 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let p = ui.painter_at(rect);
     let c = Canvas::new(rect);
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+
+    #[cfg(feature = "desktop-wgpu")]
+    if input.wgpu_atmosphere {
+        let aspect = (rect.width() / rect.height().max(1.0)).max(0.25);
+        let cam = input
+            .camera
+            .clone()
+            .unwrap_or_else(|| crate::leviathan_3d_math::LeviathanCamera::overview(aspect));
+        let pulse = heart_pulse(input.time, input.motion);
+        let breath = breath_cycle(input.time, input.motion);
+        let t = if input.motion && input.time.is_finite() {
+            input.time.rem_euclid(3600.0)
+        } else {
+            0.0
+        };
+        let pointer_world = pointer.filter(|pt| rect.contains(*pt)).map(|pt| {
+            let nu = (pt.x - rect.left()) / rect.width().max(1.0) - 0.5;
+            let nv = 0.5 - (pt.y - rect.top()) / rect.height().max(1.0);
+            crate::leviathan_3d_math::Vec3::new(
+                cam.target.x + nu * 9.5,
+                cam.target.y + nv * 6.0,
+                cam.target.z + 1.2,
+            )
+        });
+        let head_activity = std::array::from_fn(|i| safe_activity(&input.heads[i]));
+        let head_warning = std::array::from_fn(|i| input.heads[i].warning);
+        let head_emphasis = std::array::from_fn(|i| {
+            let mut e = 0.0_f32;
+            if input.selected == Some(i) {
+                e += 0.72;
+            }
+            if input.hovered == Some(i) {
+                e += 0.48;
+            }
+            e.clamp(0.0, 1.0)
+        });
+        let head_eye_open = std::array::from_fn(|i| eye_openness(i, t, input.motion));
+        let skel = crate::leviathan_3d_math::LeviathanSkeleton::evaluate(
+            &crate::leviathan_3d_math::SkeletonParams {
+                time: t,
+                motion: input.motion,
+                breath,
+                heart_pulse: pulse,
+                pointer_world,
+                head_activity,
+                head_warning,
+                head_emphasis,
+                head_eye_open,
+                selected: input.selected,
+            },
+        );
+        let (hits, anchors) =
+            crate::leviathan_3d_math::projected_head_regions(rect, &skel, &cam, input.focus_head);
+
+        let mut response_out = SceneResponse::default();
+        for (i, hit) in hits.into_iter().enumerate() {
+            let response = ui.interact(hit, ui.id().with(("leviathan-head", i)), Sense::click());
+            if response.hovered() {
+                response_out.hovered = Some(i);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                response.clone().on_hover_text(format!(
+                    "{} · {}\nSelect this head to focus camera & workspace",
+                    input.heads[i].name, input.heads[i].status
+                ));
+            }
+            if response.clicked() {
+                response_out.clicked = Some(i);
+            }
+        }
+
+        let effective_emphasis = std::array::from_fn(|i| {
+            let mut e = 0.0_f32;
+            if input.selected == Some(i) {
+                e += 0.72;
+            }
+            if input.hovered.or(response_out.hovered) == Some(i) {
+                e += 0.48;
+            }
+            e.clamp(0.0, 1.0)
+        });
+        let intro_fade = if input.motion && input.time.is_finite() {
+            (input.time / 0.45).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let params3d = crate::leviathan_renderer_3d::Scene3DParams {
+            time: t,
+            motion: input.motion,
+            quality: match input.quality {
+                SceneQuality::Low => 0,
+                SceneQuality::Medium => 1,
+                SceneQuality::High => 2,
+                SceneQuality::Ultra => 3,
+                SceneQuality::Cinematic => 4,
+            },
+            heart_pulse: pulse,
+            offering_glow: if input.offering_glow.is_finite() {
+                input.offering_glow.clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            breath,
+            suspended_alert: input.operational_mode == crate::treasury::OperationalMode::Suspended,
+            intro_fade,
+            camera: cam.clone(),
+            skeleton: skel.clone(),
+            head_colors: std::array::from_fn(|i| input.heads[i].accent),
+            head_activity,
+            head_warning,
+            head_emphasis: effective_emphasis,
+            head_eye_open,
+            head_observation: std::array::from_fn(|i| {
+                let o = input.heads[i].observation;
+                if o.is_finite() {
+                    o.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            }),
+            aspect,
+        };
+        crate::leviathan_renderer_3d::paint_wgpu_3d_scene(&p, rect, params3d);
+
+        let effective_input = SceneInput {
+            heads: input.heads,
+            selected: input.selected,
+            hovered: input.hovered.or(response_out.hovered),
+            time: input.time,
+            motion: input.motion,
+            quality: input.quality,
+            heart_status: input.heart_status,
+            wgpu_atmosphere: true,
+            offering_glow: if input.offering_glow.is_finite() {
+                input.offering_glow.clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            operational_mode: input.operational_mode,
+            focus_head: input.focus_head,
+            camera: Some(cam),
+        };
+        render_wgpu_3d_hud_overlay(&p, rect, c, &anchors, &hits, &effective_input);
+        return response_out;
+    }
+
     let poses: [HeadPose; 7] = std::array::from_fn(|i| head_pose(i, input.time, input.motion));
 
     // Hit-test first so hovering a head responds immediately on the same frame!
@@ -2246,9 +2398,10 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
             0.0
         },
         operational_mode: input.operational_mode,
+        focus_head: input.focus_head,
+        camera: input.camera.clone(),
     };
 
-    let pointer = ui.input(|i| i.pointer.hover_pos());
     let used_wgpu = atmosphere(&p, rect, c, &poses, &effective_input, pointer);
     if used_wgpu {
         render_wgpu_hud_overlay(&p, c, &poses, &effective_input);
@@ -2308,6 +2461,204 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
         heart(&p, c, &effective_input);
     }
     response_out
+}
+
+/// Minimalist obsidian-glass HUD badges anchored above the live 3D crown positions,
+/// hover/focus rings, Sovereign Heart caption, and Ashlan's permanent memorial.
+#[cfg(feature = "desktop-wgpu")]
+fn render_wgpu_3d_hud_overlay(
+    p: &egui::Painter,
+    rect: Rect,
+    c: Canvas,
+    anchors: &[Pos2; 7],
+    hits: &[Rect; 7],
+    input: &SceneInput<'_>,
+) {
+    let roles = [
+        "SURVEILLANCE",
+        "STRATEGY",
+        "REASONING",
+        "RISK SHIELD",
+        "EXECUTION",
+        "VALIDATION",
+        "EVOLUTION",
+    ];
+    for i in 0..7 {
+        if let Some(foc) = input.focus_head {
+            if foc != i {
+                continue;
+            }
+        }
+        let head = &input.heads[i];
+        let selected = input.selected == Some(i);
+        let hovered = input.hovered == Some(i);
+        let active = safe_activity(head) > 0.05;
+        let accent = if head.warning {
+            Color32::from_rgb(246, 188, 83)
+        } else {
+            head.accent
+        };
+        let box_w = (108.0 * c.scale).clamp(86.0, 134.0);
+        let box_h = (32.0 * c.scale).clamp(24.0, 38.0);
+        let badge = Rect::from_center_size(anchors[i], Vec2::new(box_w, box_h));
+
+        let fill_alpha = if selected || hovered { 225 } else { 172 };
+        p.rect_filled(
+            badge,
+            CornerRadius::same(4),
+            Color32::from_rgba_unmultiplied(7, 9, 18, fill_alpha),
+        );
+        p.rect_stroke(
+            badge,
+            CornerRadius::same(4),
+            Stroke::new(
+                if selected || hovered || head.warning {
+                    1.25
+                } else {
+                    0.85
+                },
+                fade(
+                    accent,
+                    if selected || hovered || head.warning || active {
+                        225
+                    } else {
+                        105
+                    },
+                ),
+            ),
+            egui::StrokeKind::Inside,
+        );
+        p.line_segment(
+            [
+                Pos2::new(badge.left() + 6.0, badge.top() + 0.8),
+                Pos2::new(badge.right() - 6.0, badge.top() + 0.8),
+            ],
+            Stroke::new(
+                1.2,
+                fade(accent, if selected || hovered { 230 } else { 130 }),
+            ),
+        );
+        p.text(
+            Pos2::new(badge.center().x, badge.top() + box_h * 0.34),
+            Align2::CENTER_CENTER,
+            head.name,
+            FontId::monospace((9.8 * c.scale).clamp(7.5, 11.5)),
+            if selected || hovered || active || head.warning {
+                accent
+            } else {
+                blend(accent, Color32::from_rgb(220, 228, 244), 0.25)
+            },
+        );
+        let sub = if head.warning || active || selected || hovered {
+            head.status
+        } else {
+            roles[i]
+        };
+        p.text(
+            Pos2::new(badge.center().x, badge.top() + box_h * 0.74),
+            Align2::CENTER_CENTER,
+            sub,
+            FontId::monospace((7.4 * c.scale).clamp(6.2, 8.8)),
+            if head.warning {
+                Color32::from_rgb(246, 188, 83)
+            } else if active {
+                Color32::from_rgb(225, 236, 250)
+            } else {
+                Color32::from_rgb(148, 158, 188)
+            },
+        );
+        if (selected || hovered) && input.focus_head != Some(i) {
+            let hc = hits[i].center();
+            let ring_r = (hits[i].width().min(hits[i].height()) * 0.44).clamp(24.0, 96.0);
+            p.circle_stroke(
+                hc,
+                ring_r,
+                Stroke::new(1.2, fade(accent, if selected { 145 } else { 90 })),
+            );
+        }
+    }
+
+    if let Some(foc) = input.focus_head {
+        let pill = Rect::from_min_size(
+            Pos2::new(rect.left() + 14.0, rect.top() + 12.0),
+            Vec2::new(220.0, 24.0),
+        );
+        p.rect_filled(
+            pill,
+            CornerRadius::same(4),
+            Color32::from_rgba_unmultiplied(10, 12, 24, 210),
+        );
+        p.rect_stroke(
+            pill,
+            CornerRadius::same(4),
+            Stroke::new(1.0, fade(input.heads[foc].accent, 180)),
+            egui::StrokeKind::Inside,
+        );
+        p.text(
+            pill.center(),
+            Align2::CENTER_CENTER,
+            format!("FOCUS: {}  ·  ESC OVERVIEW", input.heads[foc].name),
+            FontId::monospace(9.5),
+            input.heads[foc].accent,
+        );
+    }
+
+    // Sovereign Amethyst Heart & Status caption seated cleanly below the 3D dais in Overview;
+    // in zoomed head focus, preserve Ashlan's permanent memorial on a subtle obsidian plaque.
+    let cx = rect.center().x;
+    let bot = rect.bottom();
+    let sc_ui = c.scale.clamp(0.75, 1.15);
+    if input.focus_head.is_none() {
+        p.text(
+            Pos2::new(cx, bot - 88.0 * sc_ui),
+            Align2::CENTER_CENTER,
+            "THE AMETHYST HEART  ·  SOVEREIGN CORE",
+            FontId::monospace((10.0 * c.scale).clamp(8.5, 12.0)),
+            Color32::from_rgb(228, 210, 254),
+        );
+        p.text(
+            Pos2::new(cx, bot - 72.0 * sc_ui),
+            Align2::CENTER_CENTER,
+            input.heart_status,
+            FontId::monospace((8.2 * c.scale).clamp(7.0, 9.8)),
+            Color32::from_rgb(172, 164, 206),
+        );
+
+        let rule_w = 152.0 * c.scale.clamp(0.75, 1.2);
+        let rule_y = bot - 52.0 * sc_ui;
+        p.line_segment(
+            [
+                Pos2::new(cx - rule_w, rule_y),
+                Pos2::new(cx + rule_w, rule_y),
+            ],
+            Stroke::new(0.85, Color32::from_rgba_unmultiplied(186, 134, 246, 105)),
+        );
+        p.circle_filled(Pos2::new(cx, rule_y), 2.5, Color32::from_rgb(206, 154, 255));
+    } else {
+        let plaque = Rect::from_center_size(
+            Pos2::new(cx, bot - 23.0 * sc_ui),
+            Vec2::new(310.0 * sc_ui, 38.0 * sc_ui),
+        );
+        p.rect_filled(
+            plaque,
+            CornerRadius::same(5),
+            Color32::from_rgba_unmultiplied(6, 7, 15, 196),
+        );
+    }
+    p.text(
+        Pos2::new(cx, bot - 32.0 * sc_ui),
+        Align2::CENTER_CENTER,
+        "In Loving Memory of Ashlan Haley Rapponotti",
+        FontId::proportional((13.0 * c.scale).clamp(10.5, 16.0)),
+        Color32::from_rgb(232, 220, 248),
+    );
+    p.text(
+        Pos2::new(cx, bot - 14.0 * sc_ui),
+        Align2::CENTER_CENTER,
+        "June 21, 2003 – November 13, 2026",
+        FontId::proportional((10.2 * c.scale).clamp(8.2, 13.0)),
+        Color32::from_rgb(168, 160, 198),
+    );
 }
 
 /// Crisp minimalist HUD callouts, hover rings, Sovereign Heart caption, and Ashlan's
@@ -2571,6 +2922,7 @@ mod tests {
             SceneQuality::Medium,
             SceneQuality::High,
             SceneQuality::Ultra,
+            SceneQuality::Cinematic,
         ] {
             for motion in [false, true] {
                 let input = SceneInput {
@@ -2584,6 +2936,8 @@ mod tests {
                     wgpu_atmosphere: false,
                     offering_glow: 0.0,
                     operational_mode: crate::treasury::OperationalMode::Dormant,
+                    focus_head: None,
+                    camera: None,
                 };
                 let output = ctx.run_ui(
                     egui::RawInput {
@@ -2659,6 +3013,8 @@ mod interaction_tests {
                                 wgpu_atmosphere: false,
                                 offering_glow: 0.0,
                                 operational_mode: crate::treasury::OperationalMode::Dormant,
+                                focus_head: None,
+                                camera: None,
                             },
                         );
                     });
@@ -2752,6 +3108,8 @@ mod interaction_tests {
                                     wgpu_atmosphere: false,
                                     offering_glow: glow_val,
                                     operational_mode: crate::treasury::OperationalMode::Dormant,
+                                    focus_head: None,
+                                    camera: None,
                                 },
                             );
                         });

@@ -253,3 +253,26 @@ into the normal public `v1.x` semantic-versioning lifecycle (`draft: false`, `pr
   certification (complete round-trip fee/funding net settlement, stream/restart recovery, native
   protective exchange orders, authenticated local control IPC, watchdog supervision, and signed
   release-key infrastructure — see `ROADMAP_V2.md`).
+
+### v1.8.0 — Project Incarnation ("The Living Sovereign" — Articulated 3D WGPU PBR Engine)
+
+All seven milestone rows reviewed:
+
+- **M3 / M7 Articulated 3D Skeletal & Procedural Mesh WGPU PBR (`src/leviathan_3d_math.rs`,
+  `src/leviathan_mesh.rs`, `src/leviathan_renderer_3d.rs`, `src/desktop_renderer.rs`):**
+  Delivered a true 96-bone articulated 3D skeletal hierarchy and skinned 96-byte vertex mesh
+  builder rendered via a 4-pass native WGPU pipeline (`1536 × 1536` `Depth32Float` 3×3 PCF
+  directional shadows, Cook-Torrance GGX PBR opaque/translucent shading, overlapping obsidian
+  diamond scales with amethyst sub-scale seams, 3D reptilian slit eyes, hinged jaws & ivory fangs,
+  half-resolution separable HDR bloom, ACES compositing, `SceneQuality::Cinematic`, and optional
+  `Features::TIMESTAMP_QUERY` live GPU pass timing) while keeping the Glow fallback intact.
+- **M3 / M7 Camera Choreography & Analytical Workspace Charts (`src/leviathan_scene.rs`,
+  `src/cockpit.rs`, `src/bin/hydra-cockpit.rs`, `src/hunter_ui.rs`, `src/diagnostics_ui.rs`):**
+  Added smooth Sovereign Overview ↔ heroic 3/4 Focused Head transitions (`Esc`, `--head <0..=6>`),
+  clean bottom obsidian memorial plaque in close-ups, Overview readiness strip & equity hover
+  crosshair, NEXUS lifecycle pipeline summary, and horizontal analytical bar plots in HUNTER,
+  FANG, and AEGIS workspaces (**470** desktop-wgpu offline tests, **432** headless offline tests).
+- **Explicit Live-Certification Boundary Unchanged:** Unattended `AWAKENED` live execution remains
+  locked pending complete round-trip fee/funding net settlement, stream/restart recovery, native
+  protective exchange orders, authenticated local control IPC, watchdog supervision, and signed
+  release-signing key infrastructure.

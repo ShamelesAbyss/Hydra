@@ -1,3 +1,9 @@
+# Release verification — 1.8.0
+
+All **470 offline desktop-wgpu all-target tests pass** (across 32 test suites) and all **432 offline headless all-target tests pass** (across 31 test suites), adding coverage for the 96-bone hierarchical 3D skeleton (`src/leviathan_3d_math.rs`), `LeviathanCamera` Sovereign Overview ↔ 3/4 Focused Head projection & transitions, 96-byte `GpuVertex` skinned mesh invariants (`src/leviathan_mesh.rs`), 4-pass native WGPU 3D PBR / Shadow / HDR Bloom / `TIMESTAMP_QUERY` renderer helpers (`src/leviathan_renderer_3d.rs`), and `SceneQuality::Cinematic`.
+
+`cargo fmt --check`, `cargo clippy --locked --all-targets`, `cargo clippy --locked --features desktop-wgpu --all-targets`, Glow compilation (`--features desktop --all-targets`, zero warnings), `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass. Native Windows 11 RTX 4070 `--release --features desktop-wgpu` (`1600 × 960`, `--quality ultra`) captures measure `UI 144.9/s · cpu 0.66 ms · 0.32 ms GPU` in Overview (`docs/assets/leviathan-awakened-wgpu.png`), `UI 143.1/s · cpu 0.68 ms · 0.27 ms GPU` in FANG Focused Head (`docs/assets/leviathan-focused-head.png`), and `UI 144.2–144.4/s · cpu 0.64–0.77 ms · 0.28 ms GPU` in Treasury/Updates (`docs/assets/leviathan-treasury-offering.png`, `docs/assets/leviathan-evolution-updates.png`), while `--quality cinematic` measures `UI 144.1/s · cpu 0.94 ms · 0.38 ms GPU`. Public distribution does not certify unattended live trading; no real exchange orders, live wallet credentials, or transfers were used.
+
 # Release verification — 1.7.0
 
 All **463 offline desktop-wgpu all-target tests pass** (across 32 test binaries), adding coverage

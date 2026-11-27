@@ -32,6 +32,9 @@ struct Options {
     /// Open directly to the LEVIATHAN EVOLUTION native updates tab.
     #[arg(long)]
     updates: bool,
+    /// Optional subsystem head index (0..=6) to focus at startup.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
+    head: Option<u8>,
 }
 
 fn main() {
@@ -49,7 +52,7 @@ fn main() {
         db_health
     ));
 
-    if let Err(err) = hydra::cockpit::run_with_initial_view(
+    if let Err(err) = hydra::cockpit::run_with_initial_state(
         db_path,
         options.renderer,
         options.fullscreen,
@@ -59,6 +62,7 @@ fn main() {
         options.frame_cap,
         options.treasury,
         options.updates,
+        options.head.map(usize::from),
     ) {
         let detail = format!("{err}");
         hydra::startup_diagnostics::log_startup(&format!("STARTUP FAILED: {detail}"));

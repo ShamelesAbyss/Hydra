@@ -77,7 +77,13 @@ pub mod genesis_oos;
 pub mod desktop_renderer;
 
 #[cfg(feature = "desktop")]
+pub mod leviathan_3d_math;
+#[cfg(feature = "desktop")]
 pub mod leviathan_layout;
+#[cfg(feature = "desktop-wgpu")]
+pub mod leviathan_mesh;
+#[cfg(feature = "desktop-wgpu")]
+pub mod leviathan_renderer_3d;
 #[cfg(feature = "desktop")]
 pub mod leviathan_scene;
 #[cfg(feature = "desktop-wgpu")]

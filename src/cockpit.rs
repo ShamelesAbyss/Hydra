@@ -78,6 +78,11 @@ pub struct Cockpit {
     borderless: bool,
     renderer: String,
     wgpu_atmosphere: bool,
+    #[cfg(feature = "desktop-wgpu")]
+    gpu_timing: Option<crate::leviathan_renderer_3d::GpuTimingHandle>,
+    camera: crate::leviathan_3d_math::LeviathanCamera,
+    camera_focus_enabled: bool,
+    last_camera_time: f32,
     research_changed_at: [Option<Instant>; 7],
     offering_pulse_at: Option<Instant>,
 
@@ -161,7 +166,9 @@ impl Cockpit {
         cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
 
         #[cfg(feature = "desktop-wgpu")]
-        let wgpu_atmosphere = crate::leviathan_shader::register_wgpu_atmosphere(cc);
+        let gpu_timing = crate::leviathan_renderer_3d::register_wgpu_3d_renderer(cc);
+        #[cfg(feature = "desktop-wgpu")]
+        let wgpu_atmosphere = gpu_timing.is_some();
         #[cfg(not(feature = "desktop-wgpu"))]
         let wgpu_atmosphere = false;
 
@@ -199,6 +206,11 @@ impl Cockpit {
             borderless: true,
             renderer: crate::desktop_renderer::renderer_description(cc),
             wgpu_atmosphere,
+            #[cfg(feature = "desktop-wgpu")]
+            gpu_timing,
+            camera: crate::leviathan_3d_math::LeviathanCamera::default(),
+            camera_focus_enabled: true,
+            last_camera_time: 0.0,
             research_changed_at: [None; 7],
             offering_pulse_at: None,
 
@@ -292,6 +304,24 @@ impl Cockpit {
         }
     }
     fn body(&mut self, ui: &mut egui::Ui) {
+        if let Workspace::Head(sel) = self.workspace {
+            ui.horizontal(|ui| {
+                if ui
+                    .small_button("<< Sovereign Overview (Esc)")
+                    .on_hover_text("Return 3D camera & workspace to unified overview")
+                    .clicked()
+                {
+                    self.workspace = Workspace::Overview;
+                }
+                ui.label(
+                    RichText::new(format!("FOCUSED SUBSYSTEM · {}", HEADS[sel].0))
+                        .monospace()
+                        .small()
+                        .color(HEADS[sel].2),
+                );
+            });
+            ui.add_space(4.0);
+        }
         if self.workspace == Workspace::Treasury {
             let events = self.treasury.show(
                 ui,
@@ -416,6 +446,8 @@ impl Cockpit {
                     }
                     3 => risk(ui, &data),
                     4 => {
+                        nexus_lifecycle_pipeline(ui, &data);
+                        ui.add_space(10.0);
                         self.search(ui);
                         journal(ui, &data, &self.filter);
                         ui.add_space(16.0);
@@ -464,6 +496,7 @@ impl Cockpit {
         ui.add_space(8.0);
     }
     fn overview(&mut self, ui: &mut egui::Ui, data: &TelemetrySnapshot) {
+        let states = self.head_states();
         ui.horizontal_wrapped(|ui| {
             metric(
                 ui,
@@ -489,6 +522,25 @@ impl Cockpit {
                 &count_text(data, "ledger_funding"),
                 HEADS[2].2,
             );
+        });
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            for (idx, (name, _, color)) in HEADS.iter().enumerate() {
+                let st = states[idx];
+                let col = if st.is_alert() { AMBER } else { *color };
+                if ui
+                    .selectable_label(
+                        self.workspace == Workspace::Head(idx),
+                        RichText::new(format!("{name}: {}", st.label()))
+                            .monospace()
+                            .size(9.5)
+                            .color(col),
+                    )
+                    .clicked()
+                {
+                    self.workspace = Workspace::Head(idx);
+                }
+            }
         });
 
         if let Some(session) = &data.latest_session {
@@ -693,7 +745,7 @@ impl Cockpit {
                 pill(ui, "NO LOCAL HISTORY", MUTED);
             }
             if self.wgpu_atmosphere {
-                pill(ui, "WGPU SHADER", AMETHYST);
+                pill(ui, "WGPU 3D PBR", AMETHYST);
             } else if self.renderer.starts_with("WGPU") {
                 pill(ui, "WGPU", AMETHYST);
             } else {
@@ -785,16 +837,25 @@ impl Cockpit {
                     .trigger_emergency_suspension("Command bar emergency suspension");
             }
             if let Some(frame) = self.frame_stats.summary() {
+                #[cfg(feature = "desktop-wgpu")]
+                let gpu_suffix = self
+                    .gpu_timing
+                    .as_ref()
+                    .and_then(|g| g.latest_ms())
+                    .map(|ms| format!("  •  {ms:.2} ms GPU"))
+                    .unwrap_or_default();
+                #[cfg(not(feature = "desktop-wgpu"))]
+                let gpu_suffix = String::new();
                 ui.label(
                     RichText::new(format!(
-                        "UI {:.1}/s  •  build {:.2} ms",
-                        frame.median_updates_per_second, frame.ui_build_p50_ms
+                        "UI {:.1}/s  •  cpu {:.2} ms{}",
+                        frame.median_updates_per_second, frame.ui_build_p50_ms, gpu_suffix
                     ))
                     .monospace()
                     .small()
                     .color(MUTED),
                 )
-                .on_hover_text("Observed UI cadence and UI-build CPU duration; not GPU execution timing or a trading benchmark.");
+                .on_hover_text("Observed UI cadence, UI-build CPU duration, and measured 3D WGPU render pass duration (when hardware timestamp queries are available).");
             }
         });
         if ui.available_width() < 1480.0 {
@@ -1327,6 +1388,7 @@ impl Cockpit {
                         SceneQuality::Medium,
                         SceneQuality::High,
                         SceneQuality::Ultra,
+                        SceneQuality::Cinematic,
                     ] {
                         if ui
                             .selectable_value(&mut self.quality, q, format!("{q:?}"))
@@ -1337,6 +1399,7 @@ impl Cockpit {
                     }
                 });
             ui.checkbox(&mut self.adaptive_lod, "Adaptive LOD");
+            ui.checkbox(&mut self.camera_focus_enabled, "3D Camera Focus");
             ui.checkbox(&mut self.reduced_motion, "Reduced motion");
             ui.checkbox(&mut self.animate_updates, "Event energy");
             egui::ComboBox::from_id_salt("frame-cadence")
@@ -1374,15 +1437,25 @@ impl Cockpit {
         ui.label(RichText::new(&self.renderer).small().color(MUTED));
         ui.label(RichText::new("Idle breathing/atmosphere are decorative. Colored energy = actual local research; silver pips = recorded-history changes. Neither proves a live engine link.").small().color(MUTED));
         if let Some(s) = self.frame_stats.summary() {
+            #[cfg(feature = "desktop-wgpu")]
+            let gpu_str = self
+                .gpu_timing
+                .as_ref()
+                .and_then(|g| g.latest_ms())
+                .map(|ms| format!("GPU pass {ms:.2} ms"))
+                .unwrap_or_else(|| "GPU timing unavailable".to_string());
+            #[cfg(not(feature = "desktop-wgpu"))]
+            let gpu_str = "GPU timing unavailable".to_string();
             ui.label(format!(
-                "Observed {} UI samples · cadence p50 {:.2} / p95 {:.2} ms · UI-build CPU p50 {:.2} / p95 {:.2} ms · Effective LOD: {:?} ({}) · GPU timing unavailable",
+                "Observed {} UI samples · cadence p50 {:.2} / p95 {:.2} ms · UI-build CPU p50 {:.2} / p95 {:.2} ms · Effective LOD: {:?} ({}) · {}",
                 s.samples,
                 s.cadence_p50_ms,
                 s.cadence_p95_ms,
                 s.ui_build_p50_ms,
                 s.ui_build_p95_ms,
                 self.effective_quality,
-                if self.adaptive_lod { "adaptive" } else { "locked" }
+                if self.adaptive_lod { "adaptive" } else { "locked" },
+                gpu_str
             ));
         }
         ui.separator();
@@ -1457,6 +1530,11 @@ impl eframe::App for Cockpit {
             self.fullscreen = !self.fullscreen;
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+        }
+        if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
+            if matches!(self.workspace, Workspace::Head(_)) {
+                self.workspace = Workspace::Overview;
+            }
         }
         // Smooth damped choreography for drawer height presets (instant when reduced motion).
         if (self.details_height - self.target_details_height).abs() > 0.5 {
@@ -1581,14 +1659,50 @@ impl eframe::App for Cockpit {
                     } else {
                         "WAITING FOR DATA / ENGINE LINK UNVERIFIED"
                     };
+                    let elapsed_s = self.started.elapsed().as_secs_f32();
+                    let dt = (elapsed_s - self.last_camera_time).clamp(0.0, 0.1);
+                    self.last_camera_time = elapsed_s;
+                    let selected_head = match self.workspace {
+                        Workspace::Head(i) => Some(i),
+                        _ => None,
+                    };
+                    let focus_head = if self.camera_focus_enabled {
+                        selected_head
+                    } else {
+                        None
+                    };
+                    let canvas_aspect =
+                        (ui.available_width() / ui.available_height().max(1.0)).clamp(0.25, 8.0);
+                    let pulse = crate::leviathan_scene::heart_pulse(elapsed_s, !self.reduced_motion);
+                    let breath =
+                        crate::leviathan_scene::breath_cycle(elapsed_s, !self.reduced_motion);
+                    let skel_cam = crate::leviathan_3d_math::LeviathanSkeleton::evaluate(
+                        &crate::leviathan_3d_math::SkeletonParams {
+                            time: elapsed_s,
+                            motion: !self.reduced_motion,
+                            breath,
+                            heart_pulse: pulse,
+                            pointer_world: None,
+                            head_activity: std::array::from_fn(|i| heads[i].activity),
+                            head_warning: std::array::from_fn(|i| heads[i].warning),
+                            head_emphasis: [0.0; 7],
+                            head_eye_open: [1.0; 7],
+                            selected: selected_head,
+                        },
+                    );
+                    self.camera.update(
+                        focus_head,
+                        &skel_cam,
+                        canvas_aspect,
+                        dt,
+                        !self.reduced_motion,
+                    );
+
                     let input = crate::leviathan_scene::SceneInput {
                         heads: &heads,
-                        selected: match self.workspace {
-                            Workspace::Head(i) => Some(i),
-                            _ => None,
-                        },
+                        selected: selected_head,
                         hovered: self.hovered_head,
-                        time: self.started.elapsed().as_secs_f32(),
+                        time: elapsed_s,
                         motion: !self.reduced_motion,
                         quality: if self.adaptive_lod {
                             self.effective_quality
@@ -1599,13 +1713,19 @@ impl eframe::App for Cockpit {
                         wgpu_atmosphere: self.wgpu_atmosphere,
                         offering_glow,
                         operational_mode: op_mode,
+                        focus_head,
+                        camera: Some(self.camera.clone()),
                     };
                     let scene_resp = crate::leviathan_scene::show_interactive(ui, &input);
                     if scene_resp.hovered.is_some() {
                         next_hovered_head = scene_resp.hovered;
                     }
                     if let Some(index) = scene_resp.clicked {
-                        self.workspace = Workspace::Head(index);
+                        if self.workspace == Workspace::Head(index) {
+                            self.workspace = Workspace::Overview;
+                        } else {
+                            self.workspace = Workspace::Head(index);
+                        }
                     }
                 });
                 let handle = egui::Rect::from_min_max(
@@ -1862,6 +1982,32 @@ pub fn run_with_initial_view(
     open_treasury: bool,
     open_updates: bool,
 ) -> eframe::Result {
+    run_with_initial_state(
+        path,
+        backend,
+        fullscreen,
+        borderless,
+        quality,
+        reduced_motion,
+        frame_limit,
+        open_treasury,
+        open_updates,
+        None,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_initial_state(
+    path: PathBuf,
+    backend: crate::desktop_renderer::Backend,
+    fullscreen: bool,
+    borderless: bool,
+    quality: crate::leviathan_scene::SceneQuality,
+    reduced_motion: bool,
+    frame_limit: u32,
+    open_treasury: bool,
+    open_updates: bool,
+    initial_head: Option<usize>,
+) -> eframe::Result {
     let attempts = crate::desktop_renderer::attempts(backend)
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let mut failure: Option<String> = None;
@@ -1889,6 +2035,10 @@ pub fn run_with_initial_view(
                         app.workspace = Workspace::Treasury;
                         app.details_height = 520.0;
                         app.target_details_height = 520.0;
+                    } else if let Some(h) = initial_head.filter(|&i| i < 7) {
+                        app.workspace = Workspace::Head(h);
+                        app.details_height = 360.0;
+                        app.target_details_height = 360.0;
                     }
                     app.configure_presentation(quality, reduced_motion, frame_limit);
                     Ok(Box::new(app))
@@ -2458,7 +2608,31 @@ fn equity_chart(ui: &mut egui::Ui, data: &TelemetrySnapshot) {
     if let Some(last) = line.last() {
         painter.circle_filled(*last, 3.0, EMERALD);
     }
-    response.on_hover_text(format!("{} snapshots, ordered by persistence. Visible min {:.2}, max {:.2}. Vertical axis spans the visible min/max; points use equal spacing, not elapsed time.",points.len(),min,max));
+    if let Some(ptr) = response.hover_pos().filter(|p| plot.contains(*p)) {
+        let u = ((ptr.x - plot.left()) / plot.width().max(1.0)).clamp(0.0, 1.0);
+        let idx = ((u * (line.len() - 1) as f32).round() as usize).min(line.len() - 1);
+        let pt_pos = line[idx];
+        let pt_data = points[idx];
+        painter.line_segment(
+            [
+                Pos2::new(pt_pos.x, plot.top()),
+                Pos2::new(pt_pos.x, plot.bottom()),
+            ],
+            Stroke::new(0.8, Color32::from_rgba_unmultiplied(186, 152, 248, 120)),
+        );
+        painter.circle_stroke(pt_pos, 5.0, Stroke::new(1.5, Color32::WHITE));
+        response.on_hover_text(format!(
+            "Snapshot {} · Equity {:.2} · {}\nVisible min {:.2}, max {:.2} ({} snapshots).",
+            idx + 1,
+            pt_data.recorded_equity,
+            pt_data.at,
+            min,
+            max,
+            points.len()
+        ));
+    } else {
+        response.on_hover_text(format!("{} snapshots, ordered by persistence. Visible min {:.2}, max {:.2}. Hover chart for exact snapshot readout.",points.len(),min,max));
+    }
     ui.horizontal_wrapped(|ui| {
         ui.monospace(format!("min {min:.2} / max {max:.2}"));
         ui.label(
@@ -2469,6 +2643,42 @@ fn equity_chart(ui: &mut egui::Ui, data: &TelemetrySnapshot) {
             ))
             .small()
             .color(MUTED),
+        );
+    });
+}
+
+fn nexus_lifecycle_pipeline(ui: &mut egui::Ui, data: &TelemetrySnapshot) {
+    use crate::leviathan_state::LifecycleEvidence;
+    let mut prepared = 0usize;
+    let mut submitted = 0usize;
+    let mut acked = 0usize;
+    let mut fill_rec = 0usize;
+    let mut unresolved = 0usize;
+    for intent in &data.intents {
+        match LifecycleEvidence::from_recorded_status(&intent.state) {
+            LifecycleEvidence::Prepared => prepared += 1,
+            LifecycleEvidence::Submitted => submitted += 1,
+            LifecycleEvidence::Acknowledged => acked += 1,
+            LifecycleEvidence::FillRecorded => fill_rec += 1,
+            LifecycleEvidence::Unresolved | LifecycleEvidence::Other => unresolved += 1,
+        }
+    }
+    ui.label(
+        RichText::new("NEXUS EXECUTION LIFECYCLE STAGE COUNTS (LOCAL EVIDENCE ONLY)")
+            .monospace()
+            .small()
+            .color(HEADS[4].2),
+    );
+    ui.horizontal_wrapped(|ui| {
+        metric(ui, "PREPARED", &prepared.to_string(), MUTED);
+        metric(ui, "SUBMITTED", &submitted.to_string(), CYAN);
+        metric(ui, "ACKNOWLEDGED", &acked.to_string(), HEADS[4].2);
+        metric(ui, "FILL RECORDED", &fill_rec.to_string(), EMERALD);
+        metric(
+            ui,
+            "UNRESOLVED / OTHER",
+            &unresolved.to_string(),
+            if unresolved > 0 { AMBER } else { MUTED },
         );
     });
 }

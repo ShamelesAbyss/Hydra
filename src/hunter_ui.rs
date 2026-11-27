@@ -233,6 +233,63 @@ impl HunterWorkspace {
                             }
                         });
                 });
+            if !pub_rep.ranked.is_empty() {
+                let top: Vec<_> = pub_rep
+                    .ranked
+                    .iter()
+                    .filter(|r| r.score.is_some())
+                    .take(8)
+                    .collect();
+                if !top.is_empty() {
+                    let max_oi = top
+                        .iter()
+                        .map(|r| r.observation.open_interest_usd)
+                        .fold(1.0_f64, f64::max)
+                        .max(1.0);
+                    let h_px = (top.len() as f32 * 16.0 + 16.0).clamp(48.0, 160.0);
+                    let (rect, _) = ui.allocate_exact_size(
+                        Vec2::new(ui.available_width().max(260.0), h_px),
+                        Sense::hover(),
+                    );
+                    let p = ui.painter_at(rect);
+                    p.rect_filled(rect, 5, Color32::from_rgb(12, 14, 24));
+                    for (i, item) in top.iter().enumerate() {
+                        let y = rect.top() + 8.0 + i as f32 * 16.0;
+                        let score_frac =
+                            (item.score.unwrap_or(0.0) / 100.0).clamp(0.04, 1.0) as f32;
+                        let oi_frac =
+                            (item.observation.open_interest_usd / max_oi).clamp(0.02, 1.0) as f32;
+                        let avail = (rect.width() - 125.0).max(40.0);
+                        p.rect_filled(
+                            egui::Rect::from_min_size(
+                                Pos2::new(rect.left() + 110.0, y + 1.0),
+                                Vec2::new(avail * score_frac, 6.0),
+                            ),
+                            2.0,
+                            Color32::from_rgb(54, 205, 245),
+                        );
+                        p.rect_filled(
+                            egui::Rect::from_min_size(
+                                Pos2::new(rect.left() + 110.0, y + 8.0),
+                                Vec2::new(avail * oi_frac, 4.0),
+                            ),
+                            1.5,
+                            Color32::from_rgb(179, 116, 250),
+                        );
+                        p.text(
+                            Pos2::new(rect.left() + 8.0, y + 6.0),
+                            egui::Align2::LEFT_CENTER,
+                            format!(
+                                "{} {:.1}",
+                                item.observation.symbol,
+                                item.score.unwrap_or(0.0)
+                            ),
+                            egui::FontId::monospace(10.0),
+                            Color32::from_rgb(220, 228, 244),
+                        );
+                    }
+                }
+            }
             ui.separator();
         }
         ui.add_enabled_ui(self.receiver.is_none(), |ui| {

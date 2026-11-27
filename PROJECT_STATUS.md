@@ -2,11 +2,11 @@
 
 ## Recovery identity
 
-- Version and current public release tag: **v1.7.0** (`v1.7.0 | PROJECT LEVIATHAN`) on `main`.
-- Exact release commit: `git rev-parse v1.7.0^{commit}`.
-- Previous verified published prerelease: **v1.7.0-alpha.29** (CI run `45980192880`, verified `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `6fdf404426f50bbc3ed00f034a9e33a3dbe895322828ccb04c81343808b1dd89`).
-- Public release status: **v1.7.0** establishes the public release cycle (`draft: false`, `prerelease: false`, `make_latest: true`), while unattended live-trading certification remains explicitly incomplete and gated (`MODE: DORMANT`; `ENABLE_LIVE_TRADING=false`).
-- Current phase: **Public `v1.7.0` Foundation & Road to HYDRA 2.0 (`ROADMAP_V2.md`)** — delivering the GPU PBR Rebirth of the Seven-Headed Leviathan, Adaptive LOD, release manifests, SQLite startup health checks, and iterative `v1.x` progression toward `v2.0.0`.
+- Version and current public release tag: **v1.8.0** (`v1.8.0 | PROJECT INCARNATION`) on `main`.
+- Exact release commit: `git rev-parse v1.8.0^{commit}`.
+- Previous verified public release: **v1.7.0** (`v1.7.0 | PROJECT LEVIATHAN`) and historical prereleases (`v1.7.0-alpha.*`, including `v1.7.0-alpha.29` `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `6fdf404426f50bbc3ed00f034a9e33a3dbe895322828ccb04c81343808b1dd89`).
+- Public release status: **v1.8.0** delivers **Project Incarnation ("The Living Sovereign")** (`draft: false`, `prerelease: false`, `make_latest: true`), while unattended live-trading certification remains explicitly incomplete and gated (`MODE: DORMANT`; `ENABLE_LIVE_TRADING=false`).
+- Current phase: **Public `v1.8.0` (`PROJECT INCARNATION`) & Road to HYDRA 2.0 (`ROADMAP_V2.md`)** — delivering the true 96-bone articulated 3D skeletal, procedural mesh, 4-pass Cook-Torrance GGX PBR, shadow-mapped, HDR-bloom WGPU engine alongside live `TIMESTAMP_QUERY` GPU pass telemetry and smooth Sovereign Overview ↔ 3/4 Focused Head transitions while keeping Glow fallback and dormant financial guarantees intact.
 - Development verification remains offline/loopback; no real exchange orders, credential probes or transfers.
 
 ## Implemented since alpha.1

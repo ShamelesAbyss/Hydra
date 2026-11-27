@@ -1,3 +1,26 @@
+## 1.8.0 — v1.8.0 | PROJECT INCARNATION (The Living Sovereign — Articulated 3D Skeletal PBR Engine)
+
+- **3D Skeletal & Procedural Dragon Anatomy (`src/leviathan_3d_math.rs`, `src/leviathan_mesh.rs`):**
+  Upgraded the native WGPU centerpiece to a real-time 96-bone articulated 3D skinned-mesh system:
+  sculpted thorax with sternal rib-prongs, faceted outer + inner-star **Amethyst Heart**, clawed
+  forelimbs gripping a two-tier octagonal obsidian dais, scalloped backlit wings, 6-bone coiled
+  dorsal-bladed tail, seven 6-bone necks with physical dorsal spines, seven distinct 3D dragon
+  skulls with hinged jaws, twin nasal spurs, curved ivory fangs, 3D reptilian slit-pupil eyeballs,
+  unique horn crowns, AEGIS 3D hex shield ring, ORACLE 3D astrolabe, and gothic sanctuary pillars.
+- **4-Pass Native WGPU 3D PBR, Shadows, HDR Bloom & GPU Telemetry (`src/leviathan_renderer_3d.rs`, `src/desktop_renderer.rs`):**
+  Implemented a 1536×1536 `Depth32Float` directional shadow pass with 3×3 PCF soft filtering,
+  Cook-Torrance GGX PBR lighting over overlapping diamond dragon scales with amethyst sub-scale
+  bioluminescence, translucent wing/structure blending, half-res separable HDR bloom (`Rgba16Float`),
+  ACES filmic compositing, `SceneQuality::Cinematic` preset, and optional DX12/Vulkan
+  `Features::TIMESTAMP_QUERY` live GPU pass execution timing in the cockpit HUD.
+- **Smooth Camera Choreography & Workspace Upgrades (`src/leviathan_scene.rs`, `src/cockpit.rs`, `src/bin/hydra-cockpit.rs`, `src/hunter_ui.rs`, `src/diagnostics_ui.rs`):**
+  Added smooth Sovereign Overview ↔ heroic 3/4 Focused Head transitions (`Esc` to return,
+  `--head <0..=6>` CLI flag, non-overlapping obsidian memorial plaque in close-ups), Overview
+  7-head readiness strip + interactive equity crosshair, NEXUS lifecycle pipeline summary, and
+  embedded horizontal bar charts in HUNTER, FANG, and AEGIS workspaces while preserving the Glow
+  fallback (`--features desktop`), disabled live defaults (`MODE: DORMANT`), permanent GitHub
+  compliance, and Ashlan Haley Rapponotti's permanent memorial dedication.
+
 ## 1.7.0 — v1.7.0 | PROJECT LEVIATHAN (Public Release Foundation & Rebirth of the Leviathan)
 
 - **Rebirth of the Leviathan (`src/leviathan_shader.rs`, `src/leviathan_scene.rs`):** Replace
