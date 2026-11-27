@@ -92,6 +92,27 @@ impl LiveAuthorizationRequest {
     }
 }
 
+/// Structural separation between production exchange transports and test-only loopback fixtures.
+///
+/// Outside `#[cfg(test)]`, only `ProductionMainnet` exists, preventing any production path
+/// from treating an endpoint as a mock/loopback bypass based solely on string inspection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VenueTransportClass {
+    ProductionMainnet,
+    #[cfg(test)]
+    LoopbackTestFixture,
+}
+
+impl VenueTransportClass {
+    pub const fn is_production(self) -> bool {
+        match self {
+            Self::ProductionMainnet => true,
+            #[cfg(test)]
+            Self::LoopbackTestFixture => false,
+        }
+    }
+}
+
 /// Returns `true` for any exchange endpoint that is not an explicit local loopback test server.
 pub fn is_production_exchange_url(url: &str) -> bool {
     let normalized = url.trim().to_ascii_lowercase();
@@ -177,5 +198,7 @@ mod tests {
         assert!(!is_production_exchange_url("http://localhost:3000"));
         assert!(is_production_exchange_url("https://api.hyperliquid.xyz"));
         assert!(is_production_exchange_url("wss://api.hyperliquid.xyz/ws"));
+        assert!(VenueTransportClass::ProductionMainnet.is_production());
+        assert!(!VenueTransportClass::LoopbackTestFixture.is_production());
     }
 }

@@ -9,6 +9,7 @@ use hydra::core::{MarketSnapshot, OrderIntent, OrderResult, Side, VenueKind};
 use hydra::execution::ExecutionEngine;
 use hydra::live_gate::{
     require_certified_live_execution, ExecutionChannel, LiveAuthorizationRequest,
+    VenueTransportClass,
 };
 use hydra::storage::Storage;
 use hydra::treasury::{GateState, ReadinessReport};
@@ -161,4 +162,5 @@ async fn live_adapter_constructor_and_engine_and_execution_all_refuse_without_ne
         .to_string();
     assert!(err.contains("PendingCertification"), "got: {err}");
     assert!(!submitted.load(Ordering::SeqCst));
+    assert!(VenueTransportClass::ProductionMainnet.is_production());
 }

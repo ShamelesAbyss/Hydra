@@ -297,6 +297,8 @@ pub enum PaperServiceAction {
         #[arg(long)]
         session: String,
         #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        #[arg(long)]
         db: Option<std::path::PathBuf>,
     },
     /// Reset a non-running paper session (requires `--confirm CONFIRM_RESET:<session_id>`).
@@ -305,6 +307,8 @@ pub enum PaperServiceAction {
         session: String,
         #[arg(long)]
         confirm: String,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
         #[arg(long)]
         db: Option<std::path::PathBuf>,
     },
@@ -371,6 +375,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 open_interest_usd: Some(8_000_000.0),
                 coverage_fraction: Some(1.0),
                 age_days: Some(90.0),
+                observed_history_minutes: None,
                 ema_ready: hist.len() >= 12,
             };
             pipe.step_cycle_with_provenance(
@@ -872,18 +877,21 @@ async fn handle_paper_service_cli(action: &PaperServiceAction) -> Result<()> {
             )?;
             println!("{}", serde_json::to_string_pretty(&resp)?);
         }
-        PaperServiceAction::Archive { session, db } => {
+        PaperServiceAction::Archive { session, root, db } => {
             let store = open_store(db.as_ref())?;
-            store.archive_session(session)?;
+            let svc_root = resolve_root(root.as_ref())?;
+            store.archive_session_guarded(&svc_root, session)?;
             println!("{}", serde_json::json!({"archived": session}));
         }
         PaperServiceAction::Reset {
             session,
             confirm,
+            root,
             db,
         } => {
             let store = open_store(db.as_ref())?;
-            let reset = store.reset_session_confirmed(session, confirm)?;
+            let svc_root = resolve_root(root.as_ref())?;
+            let reset = store.reset_session_confirmed_guarded(&svc_root, session, confirm)?;
             println!("{}", serde_json::to_string_pretty(&reset)?);
         }
     }

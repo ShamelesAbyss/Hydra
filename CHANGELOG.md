@@ -1,3 +1,16 @@
+## 1.12.0 — v1.12.0 | PROJECT ASCENDANCY — OPERATIONAL RELIABILITY & TRANSACTIONAL TRUTH
+
+- **Self-Contained Standalone Detached Paper Service (`src/bin/hydra-cockpit.rs`, `src/paper_service.rs`):**
+  Added internal windowless `--paper-service-worker` mode to `hydra-cockpit` so `PaperServiceClient::spawn_detached` spawns the published standalone executable directly without needing a sibling `hydra.exe`.
+- **Transactional Service Loop, Stream Watchdog & Bounded IPC (`src/paper_service.rs`, `src/cockpit.rs`):**
+  Staged pipeline cycles before `commit_cycle`, halted cleanly into `PaperSessionStatus::Faulted` with persisted `fault_reason` on heartbeat/pipeline/SQLite errors, persisted observation metadata to `paper_observations`, bounded local TCP IPC line reads via `Read::take(MAX_IPC_LINE_BYTES + 1)` before allocation, propagated IPC DB errors, and added stream-exit watchdog restarts.
+- **Complete Session Checkpoint Recovery & Ownership Guards (`src/paper_store.rs`, `src/synapse_bus.rs`, `src/cli/mod.rs`):**
+  Persisted `PipelineRecoveryCheckpoint` (`next_event_id`, `dropped_events`, `simulated_samples`, `last_funding_applied_ms`, `demo_candles`) inside atomic `IMMEDIATE` transactions and restored bus history on `load_pipeline`; added `archive_session_guarded` & `reset_session_confirmed_guarded` blocking active `Running`, `Paused`, and OS-locked sessions.
+- **Independent Per-Field Freshness, History Duration & Funding Settlement (`src/hunter_stream.rs`, `src/hunter.rs`, `src/paper_pipeline.rs`):**
+  Added `FieldFreshness` and `MarketFreshnessReport`, gated both simulated exits and entries on fresh marks, replaced synthetic `completed_candles.len() / 24.0` listing-age derivation with exact `observed_history_minutes` and `instrument_listing_age_days: None`, and settled `apply_simulated_funding` at crossed hourly boundaries without double-charging.
+- **Structural Gate Isolation (`src/live_gate.rs`, `src/adapters/hyperliquid.rs`, `tests/live_gate_adversarial.rs`):**
+  Added sealed `VenueTransportClass` (`ProductionMainnet`, `#[cfg(test)] LoopbackTestFixture`), verified across **504** desktop-wgpu / **458** headless tests while preserving Glow fallback, `MODE: DORMANT`, GitHub compliance, and Ashlan's permanent memorial.
+
 ## 1.11.0 — v1.11.0 | PROJECT ASCENDANCY — TRUSTWORTHY INGESTION, DURABLE PAPER & EXECUTION GATE
 
 - **Authoritative `PendingCertification` Live Gate (`src/live_gate.rs`, `tests/live_gate_adversarial.rs`):**

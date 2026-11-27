@@ -47,11 +47,82 @@ struct Options {
     /// Optional initial camera horizontal orbit azimuth in degrees (-180..=180).
     #[arg(long)]
     orbit: Option<f32>,
+    /// Internal headless paper-engine service worker mode for self-contained distribution.
+    #[arg(long, hide = true)]
+    paper_service_worker: bool,
+    /// Paper session ID when invoking `--paper-service-worker`.
+    #[arg(long, hide = true)]
+    session: Option<String>,
+    /// Service control & lock root directory when invoking `--paper-service-worker`.
+    #[arg(long, hide = true)]
+    root: Option<PathBuf>,
+    /// Tick cadence in seconds when invoking `--paper-service-worker`.
+    #[arg(long, hide = true, default_value_t = 5)]
+    interval_s: u64,
+    /// Optional finite tick budget for automated standalone verification.
+    #[arg(long, hide = true)]
+    max_ticks: Option<u64>,
+    /// Optional WebSocket endpoint override for `--paper-service-worker`.
+    #[arg(long, hide = true)]
+    ws_url: Option<String>,
+    /// Optional HTTP /info endpoint override for `--paper-service-worker`.
+    #[arg(long, hide = true)]
+    info_url: Option<String>,
+}
+
+fn run_headless_paper_worker(options: &Options) -> anyhow::Result<()> {
+    let session_id = options
+        .session
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("--session is required with --paper-service-worker"))?;
+    let store = match options.db.as_ref() {
+        Some(p) => hydra::paper_store::PaperStore::open(p)?,
+        None => hydra::paper_store::PaperStore::open_default()?,
+    };
+    let root = match options.root.as_ref() {
+        Some(r) => r.clone(),
+        None => hydra::paper_store::PaperStore::default_root()?,
+    };
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_sig = stop.clone();
+    let _ = ctrlc::set_handler(move || {
+        stop_sig.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let cfg = hydra::paper_service::PaperServiceConfig {
+        root,
+        store,
+        session_id: session_id.to_string(),
+        ws_url: options
+            .ws_url
+            .clone()
+            .unwrap_or_else(|| hydra::hunter_stream::HYPERLIQUID_PUBLIC_WS_URL.to_string()),
+        info_url: options
+            .info_url
+            .clone()
+            .unwrap_or_else(|| hydra::hunter::HYPERLIQUID_PUBLIC_INFO_URL.to_string()),
+        tick_interval_s: options.interval_s,
+        max_ticks: options.max_ticks,
+    };
+    let _resp = rt.block_on(hydra::paper_service::run_paper_session_service(cfg, stop))?;
+    Ok(())
 }
 
 fn main() {
     hydra::startup_diagnostics::install_panic_hook();
     let options = Options::parse();
+    if options.paper_service_worker {
+        if let Err(err) = run_headless_paper_worker(&options) {
+            hydra::startup_diagnostics::log_startup(&format!(
+                "HEADLESS PAPER WORKER FAILED: {err:#}"
+            ));
+            eprintln!("headless paper worker failed: {err:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let db_path = hydra::startup_diagnostics::resolve_default_database(options.db);
     let db_health = hydra::startup_diagnostics::verify_local_database_health(&db_path);
     let mode_override = options.mode.map(|m| match m {

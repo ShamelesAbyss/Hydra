@@ -47,6 +47,7 @@ use crate::core::{Candle, MarketSnapshot, OrderIntent, OrderResult, VenueKind};
 pub struct HyperliquidAdapter {
     http: reqwest::Client,
     live_authorized: bool,
+    transport_class: crate::live_gate::VenueTransportClass,
     max_slippage_bps: f64,
     base_url: String,
     account_address: Option<String>,
@@ -169,6 +170,7 @@ impl HyperliquidAdapter {
         let adapter = Self {
             http,
             live_authorized: cfg.live_trading,
+            transport_class: crate::live_gate::VenueTransportClass::ProductionMainnet,
             max_slippage_bps: cfg.risk.max_slippage_bps,
             base_url: defaults::HYPERLIQUID_API.to_string(),
             account_address,
@@ -277,7 +279,9 @@ impl HyperliquidAdapter {
         journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
     ) -> Result<super::OrderReceipt> {
         anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
-        if crate::live_gate::is_production_exchange_url(&self.base_url) {
+        if self.transport_class.is_production()
+            || crate::live_gate::is_production_exchange_url(&self.base_url)
+        {
             let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
                 crate::live_gate::ExecutionChannel::VenueAdapterDirect,
                 self.live_authorized,
@@ -587,7 +591,8 @@ impl VenueAdapter for HyperliquidAdapter {
     }
 
     fn is_production_venue(&self) -> bool {
-        crate::live_gate::is_production_exchange_url(&self.base_url)
+        self.transport_class.is_production()
+            || crate::live_gate::is_production_exchange_url(&self.base_url)
     }
 
     async fn ping(&self) -> Result<()> {
@@ -1031,6 +1036,7 @@ mod tests {
         let adapter = HyperliquidAdapter {
             http: reqwest::Client::new(),
             live_authorized: false,
+            transport_class: crate::live_gate::VenueTransportClass::LoopbackTestFixture,
             max_slippage_bps: 30.0,
             base_url: "http://127.0.0.1:1".into(),
             account_address: None,
@@ -1294,6 +1300,7 @@ mod tests {
         let adapter = HyperliquidAdapter {
             http: reqwest::Client::new(),
             live_authorized: true,
+            transport_class: crate::live_gate::VenueTransportClass::LoopbackTestFixture,
             max_slippage_bps: 30.0,
             base_url: "http://127.0.0.1:1".into(),
             account_address: Some("0x1111111111111111111111111111111111111111".into()),

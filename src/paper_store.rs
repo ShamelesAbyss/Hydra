@@ -9,8 +9,8 @@
 //!   equity history, breaker state, and restart recovery snapshots in atomic SQLite transactions.
 
 use crate::paper_pipeline::{
-    CycleSummary, PaperClosedTrade, PaperLedger, PaperPosition, SynapsePipeline,
-    SynapsePipelineConfig,
+    CycleSummary, PaperClosedTrade, PaperLedger, PaperPosition, PipelineRecoveryCheckpoint,
+    SynapsePipeline, SynapsePipelineConfig,
 };
 use crate::synapse_bus::{
     DataProvenance, HeadId, SynapseEvent, SynapsePayload, SYNAPSE_SCHEMA_VERSION,
@@ -111,6 +111,7 @@ pub struct PaperSessionSummary {
     pub mtm_equity_usd: Decimal,
     pub owner_pid: Option<u32>,
     pub heartbeat_at: Option<String>,
+    pub fault_reason: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -186,6 +187,8 @@ impl PaperStore {
                 total_funding_usd TEXT NOT NULL,
                 max_drawdown_ratio TEXT NOT NULL,
                 breaker_reason TEXT,
+                state_checkpoint_json TEXT,
+                fault_reason TEXT,
                 owner_pid INTEGER,
                 heartbeat_at TEXT,
                 created_at TEXT NOT NULL,
@@ -294,6 +297,31 @@ impl PaperStore {
             );
         "#,
         )?;
+        let mut has_checkpoint = false;
+        let mut has_fault_reason = false;
+        {
+            let mut stmt = conn.prepare("PRAGMA table_info(paper_sessions)")?;
+            let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            for col in cols {
+                match col?.as_str() {
+                    "state_checkpoint_json" => has_checkpoint = true,
+                    "fault_reason" => has_fault_reason = true,
+                    _ => {}
+                }
+            }
+        }
+        if !has_checkpoint {
+            conn.execute(
+                "ALTER TABLE paper_sessions ADD COLUMN state_checkpoint_json TEXT",
+                [],
+            )?;
+        }
+        if !has_fault_reason {
+            conn.execute(
+                "ALTER TABLE paper_sessions ADD COLUMN fault_reason TEXT",
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -355,7 +383,7 @@ impl PaperStore {
             conn.query_row(
                 r#"SELECT session_id, kind, label, status, strategy_version,
                           config_json, ledger_json, watchlist_json, cycle_count,
-                          mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at
+                          mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at, fault_reason
                    FROM paper_sessions WHERE session_id=?1"#,
                 params![session_id],
                 row_to_summary,
@@ -376,7 +404,7 @@ impl PaperStore {
             conn.query_row(
                 r#"SELECT session_id, kind, label, status, strategy_version,
                           config_json, ledger_json, watchlist_json, cycle_count,
-                          mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at
+                          mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at, fault_reason
                    FROM paper_sessions
                    WHERE kind=?1 AND status != 'archived'
                    ORDER BY updated_at DESC LIMIT 1"#,
@@ -403,7 +431,7 @@ impl PaperStore {
                 let mut stmt = conn.prepare(
                     r#"SELECT session_id, kind, label, status, strategy_version,
                               config_json, ledger_json, watchlist_json, cycle_count,
-                              mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at
+                              mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at, fault_reason
                        FROM paper_sessions WHERE kind=?1 ORDER BY updated_at DESC LIMIT 64"#,
                 )?;
                 let rows = stmt.query_map(params![k.as_str()], row_to_summary)?;
@@ -414,7 +442,7 @@ impl PaperStore {
                 let mut stmt = conn.prepare(
                     r#"SELECT session_id, kind, label, status, strategy_version,
                               config_json, ledger_json, watchlist_json, cycle_count,
-                              mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at
+                              mtm_equity_usd, owner_pid, heartbeat_at, created_at, updated_at, fault_reason
                        FROM paper_sessions ORDER BY updated_at DESC LIMIT 64"#,
                 )?;
                 let rows = stmt.query_map([], row_to_summary)?;
@@ -435,6 +463,36 @@ impl PaperStore {
         pipe.watchlist = summary.watchlist;
         pipe.cycle_count = summary.cycle_count;
         pipe.bus.set_session_id(Some(session_id.to_string()));
+
+        let (checkpoint_raw, max_event_id) =
+            self.with_conn(|conn| -> Result<(Option<String>, u64)> {
+                let cp: Option<String> = conn
+                    .query_row(
+                        "SELECT state_checkpoint_json FROM paper_sessions WHERE session_id=?1",
+                        params![session_id],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .flatten();
+                let max_id: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(event_id), 0) FROM paper_synapse_events WHERE session_id=?1",
+                params![session_id],
+                |r| r.get(0),
+            )?;
+                Ok((cp, max_id.max(0) as u64))
+            })?;
+
+        let mut history = self.load_recent_events(session_id, 512)?;
+        history.reverse();
+        if let Some(raw) = checkpoint_raw {
+            let cp: PipelineRecoveryCheckpoint = serde_json::from_str(&raw).with_context(|| {
+                format!("decode recovery checkpoint for session '{session_id}'")
+            })?;
+            pipe.restore_checkpoint(cp, history);
+        } else {
+            pipe.bus
+                .restore_checkpoint(max_event_id.saturating_add(1), 0, history);
+        }
         Ok(pipe)
     }
 
@@ -495,7 +553,7 @@ impl PaperStore {
         let now = Utc::now().to_rfc3339();
         self.with_conn(|conn| -> Result<()> {
             let changed = conn.execute(
-                "UPDATE paper_sessions SET status=?1, owner_pid=?2, heartbeat_at=CASE WHEN ?2 IS NOT NULL THEN ?3 ELSE heartbeat_at END, updated_at=?3 WHERE session_id=?4",
+                "UPDATE paper_sessions SET status=?1, owner_pid=?2, heartbeat_at=CASE WHEN ?2 IS NOT NULL THEN ?3 ELSE heartbeat_at END, fault_reason=CASE WHEN ?1 IN ('running','created') THEN NULL ELSE fault_reason END, updated_at=?3 WHERE session_id=?4",
                 params![status.as_str(), owner_pid.map(|p| p as i64), now, session_id],
             )?;
             ensure!(changed == 1, "paper session '{session_id}' not found");
@@ -506,16 +564,61 @@ impl PaperStore {
     pub fn record_heartbeat(&self, session_id: &str, pid: u32) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.with_conn(|conn| -> Result<()> {
-            conn.execute(
+            let changed = conn.execute(
                 "UPDATE paper_sessions SET owner_pid=?1, heartbeat_at=?2, updated_at=?2 WHERE session_id=?3",
                 params![pid as i64, now, session_id],
             )?;
+            ensure!(changed == 1, "paper session '{session_id}' not found");
             Ok(())
         })
     }
 
+    pub fn record_fault(&self, session_id: &str, reason: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let trimmed = reason.trim();
+        let msg = if trimmed.is_empty() {
+            "unspecified worker fault"
+        } else {
+            trimmed
+        };
+        self.with_conn(|conn| -> Result<()> {
+            let changed = conn.execute(
+                "UPDATE paper_sessions SET status='faulted', owner_pid=NULL, fault_reason=?1, updated_at=?2 WHERE session_id=?3",
+                params![msg, now, session_id],
+            )?;
+            ensure!(changed == 1, "paper session '{session_id}' not found");
+            Ok(())
+        })
+    }
+
+    pub fn archive_session_guarded(&self, lock_root: &Path, session_id: &str) -> Result<()> {
+        crate::paper_service::PaperSessionLock::assert_unowned(lock_root, session_id)?;
+        self.archive_session(session_id)
+    }
+
     pub fn archive_session(&self, session_id: &str) -> Result<()> {
+        let summary = self
+            .get_session(session_id)?
+            .ok_or_else(|| anyhow!("paper session '{session_id}' not found"))?;
+        ensure!(
+            !matches!(
+                summary.status,
+                PaperSessionStatus::Running | PaperSessionStatus::Paused
+            ),
+            "cannot archive a {} paper session; stop it first",
+            summary.status.as_str()
+        );
         self.set_status(session_id, PaperSessionStatus::Archived, None)
+    }
+
+    pub fn reset_session_confirmed_guarded(
+        &self,
+        lock_root: &Path,
+        session_id: &str,
+        confirmation: &str,
+    ) -> Result<PaperSessionSummary> {
+        crate::paper_service::PaperSessionLock::assert_unowned(lock_root, session_id)?;
+        self.reset_session_confirmed(session_id, confirmation)
     }
 
     /// Destructive reset of a paper session's simulated state, requiring explicit confirmation string
@@ -534,8 +637,12 @@ impl PaperStore {
             .get_session(session_id)?
             .ok_or_else(|| anyhow!("paper session '{session_id}' not found"))?;
         ensure!(
-            summary.status != PaperSessionStatus::Running,
-            "cannot reset a currently running paper session; stop it first"
+            !matches!(
+                summary.status,
+                PaperSessionStatus::Running | PaperSessionStatus::Paused
+            ),
+            "cannot reset a {} paper session; stop it first",
+            summary.status.as_str()
         );
         let fresh_ledger = PaperLedger::new(summary.config.starting_equity)?;
         let fresh_ledger_json = serde_json::to_string(&fresh_ledger)?;
@@ -583,6 +690,8 @@ impl PaperStore {
                     total_funding_usd='0',
                     max_drawdown_ratio='0',
                     breaker_reason=NULL,
+                    state_checkpoint_json=NULL,
+                    fault_reason=NULL,
                     owner_pid=NULL,
                     heartbeat_at=NULL,
                     updated_at=?3
@@ -619,6 +728,7 @@ impl PaperStore {
         let now_ms = Utc::now().timestamp_millis();
         let ledger_json = serde_json::to_string(&pipeline.ledger)?;
         let wl_json = serde_json::to_string(&pipeline.watchlist)?;
+        let checkpoint_json = serde_json::to_string(&pipeline.export_checkpoint())?;
         let unrealized = pipeline.ledger.unrealized_pnl(marks);
         let drawdown = pipeline.ledger.current_drawdown_ratio(marks);
 
@@ -635,8 +745,10 @@ impl PaperStore {
                     total_funding_usd=?7,
                     max_drawdown_ratio=?8,
                     breaker_reason=?9,
-                    updated_at=?10
-                   WHERE session_id=?11"#,
+                    state_checkpoint_json=?10,
+                    fault_reason=NULL,
+                    updated_at=?11
+                   WHERE session_id=?12"#,
                 params![
                     ledger_json,
                     wl_json,
@@ -647,6 +759,7 @@ impl PaperStore {
                     pipeline.ledger.total_funding_usd.to_string(),
                     pipeline.ledger.max_drawdown_ratio.to_string(),
                     pipeline.ledger.breaker_reason,
+                    checkpoint_json,
                     now,
                     session_id,
                 ],
@@ -872,6 +985,7 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<PaperSessionSumma
     let heartbeat_at: Option<String> = row.get(11)?;
     let created_at: String = row.get(12)?;
     let updated_at: String = row.get(13)?;
+    let fault_reason: Option<String> = row.get(14)?;
 
     let to_sql_err = |e: anyhow::Error| {
         rusqlite::Error::FromSqlConversionFailure(
@@ -902,6 +1016,7 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<PaperSessionSumma
         mtm_equity_usd,
         owner_pid: owner_pid.and_then(|p| u32::try_from(p).ok()),
         heartbeat_at,
+        fault_reason,
         created_at,
         updated_at,
     })
@@ -985,5 +1100,227 @@ mod tests {
             .unwrap();
         assert_eq!(reset.cycle_count, 0);
         assert!(reset.ledger.open_positions.is_empty());
+    }
+
+    #[test]
+    fn crash_recovery_matches_uninterrupted_run_and_never_collides_event_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("paper_recovery.db");
+        let store = PaperStore::open(&db_path).unwrap();
+        let sess = store
+            .create_session(
+                PaperSessionKind::OfflineDemo,
+                "Recovery Equivalence",
+                SynapsePipelineConfig::default(),
+            )
+            .unwrap();
+
+        let mut uninterrupted = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+        uninterrupted
+            .bus
+            .set_session_id(Some(sess.session_id.clone()));
+        for _ in 0..8 {
+            uninterrupted.run_deterministic_demo_step().unwrap();
+        }
+
+        let mut split = store.load_pipeline(&sess.session_id).unwrap();
+        for _ in 0..4 {
+            let before_ev = split.bus.total_published();
+            let prev_closed = split.ledger.closed_trades.len();
+            let sum = split.run_deterministic_demo_step().unwrap();
+            let new_evs: Vec<_> = split
+                .bus
+                .all_chronological()
+                .filter(|e| e.event_id > before_ev)
+                .cloned()
+                .collect();
+            let mut marks = BTreeMap::new();
+            for (s, p) in &split.ledger.open_positions {
+                marks.insert(s.clone(), p.entry_price);
+            }
+            store
+                .commit_cycle(
+                    &sess.session_id,
+                    &split,
+                    &sum,
+                    prev_closed,
+                    &new_evs,
+                    &marks,
+                    DataProvenance::SyntheticTestFixture,
+                    Some("{\"cycle\":true}"),
+                )
+                .unwrap();
+        }
+        let cp1_next_id = split.bus.next_event_id();
+        drop(store);
+
+        let reopened = PaperStore::open(&db_path).unwrap();
+        let mut recovered = reopened.load_pipeline(&sess.session_id).unwrap();
+        assert_eq!(recovered.bus.next_event_id(), cp1_next_id);
+        for _ in 0..4 {
+            let before_ev = recovered.bus.total_published();
+            let prev_closed = recovered.ledger.closed_trades.len();
+            let sum = recovered.run_deterministic_demo_step().unwrap();
+            let new_evs: Vec<_> = recovered
+                .bus
+                .all_chronological()
+                .filter(|e| e.event_id > before_ev)
+                .cloned()
+                .collect();
+            let mut marks = BTreeMap::new();
+            for (s, p) in &recovered.ledger.open_positions {
+                marks.insert(s.clone(), p.entry_price);
+            }
+            reopened
+                .commit_cycle(
+                    &sess.session_id,
+                    &recovered,
+                    &sum,
+                    prev_closed,
+                    &new_evs,
+                    &marks,
+                    DataProvenance::SyntheticTestFixture,
+                    Some("{\"cycle\":true}"),
+                )
+                .unwrap();
+        }
+
+        assert_eq!(recovered.cycle_count, uninterrupted.cycle_count);
+        assert_eq!(recovered.watchlist, uninterrupted.watchlist);
+        assert_eq!(recovered.ledger, uninterrupted.ledger);
+        assert_eq!(
+            recovered.bus.next_event_id(),
+            uninterrupted.bus.next_event_id()
+        );
+        assert_eq!(
+            recovered.last_funding_applied_ms,
+            uninterrupted.last_funding_applied_ms
+        );
+        assert_eq!(
+            recovered.simulated_samples.len(),
+            uninterrupted.simulated_samples.len()
+        );
+
+        let db_events = reopened.load_recent_events(&sess.session_id, 500).unwrap();
+        let unique_ids: std::collections::BTreeSet<u64> =
+            db_events.iter().map(|e| e.event_id).collect();
+        assert_eq!(unique_ids.len(), db_events.len());
+    }
+
+    #[test]
+    fn commit_cycle_sql_abort_rolls_back_all_tables_atomically() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("paper_rollback.db");
+        let store = PaperStore::open(&db_path).unwrap();
+        let sess = store
+            .create_session(
+                PaperSessionKind::OfflineDemo,
+                "Rollback Test",
+                SynapsePipelineConfig::default(),
+            )
+            .unwrap();
+
+        let mut pipe = store.load_pipeline(&sess.session_id).unwrap();
+        let mut last_sum = None;
+        let mut all_evs = Vec::new();
+        // Run enough demo steps to emit NexusPaperExecution orders.
+        for _ in 0..4 {
+            let before = pipe.bus.total_published();
+            last_sum = Some(pipe.run_deterministic_demo_step().unwrap());
+            all_evs.extend(
+                pipe.bus
+                    .all_chronological()
+                    .filter(|e| e.event_id > before)
+                    .cloned(),
+            );
+        }
+
+        // Inject trigger aborting on paper_orders insert after earlier updates/inserts in tx.
+        store.with_conn(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER fail_orders_insert BEFORE INSERT ON paper_orders BEGIN SELECT RAISE(ABORT, 'injected order fault'); END;",
+            )
+            .unwrap();
+        });
+
+        let err = store.commit_cycle(
+            &sess.session_id,
+            &pipe,
+            last_sum.as_ref().unwrap(),
+            0,
+            &all_evs,
+            &BTreeMap::new(),
+            DataProvenance::SyntheticTestFixture,
+            Some("{\"aborted\":true}"),
+        );
+        assert!(err.is_err());
+
+        // Every table must roll back completely to pre-transaction cycle 0.
+        let after = store.get_session(&sess.session_id).unwrap().unwrap();
+        assert_eq!(after.cycle_count, 0);
+        assert!(store
+            .load_recent_events(&sess.session_id, 50)
+            .unwrap()
+            .is_empty());
+        let (eq_cnt, obs_cnt, pos_cnt): (i64, i64, i64) = store.with_conn(|conn| {
+            let e: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM paper_equity_history WHERE session_id=?1",
+                    params![&sess.session_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let o: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM paper_observations WHERE session_id=?1",
+                    params![&sess.session_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let p: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM paper_positions WHERE session_id=?1",
+                    params![&sess.session_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            (e, o, p)
+        });
+        assert_eq!((eq_cnt, obs_cnt, pos_cnt), (0, 0, 0));
+    }
+
+    #[test]
+    fn archive_and_reset_refuse_running_and_paused_sessions_and_record_fault_works() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = PaperStore::open(tmp.path().join("paper_guards.db")).unwrap();
+        let sess = store
+            .create_session(
+                PaperSessionKind::PublicPaper,
+                "Guards Test",
+                SynapsePipelineConfig::default(),
+            )
+            .unwrap();
+        let token = format!("CONFIRM_RESET:{}", sess.session_id);
+
+        for status in [PaperSessionStatus::Running, PaperSessionStatus::Paused] {
+            store
+                .set_status(&sess.session_id, status, Some(4242))
+                .unwrap();
+            assert!(store.archive_session(&sess.session_id).is_err());
+            assert!(store
+                .reset_session_confirmed(&sess.session_id, &token)
+                .is_err());
+        }
+
+        store
+            .record_fault(&sess.session_id, "SQLite commit aborted")
+            .unwrap();
+        let faulted = store.get_session(&sess.session_id).unwrap().unwrap();
+        assert_eq!(faulted.status, PaperSessionStatus::Faulted);
+        assert_eq!(
+            faulted.fault_reason.as_deref(),
+            Some("SQLite commit aborted")
+        );
+        assert!(faulted.owner_pid.is_none());
     }
 }

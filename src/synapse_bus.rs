@@ -319,6 +319,31 @@ impl SynapseBus {
         self.next_event_id.saturating_sub(1)
     }
 
+    pub fn next_event_id(&self) -> u64 {
+        self.next_event_id
+    }
+
+    /// Restores bus history and event-ID sequence from durable session storage so
+    /// subsequent events never reuse an earlier `event_id` across worker restarts.
+    pub fn restore_checkpoint(
+        &mut self,
+        next_event_id: u64,
+        dropped_events: u64,
+        history: Vec<SynapseEvent>,
+    ) {
+        self.events.clear();
+        self.latest_by_head = Default::default();
+        let mut max_seen = 0u64;
+        let skip_n = history.len().saturating_sub(self.capacity);
+        for ev in history.into_iter().skip(skip_n) {
+            max_seen = max_seen.max(ev.event_id);
+            self.latest_by_head[ev.head.index()] = Some(ev.clone());
+            self.events.push_back(ev);
+        }
+        self.next_event_id = next_event_id.max(max_seen.saturating_add(1)).max(1);
+        self.dropped_events = dropped_events.max(skip_n as u64);
+    }
+
     pub fn latest_for_head(&self, head: HeadId) -> Option<&SynapseEvent> {
         self.latest_by_head[head.index()].as_ref()
     }

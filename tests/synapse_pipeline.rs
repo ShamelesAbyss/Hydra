@@ -48,6 +48,7 @@ fn connected_multi_head_paper_pipeline_is_reproducible_and_emits_typed_bus() {
             open_interest_usd: Some(15_000_000.0),
             coverage_fraction: Some(1.0),
             age_days: Some(365.0),
+            observed_history_minutes: None,
             ema_ready: bars.len() >= 12,
         };
         pipe.step_cycle(ts.timestamp_millis(), &[obs], &candle_map, &marks)

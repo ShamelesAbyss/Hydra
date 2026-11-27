@@ -20,7 +20,7 @@ use crate::fang_planner::{
 use crate::hunter::{evaluate as evaluate_hunter, HunterPolicy, HunterRequest, MarketObservation};
 use crate::hunter_stream::ObservedMarketSnapshot;
 use crate::portfolio_research::{evaluate_margin_stress, MarginPositionInput};
-use crate::synapse_bus::{DataProvenance, HeadId, SynapseBus, SynapsePayload};
+use crate::synapse_bus::{DataProvenance, HeadId, SynapseBus, SynapseEvent, SynapsePayload};
 use anyhow::{ensure, Context, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use rust_decimal::Decimal;
@@ -253,6 +253,15 @@ pub struct CycleSummary {
     pub breaker_latched: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineRecoveryCheckpoint {
+    pub next_event_id: u64,
+    pub dropped_events: u64,
+    pub simulated_samples: Vec<ShadowSample>,
+    pub last_funding_applied_ms: BTreeMap<String, i64>,
+    pub demo_candles: BTreeMap<String, Vec<Candle>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SynapsePipeline {
     pub config: SynapsePipelineConfig,
@@ -261,6 +270,7 @@ pub struct SynapsePipeline {
     pub watchlist: Vec<String>,
     pub simulated_samples: Vec<ShadowSample>,
     pub cycle_count: u64,
+    pub last_funding_applied_ms: BTreeMap<String, i64>,
     demo_candles: BTreeMap<String, Vec<Candle>>,
 }
 
@@ -274,8 +284,31 @@ impl SynapsePipeline {
             watchlist: Vec::new(),
             simulated_samples: Vec::new(),
             cycle_count: 0,
+            last_funding_applied_ms: BTreeMap::new(),
             demo_candles: BTreeMap::new(),
         })
+    }
+
+    pub fn export_checkpoint(&self) -> PipelineRecoveryCheckpoint {
+        PipelineRecoveryCheckpoint {
+            next_event_id: self.bus.next_event_id(),
+            dropped_events: self.bus.dropped_events(),
+            simulated_samples: self.simulated_samples.clone(),
+            last_funding_applied_ms: self.last_funding_applied_ms.clone(),
+            demo_candles: self.demo_candles.clone(),
+        }
+    }
+
+    pub fn restore_checkpoint(
+        &mut self,
+        checkpoint: PipelineRecoveryCheckpoint,
+        history: Vec<SynapseEvent>,
+    ) {
+        self.simulated_samples = checkpoint.simulated_samples;
+        self.last_funding_applied_ms = checkpoint.last_funding_applied_ms;
+        self.demo_candles = checkpoint.demo_candles;
+        self.bus
+            .restore_checkpoint(checkpoint.next_event_id, checkpoint.dropped_events, history);
     }
 
     pub fn step_cycle(
@@ -306,13 +339,25 @@ impl SynapsePipeline {
         let correlation_id = format!("synapse-{:06}", self.cycle_count);
         let before_events = self.bus.total_published();
 
+        // 0. Strip marks belonging to stale/future market observations BEFORE both exits & entries.
+        let mut effective_marks = marks.clone();
+        for m in markets {
+            let age = now_ms.saturating_sub(m.observed_at_ms);
+            if age < 0 || age > self.config.stale_market_max_age_ms {
+                effective_marks.remove(&m.symbol);
+            }
+        }
+
+        // 0.5 Settle simulated hourly funding across crossed epoch-hour boundaries without double-charging.
+        self.settle_elapsed_funding(now_ms, markets, &effective_marks);
+
         // 1. Settle protective exits first (permits exits even if AEGIS entry breaker is latched).
-        let closed_this_cycle = self.evaluate_exits(now_ms, &correlation_id, marks)?;
+        let closed_this_cycle = self.evaluate_exits(now_ms, &correlation_id, &effective_marks)?;
         let mut missing_marks_halt = false;
-        let _mtm_eq = match self.ledger.checked_mark_to_market_equity(marks) {
+        let _mtm_eq = match self.ledger.checked_mark_to_market_equity(&effective_marks) {
             Ok(eq) => {
                 self.ledger
-                    .update_drawdown(marks, self.config.max_drawdown_ratio);
+                    .update_drawdown(&effective_marks, self.config.max_drawdown_ratio);
                 eq
             }
             Err(err) => {
@@ -342,6 +387,10 @@ impl SynapsePipeline {
             }
         }
         let approved_set: BTreeSet<String> = markets.iter().map(|m| m.symbol.clone()).collect();
+        let observed_mode = !markets.is_empty()
+            && markets
+                .iter()
+                .all(|m| m.age_days.is_none() && m.observed_history_minutes.is_some());
         let hunter_req = HunterRequest {
             as_of_ms: now_ms,
             source: match market_provenance {
@@ -360,6 +409,7 @@ impl SynapsePipeline {
                 max_abs_funding: 25.0,
                 min_coverage: 0.80,
                 min_age: 1.0,
+                min_observed_history_minutes: if observed_mode { Some(12) } else { None },
                 slots: 5,
                 switch_margin: 3.0,
                 min_open_interest: 50_000.0,
@@ -448,7 +498,7 @@ impl SynapsePipeline {
         }
 
         // 4. FANG — shared deterministic strategy planner honoring budgets & ownership.
-        let mtm_eq = self.ledger.mark_to_market_equity(marks);
+        let mtm_eq = self.ledger.mark_to_market_equity(&effective_marks);
         let allocated = self.ledger.allocated_exposure();
         let total_cap = (mtm_eq * self.config.max_total_exposure_ratio).round_dp(4);
         let total_remaining = (total_cap - allocated).max(Decimal::ZERO);
@@ -602,12 +652,12 @@ impl SynapsePipeline {
             let sym = &cand.signal.symbol;
             let cur_eq = self
                 .ledger
-                .checked_mark_to_market_equity(marks)
+                .checked_mark_to_market_equity(&effective_marks)
                 .unwrap_or(Decimal::ZERO);
             let cur_alloc = self.ledger.allocated_exposure();
             let slip_frac = self.config.slippage_bps / Decimal::from(10_000u32);
             let fee_frac = self.config.fee_bps / Decimal::from(10_000u32);
-            let post_fill_metrics = marks
+            let post_fill_metrics = effective_marks
                 .get(sym)
                 .copied()
                 .filter(|p| *p > Decimal::ZERO)
@@ -649,7 +699,10 @@ impl SynapsePipeline {
                 if cur_eq > Decimal::ZERO {
                     let mut stress_inputs = Vec::new();
                     for p in self.ledger.open_positions.values() {
-                        if let Some(&mp) = marks.get(&p.symbol).filter(|m| **m > Decimal::ZERO) {
+                        if let Some(&mp) = effective_marks
+                            .get(&p.symbol)
+                            .filter(|m| **m > Decimal::ZERO)
+                        {
                             stress_inputs.push(MarginPositionInput {
                                 symbol: p.symbol.clone(),
                                 is_long: p.side == Side::Long,
@@ -776,6 +829,7 @@ impl SynapsePipeline {
                         correlation_id: correlation_id.clone(),
                     },
                 );
+                self.last_funding_applied_ms.insert(sym.clone(), now_ms);
                 approved_entries += 1;
                 self.bus.publish(
                     &correlation_id,
@@ -798,7 +852,7 @@ impl SynapsePipeline {
         }
 
         self.ledger
-            .update_drawdown(marks, self.config.max_drawdown_ratio);
+            .update_drawdown(&effective_marks, self.config.max_drawdown_ratio);
 
         Ok(CycleSummary {
             cycle: self.cycle_count,
@@ -808,9 +862,64 @@ impl SynapsePipeline {
             approved_entries,
             closed_trades: closed_this_cycle,
             events_emitted: self.bus.total_published().saturating_sub(before_events) as usize,
-            mtm_equity_usd: self.ledger.mark_to_market_equity(marks).round_dp(2),
+            mtm_equity_usd: self
+                .ledger
+                .mark_to_market_equity(&effective_marks)
+                .round_dp(2),
             breaker_latched: self.ledger.breaker_reason.is_some(),
         })
+    }
+
+    fn settle_elapsed_funding(
+        &mut self,
+        now_ms: i64,
+        markets: &[MarketObservation],
+        effective_marks: &BTreeMap<String, Decimal>,
+    ) {
+        let syms: Vec<String> = self.ledger.open_positions.keys().cloned().collect();
+        for sym in syms {
+            let Some(&mark_px) = effective_marks.get(&sym).filter(|m| **m > Decimal::ZERO) else {
+                continue;
+            };
+            let Some(obs) = markets.iter().find(|m| m.symbol == sym) else {
+                continue;
+            };
+            let obs_age = now_ms.saturating_sub(obs.observed_at_ms);
+            if obs_age < 0 || obs_age > self.config.stale_market_max_age_ms {
+                continue;
+            }
+            let Some(funding_bps) = obs.funding_bps.filter(|f| f.is_finite()) else {
+                continue;
+            };
+            let opened_at = self
+                .ledger
+                .open_positions
+                .get(&sym)
+                .map(|p| p.opened_at_ms)
+                .unwrap_or(now_ms);
+            let last_ts = self
+                .last_funding_applied_ms
+                .get(&sym)
+                .copied()
+                .unwrap_or(opened_at)
+                .max(opened_at);
+            if now_ms <= last_ts {
+                continue;
+            }
+            let prev_hour = last_ts.div_euclid(3_600_000);
+            let curr_hour = now_ms.div_euclid(3_600_000);
+            if curr_hour > prev_hour {
+                let elapsed_hours = (curr_hour - prev_hour) as f64;
+                if self
+                    .ledger
+                    .apply_simulated_funding(&sym, funding_bps, elapsed_hours, mark_px)
+                    .is_some()
+                {
+                    self.last_funding_applied_ms
+                        .insert(sym, curr_hour.saturating_mul(3_600_000));
+                }
+            }
+        }
     }
 
     fn evaluate_exits(
@@ -855,6 +964,7 @@ impl SynapsePipeline {
 
         for (sym, raw_mark, reason) in to_close {
             if let Some(pos) = self.ledger.open_positions.remove(&sym) {
+                self.last_funding_applied_ms.remove(&sym);
                 let exit_px = match pos.side {
                     Side::Long => (raw_mark * (Decimal::ONE - slip_frac)).round_dp(6),
                     Side::Short => (raw_mark * (Decimal::ONE + slip_frac)).round_dp(6),
@@ -983,6 +1093,7 @@ impl SynapsePipeline {
                 open_interest_usd: Some(12_000_000.0),
                 coverage_fraction: Some(0.99),
                 age_days: Some(365.0),
+                observed_history_minutes: None,
                 ema_ready: true,
             });
         }
@@ -997,8 +1108,9 @@ impl SynapsePipeline {
     }
 
     /// Evaluates genuinely observed WebSocket/REST market snapshots (`HunterMarketState`)
-    /// without fabricating missing L2 depth, spreads, completed candles, or market age.
-    /// Any incomplete or stale snapshot stays ineligible rather than receiving placeholder numbers.
+    /// without fabricating missing L2 depth, spreads, completed candles, or listing age.
+    /// Per-field staleness is checked independently: a stale mark never triggers either
+    /// simulated exits or simulated entries, and a fresh L2 book never masks stale fields.
     pub fn step_cycle_from_observed(
         &mut self,
         now_ms: i64,
@@ -1008,25 +1120,34 @@ impl SynapsePipeline {
         let mut candles_map = BTreeMap::new();
         let mut markets = Vec::new();
         for snap in snapshots {
-            if let Some(d) = decimal_positive(snap.mark_px) {
-                marks.insert(snap.symbol.clone(), d);
+            // Stale mark prices must NEVER trigger simulated exits, MTM valuations, or entries.
+            if snap.freshness.mark_is_fresh() {
+                if let Some(d) = decimal_positive(snap.mark_px) {
+                    marks.insert(snap.symbol.clone(), d);
+                }
             }
             if !snap.completed_candles.is_empty() {
                 candles_map.insert(snap.symbol.clone(), snap.completed_candles.clone());
             }
-            let obs_ts = snap.exchange_ts_ms.unwrap_or(snap.received_at_ms);
-            let age_days = if snap.is_stale
-                || snap.depth_usd.is_none()
-                || snap.spread_bps.is_none()
-                || snap.directionality.is_none()
-                || snap.coverage_fraction.is_none()
-                || snap.completed_candles.len() < 12
-            {
-                None
+            let obs_ts = if snap.freshness.any_critical_stale() {
+                let stale_present_min = [
+                    &snap.freshness.mark,
+                    &snap.freshness.bid_ask,
+                    &snap.freshness.l2_depth,
+                    &snap.freshness.funding,
+                    &snap.freshness.instrument_meta,
+                    &snap.freshness.completed_candles,
+                    &snap.freshness.derived_stats,
+                ]
+                .into_iter()
+                .filter(|f| f.is_stale)
+                .filter_map(|f| f.updated_at_ms)
+                .min();
+                stale_present_min.unwrap_or(0)
             } else {
-                // Hyperliquid metaAndAssetCtxs does not report instrument listing date;
-                // require minimum completed candle history instead of inventing an arbitrary age.
-                Some(snap.completed_candles.len() as f64 / 24.0)
+                snap.freshness
+                    .oldest_critical_update_ms()
+                    .unwrap_or(snap.received_at_ms)
             };
             markets.push(MarketObservation {
                 symbol: snap.symbol.clone(),
@@ -1036,11 +1157,17 @@ impl SynapsePipeline {
                 spread_bps: snap.spread_bps,
                 volatility_pct: snap.volatility_pct,
                 directionality: snap.directionality,
-                funding_bps: snap.funding_bps_1h,
+                funding_bps: if snap.freshness.funding.is_stale {
+                    None
+                } else {
+                    snap.funding_bps_1h
+                },
                 open_interest_usd: snap.open_interest_usd,
                 coverage_fraction: snap.coverage_fraction,
-                age_days,
-                ema_ready: snap.completed_candles.len() >= 12,
+                age_days: snap.instrument_listing_age_days,
+                observed_history_minutes: Some(snap.observed_history_minutes),
+                ema_ready: snap.completed_candles.len() >= 12
+                    && !snap.freshness.completed_candles.is_stale,
             });
         }
         self.step_cycle_with_provenance(
@@ -1109,6 +1236,7 @@ mod tests {
             open_interest_usd: Some(10_000_000.0),
             coverage_fraction: Some(1.0),
             age_days: Some(365.0),
+            observed_history_minutes: None,
             ema_ready: true,
         };
         let mut candles = BTreeMap::new();
@@ -1172,5 +1300,151 @@ mod tests {
         assert!(pipe.ledger.open_positions.is_empty());
         assert!(pipe.ledger.breaker_reason.is_some());
         assert!(pipe.ledger.realized_net_pnl_usd < Decimal::ZERO);
+    }
+
+    #[test]
+    fn observed_stale_mark_blocks_both_exits_and_entries_while_fresh_history_allows_entry() {
+        use crate::hunter_stream::HunterMarketState;
+
+        let mut pipe = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+        let base_ms = 1_700_006_000_000_i64;
+        // Hold an open ETH long with stop at 2910.
+        pipe.ledger.open_positions.insert(
+            "ETH".into(),
+            PaperPosition {
+                symbol: "ETH".into(),
+                owner_strategy: "test".into(),
+                side: Side::Long,
+                entry_price: Decimal::from(3_000u32),
+                qty: Decimal::from(1u32),
+                notional: Decimal::from(3_000u32),
+                stop_price: Decimal::from(2_910u32),
+                take_profit_price: Decimal::from(3_200u32),
+                entry_fee_usd: Decimal::new(120, 2),
+                opened_at_ms: base_ms - 100_000,
+                correlation_id: "pos-eth".into(),
+            },
+        );
+
+        let mut hs = HunterMarketState::new(30_000);
+        // Stale ETH mark breaching stop (2700) received at t = base_ms - 60_000 (stale!), plus fresh L2 at base_ms.
+        let eth_meta = r#"[{"universe":[{"name":"ETH","szDecimals":4}]},[{"markPx":"2700","oraclePx":"2700","funding":"0.0001","openInterest":"1000","dayNtlVlm":"50000000"}]]"#;
+        hs.apply_meta_and_ctxs_json(eth_meta.as_bytes(), base_ms - 60_000)
+            .unwrap();
+        let eth_l2 = serde_json::json!({
+            "channel":"l2Book",
+            "data":{"coin":"ETH","time":base_ms,"levels":[[{"px":"3000","sz":"50","n":1}],[{"px":"3001","sz":"50","n":1}]]}
+        })
+        .to_string();
+        hs.apply_ws_message(&eth_l2, base_ms).unwrap();
+
+        // Meanwhile BTC has completely fresh data + 12 rising candles + None listing age.
+        let btc_meta = r#"[{"universe":[{"name":"BTC","szDecimals":5}]},[{"markPx":"66500","oraclePx":"66500","funding":"0.0001","openInterest":"5000","dayNtlVlm":"80000000"}]]"#;
+        hs.apply_meta_and_ctxs_json(btc_meta.as_bytes(), base_ms)
+            .unwrap();
+        let btc_l2 = serde_json::json!({
+            "channel":"l2Book",
+            "data":{"coin":"BTC","time":base_ms,"levels":[[{"px":"66499","sz":"5","n":1}],[{"px":"66501","sz":"5","n":1}]]}
+        })
+        .to_string();
+        hs.apply_ws_message(&btc_l2, base_ms).unwrap();
+        for k in 0..14i64 {
+            let open_ms = base_ms - (14 - k) * 60_000;
+            let close_ms = open_ms + 59_999;
+            let px = 64_000.0 + k as f64 * 190.0;
+            let bar = serde_json::json!({
+                "channel":"candle",
+                "data":{"s":"BTC","t":open_ms,"T":close_ms,"o":(px*0.999).to_string(),"h":(px*1.002).to_string(),"l":(px*0.998).to_string(),"c":px.to_string(),"v":"1000"}
+            })
+            .to_string();
+            hs.apply_ws_message(&bar, base_ms).unwrap();
+        }
+
+        let eth_snap = hs.observed_market_snapshot("ETH", base_ms).unwrap();
+        let btc_snap = hs.observed_market_snapshot("BTC", base_ms).unwrap();
+        assert!(!eth_snap.freshness.mark_is_fresh());
+        assert!(btc_snap.freshness.mark_is_fresh());
+        assert!(btc_snap.instrument_listing_age_days.is_none());
+        assert_eq!(btc_snap.observed_history_minutes, 14);
+
+        // Stale ETH mark must NOT exit ETH, AND missing valid MTM mark for held ETH must halt BTC entry!
+        let sum = pipe
+            .step_cycle_from_observed(base_ms, &[eth_snap, btc_snap.clone()])
+            .unwrap();
+        assert_eq!(sum.closed_trades, 0);
+        assert!(pipe.ledger.open_positions.contains_key("ETH"));
+        assert_eq!(sum.approved_entries, 0);
+        assert!(!pipe.ledger.open_positions.contains_key("BTC"));
+
+        // Close ETH cleanly first, then BTC alone enters without fabricated age_days!
+        pipe.ledger.open_positions.clear();
+        let sum2 = pipe.step_cycle_from_observed(base_ms, &[btc_snap]).unwrap();
+        assert_eq!(sum2.approved_entries, 1);
+        assert!(pipe.ledger.open_positions.contains_key("BTC"));
+    }
+
+    #[test]
+    fn simulated_funding_settles_once_per_hourly_boundary_without_double_charging() {
+        let mut pipe = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+        // Open long BTC inside hour 472_223 (opened_at_ms = 1_700_004_000_000; 1_700_004_000_000 / 3_600_000 = 472_223, remainder 1_200_000ms)
+        let opened_ms = 472_223_i64 * 3_600_000 + 1_200_000;
+        let next_hour_ms = 472_224_i64 * 3_600_000 + 5_000;
+        pipe.ledger.open_positions.insert(
+            "BTC".into(),
+            PaperPosition {
+                symbol: "BTC".into(),
+                owner_strategy: "test".into(),
+                side: Side::Long,
+                entry_price: Decimal::from(50_000u32),
+                qty: Decimal::from(1u32),
+                notional: Decimal::from(50_000u32),
+                stop_price: Decimal::from(45_000u32),
+                take_profit_price: Decimal::from(60_000u32),
+                entry_fee_usd: Decimal::ZERO,
+                opened_at_ms: opened_ms,
+                correlation_id: "fund-1".into(),
+            },
+        );
+        let mk_obs = |ts: i64| MarketObservation {
+            symbol: "BTC".into(),
+            observed_at_ms: ts,
+            volume_24h_usd: Some(50_000_000.0),
+            depth_usd: Some(500_000.0),
+            spread_bps: Some(2.0),
+            volatility_pct: Some(2.0),
+            directionality: Some(0.8),
+            funding_bps: Some(2.0), // 2 bps/hr -> on $50,000 = -$10.00 for long
+            open_interest_usd: Some(10_000_000.0),
+            coverage_fraction: Some(1.0),
+            age_days: Some(365.0),
+            observed_history_minutes: None,
+            ema_ready: true,
+        };
+        let marks = BTreeMap::from([("BTC".to_string(), Decimal::from(50_000u32))]);
+        let same_hour = opened_ms + 30_000;
+        pipe.step_cycle(same_hour, &[mk_obs(same_hour)], &BTreeMap::new(), &marks)
+            .unwrap();
+        assert_eq!(pipe.ledger.total_funding_usd, Decimal::ZERO);
+
+        // Step across 472_224 hourly boundary -> charges -$10.00 once.
+        pipe.step_cycle(
+            next_hour_ms,
+            &[mk_obs(next_hour_ms)],
+            &BTreeMap::new(),
+            &marks,
+        )
+        .unwrap();
+        assert_eq!(pipe.ledger.total_funding_usd, Decimal::new(-1000, 2));
+
+        // Second step inside the same hour must NOT double charge.
+        let same_next_hour = next_hour_ms + 15_000;
+        pipe.step_cycle(
+            same_next_hour,
+            &[mk_obs(same_next_hour)],
+            &BTreeMap::new(),
+            &marks,
+        )
+        .unwrap();
+        assert_eq!(pipe.ledger.total_funding_usd, Decimal::new(-1000, 2));
     }
 }

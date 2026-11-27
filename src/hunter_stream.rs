@@ -153,6 +153,10 @@ pub struct InstrumentMetaCtx {
     pub impact_spread_bps: Option<f64>,
     pub exchange_ts_ms: Option<i64>,
     pub received_at_ms: i64,
+    #[serde(default)]
+    pub mark_received_at_ms: Option<i64>,
+    #[serde(default)]
+    pub funding_received_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,6 +184,73 @@ pub struct StreamHealth {
     pub fallback_rest_active: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldFreshness {
+    pub updated_at_ms: Option<i64>,
+    pub exchange_ts_ms: Option<i64>,
+    pub is_stale: bool,
+}
+
+impl FieldFreshness {
+    pub fn evaluate(
+        updated_at_ms: Option<i64>,
+        exchange_ts_ms: Option<i64>,
+        as_of_ms: i64,
+        stale_after_ms: i64,
+    ) -> Self {
+        let is_stale = match updated_at_ms {
+            Some(ts) => ts > as_of_ms || as_of_ms.saturating_sub(ts) > stale_after_ms,
+            None => true,
+        };
+        Self {
+            updated_at_ms,
+            exchange_ts_ms,
+            is_stale,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketFreshnessReport {
+    pub mark: FieldFreshness,
+    pub bid_ask: FieldFreshness,
+    pub l2_depth: FieldFreshness,
+    pub funding: FieldFreshness,
+    pub instrument_meta: FieldFreshness,
+    pub completed_candles: FieldFreshness,
+    pub derived_stats: FieldFreshness,
+}
+
+impl MarketFreshnessReport {
+    pub fn mark_is_fresh(&self) -> bool {
+        !self.mark.is_stale
+    }
+
+    pub fn any_critical_stale(&self) -> bool {
+        self.mark.is_stale
+            || self.bid_ask.is_stale
+            || self.l2_depth.is_stale
+            || self.funding.is_stale
+            || self.instrument_meta.is_stale
+            || self.completed_candles.is_stale
+            || self.derived_stats.is_stale
+    }
+
+    pub fn oldest_critical_update_ms(&self) -> Option<i64> {
+        [
+            &self.mark,
+            &self.bid_ask,
+            &self.l2_depth,
+            &self.funding,
+            &self.instrument_meta,
+            &self.completed_candles,
+            &self.derived_stats,
+        ]
+        .into_iter()
+        .try_fold(i64::MAX, |acc, f| f.updated_at_ms.map(|ts| acc.min(ts)))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservedMarketSnapshot {
     pub symbol: String,
@@ -195,6 +266,9 @@ pub struct ObservedMarketSnapshot {
     pub directionality: Option<f64>,
     pub coverage_fraction: Option<f64>,
     pub completed_candles: Vec<Candle>,
+    pub observed_history_minutes: u64,
+    pub instrument_listing_age_days: Option<f64>,
+    pub freshness: MarketFreshnessReport,
     pub exchange_ts_ms: Option<i64>,
     pub received_at_ms: i64,
     pub is_stale: bool,
@@ -350,6 +424,8 @@ impl HunterMarketState {
                     impact_spread_bps: obs.impact_spread_bps,
                     exchange_ts_ms: None,
                     received_at_ms,
+                    mark_received_at_ms: Some(received_at_ms),
+                    funding_received_at_ms: Some(received_at_ms),
                 },
             );
         }
@@ -642,8 +718,11 @@ impl HunterMarketState {
                                             impact_spread_bps: None,
                                             exchange_ts_ms: None,
                                             received_at_ms,
+                                            mark_received_at_ms: Some(received_at_ms),
+                                            funding_received_at_ms: None,
                                         });
                                     entry.mark_px = mark_px;
+                                    entry.mark_received_at_ms = Some(received_at_ms);
                                     if let Some(opx) = ctx.get("oraclePx").and_then(parse_json_f64)
                                     {
                                         entry.oracle_px = Some(opx);
@@ -651,16 +730,18 @@ impl HunterMarketState {
                                     if let Some(fund) = ctx.get("funding").and_then(parse_json_f64)
                                     {
                                         entry.funding_bps_1h = fund * 10_000.0;
+                                        entry.funding_received_at_ms = Some(received_at_ms);
                                     }
                                     if let Some(oi) =
                                         ctx.get("openInterest").and_then(parse_json_f64)
                                     {
                                         entry.open_interest_usd = (oi * mark_px).max(0.0);
+                                        entry.received_at_ms = received_at_ms;
                                     }
                                     if let Some(v) = ctx.get("dayNtlVlm").and_then(parse_json_f64) {
                                         entry.volume_24h_usd = v.max(0.0);
+                                        entry.received_at_ms = received_at_ms;
                                     }
-                                    entry.received_at_ms = received_at_ms;
                                 }
                             }
                         }
@@ -745,13 +826,21 @@ impl HunterMarketState {
                 missing.push(sym.clone());
                 continue;
             }
-            let latest_ts = book
-                .map(|b| b.received_at_ms)
-                .into_iter()
-                .chain(ctx.map(|c| c.received_at_ms))
-                .max()
-                .unwrap_or(0);
-            if now_ms.saturating_sub(latest_ts) > self.stale_after_ms {
+            let any_present_stale = book.is_some_and(|b| {
+                b.received_at_ms > now_ms
+                    || now_ms.saturating_sub(b.received_at_ms) > self.stale_after_ms
+            }) || ctx.is_some_and(|c| {
+                let mark_ts = c.mark_received_at_ms.unwrap_or(c.received_at_ms);
+                let meta_stale = c.received_at_ms > now_ms
+                    || now_ms.saturating_sub(c.received_at_ms) > self.stale_after_ms;
+                let mark_stale =
+                    mark_ts > now_ms || now_ms.saturating_sub(mark_ts) > self.stale_after_ms;
+                let funding_stale = c.funding_received_at_ms.is_some_and(|ft| {
+                    ft > now_ms || now_ms.saturating_sub(ft) > self.stale_after_ms
+                });
+                meta_stale || mark_stale || funding_stale
+            });
+            if any_present_stale {
                 stale.push(sym.clone());
             }
         }
@@ -760,7 +849,8 @@ impl HunterMarketState {
     }
 
     /// Assembles a strictly truthful `ObservedMarketSnapshot` for `symbol`.
-    /// Unavailable fields remain `None` and are listed in `missing_fields`.
+    /// Unavailable fields remain `None` and are listed in `missing_fields`, and
+    /// each field's freshness is tracked independently without masking stale updates.
     pub fn observed_market_snapshot(
         &self,
         symbol: &str,
@@ -784,27 +874,87 @@ impl HunterMarketState {
         let depth_usd = book.map(|b| b.bid_depth_usd.min(b.ask_depth_usd));
         let volume_24h_usd = ctx.map(|c| c.volume_24h_usd);
         let open_interest_usd = ctx.map(|c| c.open_interest_usd);
-        let funding_bps_1h = ctx.map(|c| c.funding_bps_1h);
+        let funding_bps_1h = ctx.and_then(|c| c.funding_received_at_ms.map(|_| c.funding_bps_1h));
         let derived = self.derived_metrics(symbol, 24);
-        let completed_candles = self
-            .candles
-            .get(symbol)
+        let candle_series = self.candles.get(symbol);
+        let completed_candles = candle_series
             .map(CompletedCandleSeries::completed_vec)
             .unwrap_or_default();
+        let observed_history_minutes = match (completed_candles.first(), completed_candles.last()) {
+            (Some(first), Some(last)) if completed_candles.len() >= 2 => {
+                ((last.ts - first.ts).num_minutes().max(0) as u64).saturating_add(1)
+            }
+            (Some(_), _) => 1,
+            _ => 0,
+        };
+
+        let mark_ts = ctx
+            .map(|c| c.mark_received_at_ms.unwrap_or(c.received_at_ms))
+            .or_else(|| book.map(|b| b.received_at_ms));
+        let mark_ex_ts = ctx
+            .and_then(|c| c.exchange_ts_ms)
+            .or_else(|| book.and_then(|b| b.exchange_ts_ms));
+        let book_ts = book.map(|b| b.received_at_ms);
+        let book_ex_ts = book.and_then(|b| b.exchange_ts_ms);
+        let funding_ts = ctx.and_then(|c| c.funding_received_at_ms);
+        let meta_ts = ctx.map(|c| c.received_at_ms);
+        let candle_ts = candle_series
+            .filter(|s| !s.completed.is_empty())
+            .map(|s| s.last_received_at_ms);
+        let candle_ex_ts = candle_series
+            .filter(|s| !s.completed.is_empty())
+            .and_then(|s| s.last_exchange_ts_ms);
+        let derived_ts =
+            if derived.directionality_er.is_some() && derived.coverage_fraction.is_some() {
+                candle_ts
+            } else {
+                None
+            };
+
+        let freshness = MarketFreshnessReport {
+            mark: FieldFreshness::evaluate(mark_ts, mark_ex_ts, as_of_ms, self.stale_after_ms),
+            bid_ask: FieldFreshness::evaluate(book_ts, book_ex_ts, as_of_ms, self.stale_after_ms),
+            l2_depth: FieldFreshness::evaluate(book_ts, book_ex_ts, as_of_ms, self.stale_after_ms),
+            funding: FieldFreshness::evaluate(
+                funding_ts,
+                ctx.and_then(|c| c.exchange_ts_ms),
+                as_of_ms,
+                self.stale_after_ms,
+            ),
+            instrument_meta: FieldFreshness::evaluate(
+                meta_ts,
+                ctx.and_then(|c| c.exchange_ts_ms),
+                as_of_ms,
+                self.stale_after_ms,
+            ),
+            completed_candles: FieldFreshness::evaluate(
+                candle_ts,
+                candle_ex_ts,
+                as_of_ms,
+                self.stale_after_ms,
+            ),
+            derived_stats: FieldFreshness::evaluate(
+                derived_ts,
+                candle_ex_ts,
+                as_of_ms,
+                self.stale_after_ms,
+            ),
+        };
 
         let exchange_ts_ms = book
             .and_then(|b| b.exchange_ts_ms)
             .into_iter()
             .chain(ctx.and_then(|c| c.exchange_ts_ms))
-            .chain(self.candles.get(symbol).and_then(|s| s.last_exchange_ts_ms))
+            .chain(candle_series.and_then(|s| s.last_exchange_ts_ms))
             .max();
-        let received_at_ms = book
-            .map(|b| b.received_at_ms)
+        // Aggregate receipt timestamp conservatively as the oldest present core feed so a
+        // fresh L2 update never hides a stale mark, funding, or meta snapshot.
+        let received_at_ms = [book_ts, mark_ts, meta_ts, funding_ts]
             .into_iter()
-            .chain(ctx.map(|c| c.received_at_ms))
-            .max()
+            .flatten()
+            .min()
             .unwrap_or(0);
-        let is_stale = as_of_ms.saturating_sub(received_at_ms) > self.stale_after_ms;
+        let is_stale = freshness.any_critical_stale();
 
         let mut missing_fields = Vec::new();
         if book.is_none() {
@@ -815,6 +965,12 @@ impl HunterMarketState {
         }
         if spread_bps.is_none() {
             missing_fields.push("spread_bps".into());
+        }
+        if ctx.is_none() {
+            missing_fields.push("instrument_meta".into());
+        }
+        if funding_ts.is_none() {
+            missing_fields.push("funding".into());
         }
         if derived.directionality_er.is_none() {
             missing_fields.push("directionality_er".into());
@@ -840,6 +996,10 @@ impl HunterMarketState {
             directionality: derived.directionality_er,
             coverage_fraction: derived.coverage_fraction,
             completed_candles,
+            observed_history_minutes,
+            // Hyperliquid metaAndAssetCtxs does not report instrument listing dates.
+            instrument_listing_age_days: None,
+            freshness,
             exchange_ts_ms,
             received_at_ms,
             is_stale,
@@ -1344,5 +1504,63 @@ mod tests {
         assert!(g.l2_books.contains_key("BTC"));
         assert_eq!(g.trade_count("BTC"), 1);
         assert!(g.health.reconnect_count >= 1);
+    }
+
+    #[test]
+    fn fresh_l2_book_never_masks_stale_mark_or_funding_and_history_is_not_days() {
+        let mut st = HunterMarketState::new(30_000);
+        // Meta & funding arrive at t = 1_000_000_000.
+        let meta = r#"[{"universe":[{"name":"BTC","szDecimals":5}]},[{"markPx":"65000","oraclePx":"65000","funding":"0.0001","openInterest":"100","dayNtlVlm":"50000000"}]]"#;
+        st.apply_meta_and_ctxs_json(meta.as_bytes(), 1_000_000_000)
+            .unwrap();
+
+        // Ingest 12 closed 1m candles through t = 1_000_050_000.
+        for k in 0..12i64 {
+            let open_ms = 999_300_000 + k * 60_000;
+            let close_ms = open_ms + 59_999;
+            let bar = serde_json::json!({
+                "channel": "candle",
+                "data": {"s":"BTC","t":open_ms,"T":close_ms,"o":"64900","h":"65100","l":"64850","c":"65000","v":"100.0"}
+            })
+            .to_string();
+            st.apply_ws_message(&bar, 1_000_050_000).unwrap();
+        }
+
+        // Fresh L2 book arrives at t = 1_000_050_000 (40s later, after stale_after_ms=30s).
+        let l2 = serde_json::json!({
+            "channel": "l2Book",
+            "data": {
+                "coin": "BTC",
+                "time": 1_000_050_000_i64,
+                "levels": [[{"px":"64995","sz":"5","n":1}],[{"px":"65005","sz":"5","n":1}]]
+            }
+        })
+        .to_string();
+        st.apply_ws_message(&l2, 1_000_050_000).unwrap();
+
+        let snap = st
+            .observed_market_snapshot("BTC", 1_000_055_000)
+            .expect("snapshot exists");
+        assert!(!snap.freshness.l2_depth.is_stale);
+        assert!(snap.freshness.mark.is_stale);
+        assert!(snap.freshness.funding.is_stale);
+        assert!(!snap.freshness.mark_is_fresh());
+        assert!(snap.is_stale);
+        assert_eq!(snap.observed_history_minutes, 12);
+        assert!(snap.instrument_listing_age_days.is_none());
+
+        // An activeAssetCtx with markPx only (no funding field) refreshes mark without faking funding freshness.
+        let ctx_no_funding = serde_json::json!({
+            "channel": "activeAssetCtx",
+            "data": {"coin":"BTC","ctx":{"markPx":"65020","openInterest":"100","dayNtlVlm":"50000000"}}
+        })
+        .to_string();
+        st.apply_ws_message(&ctx_no_funding, 1_000_052_000).unwrap();
+        let snap2 = st
+            .observed_market_snapshot("BTC", 1_000_055_000)
+            .expect("snapshot exists");
+        assert!(snap2.freshness.mark_is_fresh());
+        assert!(snap2.freshness.funding.is_stale);
+        assert!(snap2.is_stale);
     }
 }

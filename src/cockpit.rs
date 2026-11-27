@@ -156,7 +156,13 @@ impl SynapseCockpitState {
                         crate::paper_service::PaperControlCommand::Status,
                     ) {
                         Ok(resp) => {
-                            self.status = if resp.paused {
+                            self.status = if resp.fault_reason.is_some() || resp.status == "faulted"
+                            {
+                                format!(
+                                    "SERVICE FAULTED (PID {}) · cycle {}",
+                                    resp.pid, resp.cycle_count
+                                )
+                            } else if resp.paused {
                                 format!(
                                     "SERVICE PAUSED (PID {}) · cycle {}",
                                     resp.pid, resp.cycle_count
@@ -1288,10 +1294,18 @@ impl Cockpit {
                         crate::paper_store::PaperSessionKind::HistoricalReplay => {}
                     }
 
-                    if self.synapse.ipc_status.is_none() {
+                    if self.synapse.ipc_status.is_none()
+                        && !matches!(
+                            sess.status,
+                            crate::paper_store::PaperSessionStatus::Running
+                                | crate::paper_store::PaperSessionStatus::Paused
+                        )
+                    {
                         if ui.small_button("Archive Session").clicked() {
-                            if let Some(ref store) = self.synapse.store {
-                                match store.archive_session(&sess.session_id) {
+                            if let (Some(ref store), Some(ref root)) =
+                                (&self.synapse.store, &self.synapse.service_root)
+                            {
+                                match store.archive_session_guarded(root, &sess.session_id) {
                                     Ok(()) => self.synapse.refresh_from_store(
                                         Instant::now(),
                                         &mut self.research_changed_at,
@@ -1305,9 +1319,15 @@ impl Cockpit {
                                 .button(RichText::new("Confirm Destructive Reset").color(AMBER))
                                 .clicked()
                             {
-                                if let Some(ref store) = self.synapse.store {
+                                if let (Some(ref store), Some(ref root)) =
+                                    (&self.synapse.store, &self.synapse.service_root)
+                                {
                                     let token = format!("CONFIRM_RESET:{}", sess.session_id);
-                                    match store.reset_session_confirmed(&sess.session_id, &token) {
+                                    match store.reset_session_confirmed_guarded(
+                                        root,
+                                        &sess.session_id,
+                                        &token,
+                                    ) {
                                         Ok(_) => {
                                             self.synapse.confirm_reset_target = None;
                                             self.synapse.last_seen_event_seq = 0;
@@ -1330,6 +1350,20 @@ impl Cockpit {
                     }
                 });
 
+                if let Some(ref fault) = sess.fault_reason {
+                    ui.colored_label(AMBER, format!("Service fault recorded: {fault}"));
+                }
+                if let Some(ref ipc) = self.synapse.ipc_status {
+                    if ipc.watchdog_restarts > 0 {
+                        ui.colored_label(
+                            AMBER,
+                            format!(
+                                "Stream watchdog restarts: {} · reconnects: {}",
+                                ipc.watchdog_restarts, ipc.stream_reconnects
+                            ),
+                        );
+                    }
+                }
                 if let Some(ref err) = self.synapse.error {
                     ui.colored_label(AMBER, format!("Synapse status notice: {err}"));
                 }

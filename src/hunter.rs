@@ -29,6 +29,8 @@ pub struct MarketObservation {
     pub open_interest_usd: Option<f64>,
     pub coverage_fraction: Option<f64>,
     pub age_days: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_history_minutes: Option<u64>,
     pub ema_ready: bool,
 }
 
@@ -42,6 +44,8 @@ pub struct HunterPolicy {
     pub max_abs_funding: f64,
     pub min_coverage: f64,
     pub min_age: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_observed_history_minutes: Option<u64>,
     pub slots: usize,
     pub switch_margin: f64,
     pub min_open_interest: f64,
@@ -56,6 +60,7 @@ impl Default for HunterPolicy {
             max_abs_funding: 10.0,
             min_coverage: 0.95,
             min_age: 30.0,
+            min_observed_history_minutes: None,
             slots: 5,
             switch_margin: 5.0,
             min_open_interest: 500_000.0,
@@ -199,7 +204,6 @@ pub fn evaluate(request: &HunterRequest) -> Result<HunterReport> {
                 p.min_coverage,
                 1.0,
             ),
-            ("age_days", m.age_days, p.min_age, f64::MAX),
         ];
         for (name, value, min, max) in metrics {
             match value {
@@ -209,6 +213,31 @@ pub fn evaluate(request: &HunterRequest) -> Result<HunterReport> {
                 }
                 _ => (),
             }
+        }
+        match (p.min_observed_history_minutes, m.age_days) {
+            (Some(min_mins), None) => match m.observed_history_minutes {
+                None => reasons.push("missing observed_history_minutes".into()),
+                Some(mins) if mins < min_mins => reasons.push(format!(
+                    "below minimum observed_history_minutes ({mins} < {min_mins})"
+                )),
+                Some(_) => (),
+            },
+            (_, Some(age)) if !age.is_finite() || age < p.min_age => {
+                reasons.push("invalid or below eligibility threshold: age_days".into());
+            }
+            (None, None) => {
+                reasons.push("missing age_days".into());
+            }
+            (Some(min_mins), Some(_)) => {
+                if let Some(mins) = m.observed_history_minutes {
+                    if mins < min_mins {
+                        reasons.push(format!(
+                            "below minimum observed_history_minutes ({mins} < {min_mins})"
+                        ));
+                    }
+                }
+            }
+            (None, Some(_)) => (),
         }
         if !m.ema_ready {
             reasons.push("EMA not ready".into());
@@ -684,6 +713,7 @@ mod tests {
                 open_interest_usd: Some(1e6),
                 coverage_fraction: Some(1.0),
                 age_days: Some(100.0),
+                observed_history_minutes: None,
                 ema_ready: true,
             }],
         }

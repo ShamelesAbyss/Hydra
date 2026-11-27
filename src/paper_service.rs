@@ -20,7 +20,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,8 +68,25 @@ pub struct PaperControlResponse {
     pub stream_reconnects: u64,
     pub fallback_rest_active: bool,
     pub stale_symbols: Vec<String>,
+    #[serde(default)]
+    pub watchdog_restarts: u64,
+    #[serde(default)]
+    pub fault_reason: Option<String>,
     pub pid: u32,
     pub checked_at: String,
+}
+
+fn read_bounded_ipc_line(stream: &TcpStream, max_bytes: usize) -> Result<String> {
+    let cloned = stream.try_clone().context("clone IPC stream")?;
+    let mut reader = BufReader::new(cloned.take((max_bytes + 1) as u64));
+    let mut buf = Vec::new();
+    let n = reader.read_until(b'\n', &mut buf)?;
+    ensure!(n > 0, "empty IPC frame");
+    ensure!(
+        buf.len() <= max_bytes,
+        "IPC frame exceeded {max_bytes} byte limit"
+    );
+    String::from_utf8(buf).context("IPC frame was not valid UTF-8")
 }
 
 pub struct PaperSessionLock {
@@ -111,6 +128,35 @@ impl PaperSessionLock {
         })?;
         // Never unlink held lock files.
         Ok(Self { _file: file })
+    }
+
+    /// Verifies that no active worker holds the OS file lock for `session_id`.
+    pub fn assert_unowned(root: &Path, session_id: &str) -> Result<()> {
+        ensure!(
+            !session_id.is_empty()
+                && session_id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            "invalid paper session identifier"
+        );
+        let lock_path = root
+            .join("paper-locks")
+            .join(format!("paper-session-{session_id}.lock"));
+        if !lock_path.is_file() {
+            return Ok(());
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .with_context(|| format!("probe paper session lock {}", lock_path.display()))?;
+        file.try_lock().map_err(|_| {
+            anyhow!(
+                "paper session '{session_id}' is currently locked by an active engine service; stop it before archive/reset"
+            )
+        })?;
+        let _ = file.unlock();
+        Ok(())
     }
 }
 
@@ -182,6 +228,8 @@ pub struct LiveServiceTelemetry {
     pub stream_reconnects: u64,
     pub fallback_rest_active: bool,
     pub stale_symbols: Vec<String>,
+    pub watchdog_restarts: u64,
+    pub fault_reason: Option<String>,
 }
 
 struct ControlServerGuard {
@@ -247,20 +295,16 @@ impl PaperServiceClient {
         stream.write_all(wire.as_bytes())?;
         stream.flush()?;
 
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        let read_bytes = reader.read_line(&mut line)?;
-        ensure!(
-            read_bytes > 0 && read_bytes <= MAX_IPC_LINE_BYTES,
-            "invalid IPC response length"
-        );
+        let raw = read_bounded_ipc_line(&stream, MAX_IPC_LINE_BYTES)?;
         let resp: PaperControlResponse =
-            serde_json::from_str(line.trim()).context("decode IPC control response")?;
+            serde_json::from_str(raw.trim()).context("decode IPC control response")?;
         Ok(resp)
     }
 
-    /// Launches an independent headless `hydra paper-service run` child process detached
-    /// from the GUI lifetime so closing the cockpit never stops simulation.
+    /// Launches an independent headless child process detached from the GUI lifetime.
+    ///
+    /// When invoked from the standalone cockpit executable, re-execs itself directly in
+    /// hidden `--paper-service-worker` mode without requiring any sibling `hydra.exe`.
     pub fn spawn_detached(
         root: &Path,
         db_path: &Path,
@@ -268,27 +312,18 @@ impl PaperServiceClient {
         interval_s: u64,
     ) -> Result<u32> {
         let exe = std::env::current_exe().context("locate executable")?;
-        let candidate = if exe
+        let is_cli_binary = exe
             .file_stem()
             .and_then(|s| s.to_str())
-            .is_some_and(|n| n.eq_ignore_ascii_case("hydra"))
-        {
-            exe
-        } else {
-            let sibling = exe.with_file_name(if cfg!(windows) { "hydra.exe" } else { "hydra" });
-            ensure!(
-                sibling.is_file(),
-                "standalone engine executable '{}' not found alongside cockpit; launch via CLI `hydra paper-service start --session {session_id}`",
-                sibling.display()
-            );
-            sibling
-        };
+            .is_some_and(|n| n.eq_ignore_ascii_case("hydra"));
 
-        let mut cmd = std::process::Command::new(candidate);
-        cmd.arg("--no-banner")
-            .arg("paper-service")
-            .arg("run")
-            .arg("--root")
+        let mut cmd = std::process::Command::new(&exe);
+        if is_cli_binary {
+            cmd.arg("--no-banner").arg("paper-service").arg("run");
+        } else {
+            cmd.arg("--paper-service-worker");
+        }
+        cmd.arg("--root")
             .arg(root)
             .arg("--db")
             .arg(db_path)
@@ -373,6 +408,8 @@ pub async fn run_paper_session_service(
         stream_reconnects: 0,
         fallback_rest_active: false,
         stale_symbols: Vec::new(),
+        watchdog_restarts: 0,
+        fault_reason: None,
     }));
     let paused_flag = Arc::new(AtomicBool::new(false));
 
@@ -429,7 +466,7 @@ pub async fn run_paper_session_service(
     let sc_clone = stream_client.clone();
     let held_clone = held_set.clone();
     let wl_clone = wl_vec.clone();
-    let stream_task = tokio::spawn(async move {
+    let mut stream_task = tokio::spawn(async move {
         let _ = sc_clone
             .run_until_stopped(stream_stop, held_clone, wl_clone)
             .await;
@@ -437,6 +474,9 @@ pub async fn run_paper_session_service(
 
     let tick_dur = Duration::from_secs(cfg.tick_interval_s.clamp(1, 60));
     let mut ticks_done = 0u64;
+    let mut watchdog_restarts = 0u64;
+    let mut faulted_reason: Option<String> = None;
+
     while !stop_all.load(Ordering::Relaxed) && !external_stop.load(Ordering::Relaxed) {
         if let Some(max) = cfg.max_ticks {
             if ticks_done >= max {
@@ -445,8 +485,29 @@ pub async fn run_paper_session_service(
         }
         ticks_done += 1;
 
+        if stream_task.is_finished() {
+            watchdog_restarts = watchdog_restarts.saturating_add(1);
+            let s_stop = stop_all.clone();
+            let sc_re = stream_client.clone();
+            let h_re = held_set.clone();
+            let w_re = wl_vec.clone();
+            stream_task = tokio::spawn(async move {
+                let _ = sc_re.run_until_stopped(s_stop, h_re, w_re).await;
+            });
+        }
+
         let now_ms = Utc::now().timestamp_millis();
-        let _ = cfg.store.record_heartbeat(&cfg.session_id, pid);
+        if let Err(e) = cfg.store.record_heartbeat(&cfg.session_id, pid) {
+            let reason = format!("heartbeat persistence failed: {e:#}");
+            let _ = cfg.store.record_fault(&cfg.session_id, &reason);
+            let mut t = shared_telemetry.write().expect("telemetry lock");
+            t.status = PaperSessionStatus::Faulted;
+            t.fault_reason = Some(reason.clone());
+            t.watchdog_restarts = watchdog_restarts;
+            faulted_reason = Some(reason);
+            stop_all.store(true, Ordering::Relaxed);
+            break;
+        }
 
         let is_paused = paused_flag.load(Ordering::Relaxed);
         let (health_snapshot, observed_snaps) = {
@@ -471,39 +532,107 @@ pub async fn run_paper_session_service(
         };
 
         if !is_paused && !observed_snaps.is_empty() {
-            let prev_closed = pipeline.ledger.closed_trades.len();
-            let before_ev_id = pipeline.bus.total_published();
+            // Stage cycle execution in a clone and promote live state ONLY after SQLite commits cleanly.
+            let mut staged = pipeline.clone();
+            let prev_closed = staged.ledger.closed_trades.len();
+            let before_ev_id = staged.bus.total_published();
             let mut marks = BTreeMap::new();
             for s in &observed_snaps {
-                if let Ok(d) = rust_decimal::Decimal::try_from(s.mark_px) {
-                    if d > rust_decimal::Decimal::ZERO {
-                        marks.insert(s.symbol.clone(), d.round_dp(6));
+                if s.freshness.mark_is_fresh() {
+                    if let Ok(d) = rust_decimal::Decimal::try_from(s.mark_px) {
+                        if d > rust_decimal::Decimal::ZERO {
+                            marks.insert(s.symbol.clone(), d.round_dp(6));
+                        }
                     }
                 }
             }
-            if let Ok(sum) = pipeline.step_cycle_from_observed(now_ms, &observed_snaps) {
-                let new_events: Vec<_> = pipeline
-                    .bus
-                    .all_chronological()
-                    .filter(|ev| ev.event_id > before_ev_id)
-                    .cloned()
-                    .collect();
-                let _ = cfg.store.commit_cycle(
-                    &cfg.session_id,
-                    &pipeline,
-                    &sum,
-                    prev_closed,
-                    &new_events,
-                    &marks,
-                    DataProvenance::AuthoritativeExchange,
-                    None,
-                );
-                *held_set.write().expect("held lock") =
-                    pipeline.ledger.open_positions.keys().cloned().collect();
-                *wl_vec.write().expect("wl lock") = pipeline.watchlist.clone();
-                let mut t = shared_telemetry.write().expect("telemetry lock");
-                t.cycle_count = sum.cycle;
-                t.mtm_equity_usd = sum.mtm_equity_usd.round_dp(2).to_string();
+            let obs_summaries: Vec<_> = observed_snaps
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "symbol": s.symbol,
+                        "mark_px": s.mark_px,
+                        "best_bid": s.best_bid,
+                        "best_ask": s.best_ask,
+                        "spread_bps": s.spread_bps,
+                        "depth_usd": s.depth_usd,
+                        "volume_24h_usd": s.volume_24h_usd,
+                        "open_interest_usd": s.open_interest_usd,
+                        "funding_bps_1h": s.funding_bps_1h,
+                        "observed_history_minutes": s.observed_history_minutes,
+                        "instrument_listing_age_days": s.instrument_listing_age_days,
+                        "freshness": s.freshness,
+                        "is_stale": s.is_stale,
+                        "received_at_ms": s.received_at_ms,
+                        "missing_fields": s.missing_fields,
+                    })
+                })
+                .collect();
+            let obs_json = match serde_json::to_string(&obs_summaries) {
+                Ok(j) => j,
+                Err(e) => {
+                    let reason = format!("serialize paper observation payload failed: {e:#}");
+                    let _ = cfg.store.record_fault(&cfg.session_id, &reason);
+                    let mut t = shared_telemetry.write().expect("telemetry lock");
+                    t.status = PaperSessionStatus::Faulted;
+                    t.fault_reason = Some(reason.clone());
+                    faulted_reason = Some(reason);
+                    stop_all.store(true, Ordering::Relaxed);
+                    break;
+                }
+            };
+
+            match staged.step_cycle_from_observed(now_ms, &observed_snaps) {
+                Ok(sum) => {
+                    let new_events: Vec<_> = staged
+                        .bus
+                        .all_chronological()
+                        .filter(|ev| ev.event_id > before_ev_id)
+                        .cloned()
+                        .collect();
+                    match cfg.store.commit_cycle(
+                        &cfg.session_id,
+                        &staged,
+                        &sum,
+                        prev_closed,
+                        &new_events,
+                        &marks,
+                        DataProvenance::AuthoritativeExchange,
+                        Some(&obs_json),
+                    ) {
+                        Ok(_) => {
+                            pipeline = staged;
+                            *held_set.write().expect("held lock") =
+                                pipeline.ledger.open_positions.keys().cloned().collect();
+                            *wl_vec.write().expect("wl lock") = pipeline.watchlist.clone();
+                            let mut t = shared_telemetry.write().expect("telemetry lock");
+                            t.cycle_count = sum.cycle;
+                            t.mtm_equity_usd = sum.mtm_equity_usd.round_dp(2).to_string();
+                        }
+                        Err(e) => {
+                            let reason = format!("transactional commit_cycle failed: {e:#}");
+                            let _ = cfg.store.record_fault(&cfg.session_id, &reason);
+                            let mut t = shared_telemetry.write().expect("telemetry lock");
+                            t.status = PaperSessionStatus::Faulted;
+                            t.fault_reason = Some(reason.clone());
+                            t.watchdog_restarts = watchdog_restarts;
+                            faulted_reason = Some(reason);
+                            stop_all.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let reason = format!("pipeline cycle failed: {e:#}");
+                    let _ = cfg.store.record_fault(&cfg.session_id, &reason);
+                    let mut t = shared_telemetry.write().expect("telemetry lock");
+                    t.status = PaperSessionStatus::Faulted;
+                    t.fault_reason = Some(reason.clone());
+                    t.watchdog_restarts = watchdog_restarts;
+                    faulted_reason = Some(reason);
+                    stop_all.store(true, Ordering::Relaxed);
+                    break;
+                }
             }
         }
 
@@ -519,6 +648,7 @@ pub async fn run_paper_session_service(
             t.stream_reconnects = health_snapshot.reconnect_count;
             t.fallback_rest_active = health_snapshot.fallback_rest_active;
             t.stale_symbols = health_snapshot.stale_symbols;
+            t.watchdog_restarts = watchdog_restarts;
         }
 
         let sleep_step = Duration::from_millis(120);
@@ -535,9 +665,11 @@ pub async fn run_paper_session_service(
     stop_all.store(true, Ordering::Relaxed);
     let _ = tokio::time::timeout(Duration::from_secs(2), stream_task).await;
     let _ = ipc_thread.join();
-    let _ = cfg
-        .store
-        .set_status(&cfg.session_id, PaperSessionStatus::Stopped, None);
+    if let Some(reason) = faulted_reason {
+        bail!("{reason}");
+    }
+    cfg.store
+        .set_status(&cfg.session_id, PaperSessionStatus::Stopped, None)?;
 
     let g = shared_telemetry.read().expect("telemetry lock");
     Ok(PaperControlResponse {
@@ -552,6 +684,8 @@ pub async fn run_paper_session_service(
         stream_reconnects: g.stream_reconnects,
         fallback_rest_active: g.fallback_rest_active,
         stale_symbols: g.stale_symbols.clone(),
+        watchdog_restarts: g.watchdog_restarts,
+        fault_reason: g.fault_reason.clone(),
         pid,
         checked_at: Utc::now().to_rfc3339(),
     })
@@ -570,12 +704,7 @@ fn handle_ipc_connection(
 ) -> Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut line = String::new();
-    let n = reader.read_line(&mut line)?;
-    if n == 0 || n > MAX_IPC_LINE_BYTES {
-        bail!("invalid IPC frame size");
-    }
+    let line = read_bounded_ipc_line(&stream, MAX_IPC_LINE_BYTES)?;
     let req: PaperControlWireRequest =
         serde_json::from_str(line.trim()).context("malformed IPC control request")?;
     let g = shared.read().expect("telemetry lock").clone();
@@ -592,6 +721,8 @@ fn handle_ipc_connection(
             stream_reconnects: g.stream_reconnects,
             fallback_rest_active: g.fallback_rest_active,
             stale_symbols: g.stale_symbols,
+            watchdog_restarts: g.watchdog_restarts,
+            fault_reason: g.fault_reason,
             pid,
             checked_at: Utc::now().to_rfc3339(),
         };
@@ -601,31 +732,42 @@ fn handle_ipc_connection(
         return Ok(());
     }
 
-    match req.command {
+    let db_res = match req.command {
         PaperControlCommand::Status | PaperControlCommand::Heartbeat => {
-            let _ = store.record_heartbeat(session_id, pid);
+            store.record_heartbeat(session_id, pid)
         }
         PaperControlCommand::Pause => {
-            paused_flag.store(true, Ordering::Relaxed);
-            let _ = store.set_status(session_id, PaperSessionStatus::Paused, Some(pid));
+            let res = store.set_status(session_id, PaperSessionStatus::Paused, Some(pid));
+            if res.is_ok() {
+                paused_flag.store(true, Ordering::Relaxed);
+            }
+            res
         }
         PaperControlCommand::Resume => {
-            paused_flag.store(false, Ordering::Relaxed);
-            let _ = store.set_status(session_id, PaperSessionStatus::Running, Some(pid));
+            let res = store.set_status(session_id, PaperSessionStatus::Running, Some(pid));
+            if res.is_ok() {
+                paused_flag.store(false, Ordering::Relaxed);
+            }
+            res
         }
         PaperControlCommand::Stop => {
             stop_flag.store(true, Ordering::Relaxed);
+            Ok(())
         }
-    }
+    };
 
     let g2 = shared.read().expect("telemetry lock").clone();
+    let (ok, error) = match db_res {
+        Ok(()) => (true, None),
+        Err(e) => (false, Some(format!("paper store error: {e:#}"))),
+    };
     let resp = PaperControlResponse {
-        ok: true,
-        error: None,
+        ok,
+        error,
         session_id: g2.session_id,
         status: match req.command {
-            PaperControlCommand::Pause => PaperSessionStatus::Paused.as_str(),
-            PaperControlCommand::Resume => PaperSessionStatus::Running.as_str(),
+            PaperControlCommand::Pause if ok => PaperSessionStatus::Paused.as_str(),
+            PaperControlCommand::Resume if ok => PaperSessionStatus::Running.as_str(),
             PaperControlCommand::Stop => "stopping",
             _ => g2.status.as_str(),
         }
@@ -637,6 +779,8 @@ fn handle_ipc_connection(
         stream_reconnects: g2.stream_reconnects,
         fallback_rest_active: g2.fallback_rest_active,
         stale_symbols: g2.stale_symbols,
+        watchdog_restarts: g2.watchdog_restarts,
+        fault_reason: g2.fault_reason,
         pid,
         checked_at: Utc::now().to_rfc3339(),
     };
@@ -754,5 +898,161 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn oversized_ipc_frame_and_held_lock_guards_work_without_blocking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = PaperStore::open(tmp.path().join("paper_sessions.db")).unwrap();
+        let sess = store
+            .create_session(
+                PaperSessionKind::PublicPaper,
+                "IPC Security & Lock Test",
+                SynapsePipelineConfig::default(),
+            )
+            .unwrap();
+
+        let ws_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_port = ws_listener.local_addr().unwrap().port();
+        drop(ws_listener);
+        let rest_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rest_port = rest_listener.local_addr().unwrap().port();
+        drop(rest_listener);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_svc = stop.clone();
+        let root_c = tmp.path().to_path_buf();
+        let store_c = store.clone();
+        let sid = sess.session_id.clone();
+
+        let handle = tokio::spawn(async move {
+            run_paper_session_service(
+                PaperServiceConfig {
+                    root: root_c,
+                    store: store_c,
+                    session_id: sid,
+                    ws_url: format!("ws://127.0.0.1:{ws_port}"),
+                    info_url: format!("http://127.0.0.1:{rest_port}/info"),
+                    tick_interval_s: 1,
+                    max_ticks: None,
+                },
+                stop_svc,
+            )
+            .await
+        });
+
+        let mut desc = None;
+        for _ in 0..40 {
+            if let Ok(Some(d)) = PaperServiceClient::load_descriptor(tmp.path(), &sess.session_id) {
+                desc = Some(d);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        let desc = desc.expect("control descriptor written");
+
+        // Send an oversized frame > MAX_IPC_LINE_BYTES (16 KiB) directly over TCP.
+        {
+            let mut raw_stream = TcpStream::connect(format!("127.0.0.1:{}", desc.port)).unwrap();
+            raw_stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let oversized = "X".repeat(MAX_IPC_LINE_BYTES + 2048);
+            let _ = raw_stream.write_all(oversized.as_bytes());
+            let _ = raw_stream.write_all(b"\n");
+        }
+
+        // Held OS lock + guarded archive/reset must fail closed even when paused.
+        let paused = PaperServiceClient::send_command(
+            tmp.path(),
+            &sess.session_id,
+            PaperControlCommand::Pause,
+        )
+        .unwrap();
+        assert!(paused.ok && paused.paused);
+        assert!(store
+            .archive_session_guarded(tmp.path(), &sess.session_id)
+            .is_err());
+        assert!(store
+            .reset_session_confirmed_guarded(
+                tmp.path(),
+                &sess.session_id,
+                &format!("CONFIRM_RESET:{}", sess.session_id)
+            )
+            .is_err());
+
+        // Valid IPC Status + Stop still succeed after the oversized frame.
+        let status = PaperServiceClient::send_command(
+            tmp.path(),
+            &sess.session_id,
+            PaperControlCommand::Status,
+        )
+        .unwrap();
+        assert!(status.ok);
+        let stopped = PaperServiceClient::send_command(
+            tmp.path(),
+            &sess.session_id,
+            PaperControlCommand::Stop,
+        )
+        .unwrap();
+        assert!(stopped.ok);
+        assert_eq!(handle.await.unwrap().unwrap().status, "stopped");
+
+        // Once stopped and lock released, guarded archive succeeds cleanly.
+        store
+            .archive_session_guarded(tmp.path(), &sess.session_id)
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn db_fault_during_service_tick_halts_cleanly_as_faulted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("paper_fault_svc.db");
+        let store = PaperStore::open(&db_path).unwrap();
+        let sess = store
+            .create_session(
+                PaperSessionKind::PublicPaper,
+                "Fault Injection Service",
+                SynapsePipelineConfig::default(),
+            )
+            .unwrap();
+
+        // Inject SQLite trigger on heartbeat update after status enters running, simulating disk/constraint fault.
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TRIGGER fail_heartbeat BEFORE UPDATE OF heartbeat_at ON paper_sessions WHEN NEW.heartbeat_at IS NOT NULL AND OLD.status = 'running' BEGIN SELECT RAISE(ABORT, 'injected heartbeat disk fault'); END;",
+            )
+            .unwrap();
+        }
+
+        let ws_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_port = ws_listener.local_addr().unwrap().port();
+        drop(ws_listener);
+        let rest_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rest_port = rest_listener.local_addr().unwrap().port();
+        drop(rest_listener);
+
+        let res = run_paper_session_service(
+            PaperServiceConfig {
+                root: tmp.path().to_path_buf(),
+                store: store.clone(),
+                session_id: sess.session_id.clone(),
+                ws_url: format!("ws://127.0.0.1:{ws_port}"),
+                info_url: format!("http://127.0.0.1:{rest_port}/info"),
+                tick_interval_s: 1,
+                max_ticks: Some(3),
+            },
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+        assert!(res.is_err());
+
+        let persisted = store.get_session(&sess.session_id).unwrap().unwrap();
+        assert_eq!(persisted.status, PaperSessionStatus::Faulted);
+        assert!(persisted
+            .fault_reason
+            .as_deref()
+            .is_some_and(|r| r.contains("heartbeat persistence failed")));
     }
 }

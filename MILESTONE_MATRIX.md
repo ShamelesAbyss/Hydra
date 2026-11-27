@@ -333,3 +333,21 @@ Connected Intelligence was only preliminary in `v1.10.0` and is hereby corrected
   fee/funding net settlement & WebSocket/REST recovery, ORACLE realistic bid/ask/partial/latency
   simulation & walk-forward, GENESIS NSGA-II integration, authenticated live-engine control IPC,
   and multi-week paper qualification campaigns remain open before any limited live pilot.
+
+### v1.12.0 — Project Ascendancy P0 Operational Correction (Operational Reliability & Transactional Truth)
+
+All seven milestone rows reviewed against `v1.12.0`:
+
+- **M3 / M7 Self-Contained Standalone Worker, Transactional Loop & Watchdog (`src/bin/hydra-cockpit.rs`, `src/paper_service.rs`, `src/paper_store.rs`, `src/cockpit.rs`):**
+  Eliminated sibling `hydra.exe` dependency via embedded `--paper-service-worker` mode; staged pipeline
+  cycles before atomic SQLite commits; enforced explicit `Faulted` status transitions and persisted
+  `fault_reason`; persisted compact market observations; bounded pre-allocation IPC reads
+  (`Read::take`); added stream-exit watchdog restarts; added lossless checkpoint & `SynapseBus` event-ID
+  restoration; enforced lock/paused ownership guards (`archive_session_guarded`,
+  `reset_session_confirmed_guarded`); and passed **504** desktop-wgpu / **458** headless tests.
+- **M1 / M2 / M5 Structural Transport Isolation, Independent Freshness & Hourly Funding (`src/live_gate.rs`, `src/adapters/hyperliquid.rs`, `src/hunter_stream.rs`, `src/hunter.rs`, `src/paper_pipeline.rs`):**
+  Added sealed `VenueTransportClass`, per-field freshness validation (`FieldFreshness` /
+  `MarketFreshnessReport`), stale-mark exclusion BEFORE both simulated exits and entries, exact
+  `observed_history_minutes` with `instrument_listing_age_days: None`, and non-double-charged hourly
+  `apply_simulated_funding`. Unattended `AWAKENED` live certification remains locked (`PendingCertification`);
+  P1 intelligence unification and P2 live-pilot preparation follow on `main`.
