@@ -91,6 +91,28 @@ impl UnifiedLayout {
             compact,
         }
     }
+    /// Full-bleed Spatial Consciousness sanctuary plan: preserves fixed top safety controls and
+    /// footer while freeing the entire central obsidian sanctuary for 3D exploration and floating
+    /// holographic workspaces.
+    pub fn for_spatial_rect(bounds: Rect) -> Self {
+        let base = Self::for_rect(bounds, 0.0);
+        let top = base.command.bottom();
+        let footer_top = base.footer.top();
+        let canvas = Rect::from_min_max(
+            Pos2::new(base.bounds.left(), top),
+            Pos2::new(base.bounds.right(), footer_top.max(top)),
+        );
+        Self {
+            bounds: base.bounds,
+            command: base.command,
+            canvas,
+            left: None,
+            right: None,
+            details: Rect::NOTHING,
+            footer: base.footer,
+            compact: true,
+        }
+    }
     /// Regions the application may fill; gaps remain intentional breathing room.
     pub fn regions(&self) -> Vec<Rect> {
         let mut regions = vec![self.command, self.canvas, self.details, self.footer];

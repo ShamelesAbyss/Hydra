@@ -1,8 +1,8 @@
 # Road to HYDRA 2.0 — Project Leviathan Long-Term Roadmap
 
-**HYDRA v1.8.0 (`PROJECT INCARNATION`)** delivers the articulated 3D skeletal & Cook-Torrance GGX PBR Native WGPU Leviathan sanctuary on top of the **`v1.7.0`** public release foundation, preserving the OS-protected dedicated-wallet Treasury, verified native updater (**LEVIATHAN EVOLUTION**), read-only public Hyperliquid market surveillance, bounded anti-Martingale grid planning, zero-lookahead regime inference, liquidation/margin stress diagnostics, and SHA-256 dataset integrity auditing.
+**HYDRA v1.8.0 (`PROJECT INCARNATION`)** delivered the 96-bone articulated 3D skeletal and Cook-Torrance GGX PBR Native WGPU Leviathan sanctuary, and **`v1.9.0` (`PROJECT SYNAPSE — PHASE I: SPATIAL CONSCIOUSNESS`)** completes the final authorized major graphical architecture enhancement (floating camera-facing holographic workspaces, 360° sanctuary exploration, personality-paced creature awareness, whole-body articulation, and interchangeable `SPATIAL | CLASSIC` UI modes). Major graphics-first development is now concluded; remaining development focuses strictly on interconnected autonomous intelligence, financial certification, recovery, and operational hardening.
 
-**`v2.0.0` is reserved for a generational architectural, operational, and visual leap — not merely a version increment.** Iterative `v1.x` public releases will advance each pillar transparently until every engineering, security, financial, and graphical acceptance criterion is verified.
+**`v2.0.0` is reserved for a genuinely substantial engineering and operational milestone — complete interconnected quantitative autonomy, settlement certification, authenticated IPC, and extended paper-trading validation — not another purely graphical redesign.**
 
 ---
 

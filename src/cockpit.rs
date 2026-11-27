@@ -81,8 +81,17 @@ pub struct Cockpit {
     #[cfg(feature = "desktop-wgpu")]
     gpu_timing: Option<crate::leviathan_renderer_3d::GpuTimingHandle>,
     camera: crate::leviathan_3d_math::LeviathanCamera,
+    orbit: crate::leviathan_3d_math::OrbitState,
     camera_focus_enabled: bool,
     last_camera_time: f32,
+    awareness: crate::leviathan_awareness::AwarenessEngine,
+    spatial: crate::leviathan_spatial::SpatialWorkspaceManager,
+    spatial_prefs: crate::leviathan_spatial::SpatialPreferences,
+    last_head_world: [crate::leviathan_3d_math::Vec3; 7],
+    last_heart_world: crate::leviathan_3d_math::Vec3,
+    last_awareness: Option<crate::leviathan_3d_math::AwarenessPose>,
+    active_head_orbit: Option<usize>,
+    spatial_blocker_rects: Vec<egui::Rect>,
     research_changed_at: [Option<Instant>; 7],
     offering_pulse_at: Option<Instant>,
 
@@ -209,8 +218,26 @@ impl Cockpit {
             #[cfg(feature = "desktop-wgpu")]
             gpu_timing,
             camera: crate::leviathan_3d_math::LeviathanCamera::default(),
+            orbit: {
+                let mut o = crate::leviathan_3d_math::OrbitState::overview();
+                o.auto_orbit =
+                    crate::leviathan_spatial::SpatialPreferences::load_default().cinematic_orbit;
+                o
+            },
             camera_focus_enabled: true,
             last_camera_time: 0.0,
+            awareness: crate::leviathan_awareness::AwarenessEngine::new(),
+            spatial: crate::leviathan_spatial::SpatialWorkspaceManager::new(
+                &crate::leviathan_spatial::SpatialPreferences::load_default(),
+            ),
+            spatial_prefs: crate::leviathan_spatial::SpatialPreferences::load_default(),
+            last_head_world: std::array::from_fn(|i| {
+                crate::leviathan_3d_math::LeviathanSkeleton::head_rest_specs()[i].3
+            }),
+            last_heart_world: crate::leviathan_3d_math::Vec3::new(0.0, -1.05, 0.54),
+            last_awareness: None,
+            active_head_orbit: None,
+            spatial_blocker_rects: Vec::new(),
             research_changed_at: [None; 7],
             offering_pulse_at: None,
 
@@ -303,6 +330,332 @@ impl Cockpit {
             );
         }
     }
+    fn workspace_to_spatial_id(ws: Workspace) -> crate::leviathan_spatial::SpatialPanelId {
+        use crate::leviathan_spatial::{GlobalPanelKind, SpatialPanelId};
+        match ws {
+            Workspace::Head(i) => SpatialPanelId::Head(i.min(6)),
+            Workspace::Treasury => SpatialPanelId::Global(GlobalPanelKind::Treasury),
+            Workspace::Evolution => SpatialPanelId::Global(GlobalPanelKind::Evolution),
+            Workspace::Positions => SpatialPanelId::Global(GlobalPanelKind::Positions),
+            Workspace::BlackBox => SpatialPanelId::Global(GlobalPanelKind::Timeline),
+            Workspace::Source => SpatialPanelId::Global(GlobalPanelKind::Source),
+            Workspace::Overview => SpatialPanelId::Global(GlobalPanelKind::Overview),
+        }
+    }
+
+    fn spatial_id_to_workspace(id: crate::leviathan_spatial::SpatialPanelId) -> Workspace {
+        use crate::leviathan_spatial::{GlobalPanelKind, SpatialPanelId};
+        match id {
+            SpatialPanelId::Head(i) => Workspace::Head(i.min(6)),
+            SpatialPanelId::Global(GlobalPanelKind::Treasury) => Workspace::Treasury,
+            SpatialPanelId::Global(GlobalPanelKind::Evolution) => Workspace::Evolution,
+            SpatialPanelId::Global(GlobalPanelKind::Positions) => Workspace::Positions,
+            SpatialPanelId::Global(GlobalPanelKind::Timeline) => Workspace::BlackBox,
+            SpatialPanelId::Global(GlobalPanelKind::Source) => Workspace::Source,
+            SpatialPanelId::Global(GlobalPanelKind::Overview)
+            | SpatialPanelId::Global(GlobalPanelKind::Controls) => Workspace::Overview,
+        }
+    }
+
+    fn open_workspace(&mut self, ws: Workspace) {
+        self.workspace = ws;
+        if matches!(ws, Workspace::Treasury | Workspace::Evolution) {
+            self.target_details_height = self.target_details_height.max(460.0);
+        }
+        let id = Self::workspace_to_spatial_id(ws);
+        self.spatial.open_exclusive_or_pinned(id);
+        match ws {
+            Workspace::Head(h) if self.camera_focus_enabled => {
+                self.orbit = crate::leviathan_3d_math::OrbitState::for_head(
+                    h,
+                    self.last_head_world[h],
+                    1.65,
+                );
+                self.orbit.auto_orbit = false;
+                self.active_head_orbit = Some(h);
+            }
+            Workspace::Overview => {
+                if self.active_head_orbit.is_some() {
+                    self.orbit = crate::leviathan_3d_math::OrbitState::overview();
+                    self.orbit.auto_orbit = self.spatial_prefs.cinematic_orbit;
+                    self.active_head_orbit = None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn reset_spatial_and_camera(&mut self) {
+        self.workspace = Workspace::Overview;
+        self.active_head_orbit = None;
+        self.orbit = crate::leviathan_3d_math::OrbitState::overview();
+        self.orbit.auto_orbit = self.spatial_prefs.cinematic_orbit;
+        self.spatial.reset_offsets();
+        self.spatial.close_all_unpinned();
+        self.spatial.sync_preferences(&mut self.spatial_prefs);
+        self.spatial_prefs.save_default();
+    }
+
+    fn render_spatial_panel_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: crate::leviathan_spatial::SpatialPanelId,
+    ) {
+        if matches!(
+            id,
+            crate::leviathan_spatial::SpatialPanelId::Global(
+                crate::leviathan_spatial::GlobalPanelKind::Controls
+            )
+        ) {
+            self.graphics_controls(ui);
+            return;
+        }
+        let saved = self.workspace;
+        self.workspace = Self::spatial_id_to_workspace(id);
+        self.body(ui);
+        self.workspace = saved;
+    }
+
+    fn render_spatial_dock(
+        &mut self,
+        ctx: &egui::Context,
+        stage: egui::Rect,
+        states: &[crate::leviathan_state::HeadState; 7],
+    ) {
+        use crate::leviathan_spatial::{GlobalPanelKind, SpatialPanelId};
+        let dock_pos = Pos2::new(
+            stage.left() + 14.0,
+            (stage.bottom() - 62.0).max(stage.top() + 8.0),
+        );
+        let area_resp = egui::Area::new(egui::Id::new("leviathan-spatial-dock"))
+            .fixed_pos(dock_pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(5.0, 2.0);
+                egui::Frame::NONE
+                    .fill(Color32::from_rgba_unmultiplied(8, 10, 20, 212))
+                    .stroke(Stroke::new(
+                        1.0,
+                        Color32::from_rgba_unmultiplied(150, 104, 224, 130),
+                    ))
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for (i, (name, _, col)) in HEADS.iter().enumerate() {
+                                let id = SpatialPanelId::Head(i);
+                                let is_open =
+                                    self.spatial.panels.iter().any(|p| p.id == id && p.open);
+                                let c = if states[i].is_alert() { AMBER } else { *col };
+                                if ui
+                                    .selectable_label(
+                                        is_open,
+                                        RichText::new(*name).monospace().size(9.5).color(c),
+                                    )
+                                    .on_hover_text(format!(
+                                        "{} · {} (Alt+{})",
+                                        HEADS[i].0,
+                                        states[i].label(),
+                                        i + 1
+                                    ))
+                                    .clicked()
+                                {
+                                    if is_open && self.active_head_orbit == Some(i) {
+                                        self.spatial.close_panel(id);
+                                        self.open_workspace(Workspace::Overview);
+                                    } else {
+                                        self.open_workspace(Workspace::Head(i));
+                                    }
+                                }
+                            }
+                            ui.separator();
+                            for g in GlobalPanelKind::ALL {
+                                let id = SpatialPanelId::Global(g);
+                                let is_open =
+                                    self.spatial.panels.iter().any(|p| p.id == id && p.open);
+                                if ui
+                                    .selectable_label(
+                                        is_open,
+                                        RichText::new(g.label())
+                                            .monospace()
+                                            .size(10.0)
+                                            .color(g.accent()),
+                                    )
+                                    .clicked()
+                                {
+                                    if is_open {
+                                        self.spatial.close_panel(id);
+                                    } else if g == GlobalPanelKind::Controls {
+                                        self.spatial.open_exclusive_or_pinned(id);
+                                    } else {
+                                        self.open_workspace(Self::spatial_id_to_workspace(id));
+                                    }
+                                }
+                            }
+                        });
+                    });
+            });
+        self.spatial_blocker_rects
+            .push(area_resp.response.rect.expand(4.0));
+    }
+
+    fn render_spatial_panels(
+        &mut self,
+        ctx: &egui::Context,
+        stage: egui::Rect,
+        elapsed_s: f32,
+        painter: &egui::Painter,
+    ) {
+        let projected = self.spatial.project_visible(
+            stage,
+            &self.camera,
+            &self.last_head_world,
+            self.last_heart_world,
+        );
+        crate::leviathan_spatial::paint_spatial_conduits(
+            painter,
+            stage,
+            &projected,
+            elapsed_s,
+            self.spatial_prefs.spatial_intensity,
+            self.reduced_motion,
+        );
+
+        let bg_alpha = (self.spatial_prefs.panel_opacity.clamp(0.55, 0.98) * 255.0) as u8;
+        let fill = Color32::from_rgba_unmultiplied(8, 10, 21, bg_alpha);
+        for pan in projected {
+            let accent = pan.id.accent();
+            let area = egui::Area::new(egui::Id::new(("leviathan-spatial-panel", pan.id)))
+                .fixed_pos(pan.rect.min)
+                .order(if self.spatial.active == Some(pan.id) {
+                    egui::Order::Foreground
+                } else {
+                    egui::Order::Middle
+                })
+                .show(ctx, |ui| {
+                    ui.set_min_size(pan.rect.size());
+                    ui.set_max_size(pan.rect.size());
+                    egui::Frame::NONE
+                        .fill(fill)
+                        .stroke(Stroke::new(
+                            if self.spatial.active == Some(pan.id) { 1.45 } else { 1.05 },
+                            Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 205),
+                        ))
+                        .corner_radius(egui::CornerRadius::same(7))
+                        .inner_margin(egui::Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let title_resp = ui
+                                    .add(
+                                        egui::Label::new(
+                                            RichText::new(pan.id.title())
+                                                .monospace()
+                                                .strong()
+                                                .size(11.5)
+                                                .color(accent),
+                                        )
+                                        .sense(Sense::click_and_drag()),
+                                    )
+                                    .on_hover_cursor(egui::CursorIcon::Grab)
+                                    .on_hover_text("Drag to reposition in 3D sanctuary space; head tracks new position");
+                                if title_resp.clicked() {
+                                    self.spatial.active = Some(pan.id);
+                                }
+                                if title_resp.dragged() {
+                                    self.spatial.active = Some(pan.id);
+                                    let wdelta = self.camera.unproject_drag_delta(
+                                        title_resp.drag_delta(),
+                                        pan.world_anchor,
+                                        stage,
+                                    );
+                                    self.spatial.nudge_world_offset(pan.id, wdelta);
+                                }
+                                if title_resp.drag_stopped() {
+                                    self.spatial.sync_preferences(&mut self.spatial_prefs);
+                                    self.spatial_prefs.save_default();
+                                }
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("×").on_hover_text("Close spatial panel").clicked() {
+                                        self.spatial.close_panel(pan.id);
+                                        if let Some(h) = pan.id.head_index() {
+                                            if self.active_head_orbit == Some(h) {
+                                                self.open_workspace(Workspace::Overview);
+                                            }
+                                        }
+                                        self.spatial.sync_preferences(&mut self.spatial_prefs);
+                                        self.spatial_prefs.save_default();
+                                    }
+                                    if ui
+                                        .small_button(if pan.collapsed { "+" } else { "–" })
+                                        .on_hover_text("Collapse / expand panel")
+                                        .clicked()
+                                    {
+                                        if let Some(rt) = self.spatial.panels.iter_mut().find(|p| p.id == pan.id) {
+                                            rt.collapsed = !rt.collapsed;
+                                        }
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            pan.pinned,
+                                            RichText::new(if pan.pinned { "PINNED" } else { "Pin" })
+                                                .monospace()
+                                                .size(9.5),
+                                        )
+                                        .on_hover_text("Keep holographic panel open while viewing other heads")
+                                        .clicked()
+                                    {
+                                        if let Some(rt) = self.spatial.panels.iter_mut().find(|p| p.id == pan.id) {
+                                            rt.pinned = !rt.pinned;
+                                        }
+                                        self.spatial.sync_preferences(&mut self.spatial_prefs);
+                                        self.spatial_prefs.save_default();
+                                    }
+                                    if let Some(h) = pan.id.head_index() {
+                                        if ui
+                                            .small_button(if self.active_head_orbit == Some(h) {
+                                                "Overview"
+                                            } else {
+                                                "Focus"
+                                            })
+                                            .on_hover_text("Toggle 3/4 head focus vs Sanctuary Overview")
+                                            .clicked()
+                                        {
+                                            if self.active_head_orbit == Some(h) {
+                                                self.orbit = crate::leviathan_3d_math::OrbitState::overview();
+                                                self.orbit.auto_orbit = self.spatial_prefs.cinematic_orbit;
+                                                self.active_head_orbit = None;
+                                            } else {
+                                                self.orbit = crate::leviathan_3d_math::OrbitState::for_head(
+                                                    h,
+                                                    self.last_head_world[h],
+                                                    (stage.width() / stage.height().max(1.0)).max(0.25),
+                                                );
+                                                self.active_head_orbit = Some(h);
+                                            }
+                                        }
+                                    }
+                                });
+                            });
+                            if !pan.collapsed {
+                                ui.separator();
+                                egui::ScrollArea::both()
+                                    .id_salt(("spatial-scroll", pan.id))
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        self.render_spatial_panel_body(ui, pan.id);
+                                    });
+                            }
+                        });
+                });
+            if area.response.hovered() || area.response.clicked() {
+                if area.response.clicked() {
+                    self.spatial.active = Some(pan.id);
+                }
+            }
+            self.spatial_blocker_rects.push(pan.rect);
+        }
+    }
+
     fn body(&mut self, ui: &mut egui::Ui) {
         if let Workspace::Head(sel) = self.workspace {
             ui.horizontal(|ui| {
@@ -697,10 +1050,61 @@ impl Cockpit {
                         .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                 }
                 if ui
-                    .selectable_label(self.show_graphics, "Graphics")
+                    .selectable_label(self.show_graphics, "Graphics / Spatial")
                     .clicked()
                 {
-                    self.show_graphics = !self.show_graphics;
+                    if self.spatial_prefs.mode
+                        == crate::leviathan_spatial::PresentationMode::Spatial
+                    {
+                        let id = crate::leviathan_spatial::SpatialPanelId::Global(
+                            crate::leviathan_spatial::GlobalPanelKind::Controls,
+                        );
+                        let is_open = self.spatial.panels.iter().any(|p| p.id == id && p.open);
+                        if is_open {
+                            self.spatial.close_panel(id);
+                        } else {
+                            self.spatial.open_exclusive_or_pinned(id);
+                        }
+                    } else {
+                        self.show_graphics = !self.show_graphics;
+                    }
+                }
+                if ui
+                    .button("Reset Cam")
+                    .on_hover_text(
+                        "Reset 3D camera orbit, pan, zoom & focused view to Sovereign Overview",
+                    )
+                    .clicked()
+                {
+                    self.active_head_orbit = None;
+                    self.orbit = crate::leviathan_3d_math::OrbitState::overview();
+                    self.orbit.auto_orbit = self.spatial_prefs.cinematic_orbit;
+                    if matches!(self.workspace, Workspace::Head(_)) {
+                        self.workspace = Workspace::Overview;
+                    }
+                }
+                let is_spatial =
+                    self.spatial_prefs.mode == crate::leviathan_spatial::PresentationMode::Spatial;
+                if ui
+                    .selectable_label(
+                        is_spatial,
+                        RichText::new(self.spatial_prefs.mode.label())
+                            .monospace()
+                            .size(10.5)
+                            .strong()
+                            .color(if is_spatial { CYAN } else { AMETHYST }),
+                    )
+                    .on_hover_text(
+                        "Switch between SPATIAL holographic sanctuary and CLASSIC docked workspace",
+                    )
+                    .clicked()
+                {
+                    self.spatial_prefs.mode = if is_spatial {
+                        crate::leviathan_spatial::PresentationMode::Classic
+                    } else {
+                        crate::leviathan_spatial::PresentationMode::Spatial
+                    };
+                    self.spatial_prefs.save_default();
                 }
                 if ui
                     .button(if self.fullscreen {
@@ -774,8 +1178,7 @@ impl Cockpit {
                 .on_hover_text("Open dedicated wallet settings, The Offering, portfolio & operational modes (Alt+T)")
                 .clicked()
             {
-                self.workspace = Workspace::Treasury;
-                self.target_details_height = self.target_details_height.max(460.0);
+                self.open_workspace(Workspace::Treasury);
             }
             let update_btn_text = if let Some(tag) = self.evolution.update_available_tag() {
                 format!("UPDATE: {tag}")
@@ -802,8 +1205,7 @@ impl Cockpit {
                 )
                 .clicked()
             {
-                self.workspace = Workspace::Evolution;
-                self.target_details_height = self.target_details_height.max(460.0);
+                self.open_workspace(Workspace::Evolution);
                 self.evolution.trigger_check(ui.ctx());
                 self.research_changed_at[6] = Some(Instant::now());
             }
@@ -1434,6 +1836,78 @@ impl Cockpit {
                 self.show_graphics = false;
             }
         });
+        let mut prefs_changed = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Interface Mode:").small().color(TEXT));
+            for m in [
+                crate::leviathan_spatial::PresentationMode::Spatial,
+                crate::leviathan_spatial::PresentationMode::Classic,
+            ] {
+                if ui
+                    .selectable_label(self.spatial_prefs.mode == m, m.label())
+                    .clicked()
+                {
+                    self.spatial_prefs.mode = m;
+                    prefs_changed = true;
+                }
+            }
+            if ui
+                .checkbox(
+                    &mut self.spatial_prefs.cinematic_orbit,
+                    "Cinematic Auto-Orbit",
+                )
+                .changed()
+            {
+                self.orbit.auto_orbit = self.spatial_prefs.cinematic_orbit;
+                prefs_changed = true;
+            }
+            if ui.small_button("Reset Camera & Spatial Layout").clicked() {
+                self.reset_spatial_and_camera();
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            prefs_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.spatial_prefs.spatial_intensity, 0.2..=1.5)
+                        .text("Spatial Intensity"),
+                )
+                .changed();
+            prefs_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.spatial_prefs.panel_opacity, 0.55..=0.98)
+                        .text("Panel Opacity"),
+                )
+                .changed();
+            prefs_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.spatial_prefs.attention_intensity, 0.0..=1.5)
+                        .text("Creature Attention"),
+                )
+                .changed();
+        });
+        ui.horizontal_wrapped(|ui| {
+            prefs_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.spatial_prefs.body_responsiveness, 0.0..=1.5)
+                        .text("Body Response"),
+                )
+                .changed();
+            prefs_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.spatial_prefs.camera_sensitivity, 0.3..=2.2)
+                        .text("Orbit Sensitivity"),
+                )
+                .changed();
+            prefs_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.spatial_prefs.animation_intensity, 0.0..=1.5)
+                        .text("Animation"),
+                )
+                .changed();
+        });
+        if prefs_changed {
+            self.spatial_prefs.save_default();
+        }
         ui.label(RichText::new(&self.renderer).small().color(MUTED));
         ui.label(RichText::new("Idle breathing/atmosphere are decorative. Colored energy = actual local research; silver pips = recorded-history changes. Neither proves a live engine link.").small().color(MUTED));
         if let Some(s) = self.frame_stats.summary() {
@@ -1496,15 +1970,13 @@ impl eframe::App for Cockpit {
             .ctx()
             .input(|i| i.modifiers.alt && i.key_pressed(egui::Key::T))
         {
-            self.workspace = Workspace::Treasury;
-            self.target_details_height = self.target_details_height.max(460.0);
+            self.open_workspace(Workspace::Treasury);
         }
         if ui
             .ctx()
             .input(|i| i.modifiers.alt && i.key_pressed(egui::Key::U))
         {
-            self.workspace = Workspace::Evolution;
-            self.target_details_height = self.target_details_height.max(460.0);
+            self.open_workspace(Workspace::Evolution);
         }
         for (index, key) in [
             egui::Key::Num1,
@@ -1519,7 +1991,7 @@ impl eframe::App for Cockpit {
         .enumerate()
         {
             if ui.ctx().input(|i| i.modifiers.alt && i.key_pressed(*key)) {
-                self.workspace = Workspace::Head(index);
+                self.open_workspace(Workspace::Head(index));
             }
         }
         self.receive();
@@ -1532,8 +2004,9 @@ impl eframe::App for Cockpit {
                 .send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
         }
         if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
-            if matches!(self.workspace, Workspace::Head(_)) {
-                self.workspace = Workspace::Overview;
+            self.open_workspace(Workspace::Overview);
+            if self.spatial_prefs.mode == crate::leviathan_spatial::PresentationMode::Spatial {
+                self.spatial.close_all_unpinned();
             }
         }
         // Smooth damped choreography for drawer height presets (instant when reduced motion).
@@ -1554,14 +2027,23 @@ impl eframe::App for Cockpit {
             Workspace::Source => AMBER,
             Workspace::Overview => AMETHYST,
         };
+        let is_spatial_mode =
+            self.spatial_prefs.mode == crate::leviathan_spatial::PresentationMode::Spatial;
+        let pointer_now = ui.input(|i| i.pointer.hover_pos());
+        let pointer_over_blocker =
+            pointer_now.is_some_and(|pt| self.spatial_blocker_rects.iter().any(|r| r.contains(pt)));
         let mut next_hovered_head = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(BG).inner_margin(8))
             .show(ui, |ui| {
-                let plan = crate::leviathan_layout::UnifiedLayout::for_rect(
-                    ui.max_rect(),
-                    self.details_height,
-                );
+                let plan = if is_spatial_mode {
+                    crate::leviathan_layout::UnifiedLayout::for_spatial_rect(ui.max_rect())
+                } else {
+                    crate::leviathan_layout::UnifiedLayout::for_rect(
+                        ui.max_rect(),
+                        self.details_height,
+                    )
+                };
                 region(ui, plan.command, "command", None, |ui| {
                     self.command_bar(ui, &states);
                 });
@@ -1660,43 +2142,50 @@ impl eframe::App for Cockpit {
                         "WAITING FOR DATA / ENGINE LINK UNVERIFIED"
                     };
                     let elapsed_s = self.started.elapsed().as_secs_f32();
-                    let dt = (elapsed_s - self.last_camera_time).clamp(0.0, 0.1);
+                    let dt = (elapsed_s - self.last_camera_time).clamp(0.001, 0.1);
                     self.last_camera_time = elapsed_s;
                     let selected_head = match self.workspace {
                         Workspace::Head(i) => Some(i),
                         _ => None,
                     };
                     let focus_head = if self.camera_focus_enabled {
-                        selected_head
+                        self.active_head_orbit.or(selected_head)
                     } else {
                         None
                     };
                     let canvas_aspect =
                         (ui.available_width() / ui.available_height().max(1.0)).clamp(0.25, 8.0);
-                    let pulse = crate::leviathan_scene::heart_pulse(elapsed_s, !self.reduced_motion);
-                    let breath =
-                        crate::leviathan_scene::breath_cycle(elapsed_s, !self.reduced_motion);
-                    let skel_cam = crate::leviathan_3d_math::LeviathanSkeleton::evaluate(
-                        &crate::leviathan_3d_math::SkeletonParams {
-                            time: elapsed_s,
-                            motion: !self.reduced_motion,
-                            breath,
-                            heart_pulse: pulse,
-                            pointer_world: None,
-                            head_activity: std::array::from_fn(|i| heads[i].activity),
-                            head_warning: std::array::from_fn(|i| heads[i].warning),
-                            head_emphasis: [0.0; 7],
-                            head_eye_open: [1.0; 7],
-                            selected: selected_head,
-                        },
-                    );
-                    self.camera.update(
-                        focus_head,
-                        &skel_cam,
-                        canvas_aspect,
+                    let open_panel_anchors = if is_spatial_mode {
+                        self.spatial.open_head_anchors()
+                    } else {
+                        [None; 7]
+                    };
+                    let head_activity = std::array::from_fn(|i| heads[i].activity);
+                    let head_warning = std::array::from_fn(|i| heads[i].warning);
+                    let awareness_cfg = crate::leviathan_awareness::AwarenessConfig {
+                        attention_intensity: self.spatial_prefs.attention_intensity,
+                        body_responsiveness: self.spatial_prefs.body_responsiveness,
+                        animation_intensity: self.spatial_prefs.animation_intensity,
+                        reduced_motion: self.reduced_motion,
+                    };
+                    if !self.reduced_motion {
+                        self.orbit.step_auto(dt, 0.18 * self.spatial_prefs.camera_sensitivity);
+                    }
+                    let desired_cam = self.orbit.to_camera(canvas_aspect);
+                    self.camera
+                        .update_toward(&desired_cam, dt, !self.reduced_motion);
+                    let aw_pose = self.awareness.step(
                         dt,
-                        !self.reduced_motion,
+                        elapsed_s,
+                        self.camera.eye,
+                        selected_head,
+                        &open_panel_anchors,
+                        &self.last_head_world,
+                        &head_activity,
+                        &head_warning,
+                        &awareness_cfg,
                     );
+                    self.last_awareness = Some(aw_pose.clone());
 
                     let input = crate::leviathan_scene::SceneInput {
                         heads: &heads,
@@ -1715,148 +2204,192 @@ impl eframe::App for Cockpit {
                         operational_mode: op_mode,
                         focus_head,
                         camera: Some(self.camera.clone()),
+                        awareness: self.last_awareness.clone(),
+                        allow_camera_drag: !pointer_over_blocker,
                     };
                     let scene_resp = crate::leviathan_scene::show_interactive(ui, &input);
+                    if scene_resp.stage_rect.width() > 10.0 {
+                        self.last_head_world = scene_resp.head_world_pos;
+                        self.last_heart_world = scene_resp.heart_world_pos;
+                    }
+                    if scene_resp.orbit_delta.length_sq() > 0.01 {
+                        let sens = 0.0055 * self.spatial_prefs.camera_sensitivity;
+                        self.orbit.auto_orbit = false;
+                        self.orbit.orbit_by(
+                            -scene_resp.orbit_delta.x * sens,
+                            scene_resp.orbit_delta.y * sens * 0.75,
+                        );
+                    }
+                    if scene_resp.pan_delta.length_sq() > 0.01 {
+                        let basis = self.camera.basis();
+                        self.orbit
+                            .pan_by(scene_resp.pan_delta, basis, plan.canvas.height());
+                    }
+                    if scene_resp.zoom_delta.abs() > 0.01 {
+                        self.orbit
+                            .zoom_by(scene_resp.zoom_delta * self.spatial_prefs.camera_sensitivity);
+                    }
+                    if scene_resp.double_clicked {
+                        self.open_workspace(Workspace::Overview);
+                    }
                     if scene_resp.hovered.is_some() {
                         next_hovered_head = scene_resp.hovered;
                     }
                     if let Some(index) = scene_resp.clicked {
-                        if self.workspace == Workspace::Head(index) {
-                            self.workspace = Workspace::Overview;
+                        if self.workspace == Workspace::Head(index)
+                            && (!is_spatial_mode
+                                || self.spatial.panels.iter().any(|p| {
+                                    p.id == crate::leviathan_spatial::SpatialPanelId::Head(index)
+                                        && p.open
+                                }))
+                        {
+                            self.open_workspace(Workspace::Overview);
                         } else {
-                            self.workspace = Workspace::Head(index);
+                            self.open_workspace(Workspace::Head(index));
                         }
                     }
-                });
-                let handle = egui::Rect::from_min_max(
-                    egui::pos2(plan.details.left(), plan.details.top() - 6.0),
-                    egui::pos2(plan.details.right(), plan.details.top() + 3.0),
-                );
-                let response = ui
-                    .interact(handle, ui.id().with("analysis-resize"), Sense::drag())
-                    .on_hover_cursor(egui::CursorIcon::ResizeVertical);
-                if response.dragged() {
-                    let h = (self.details_height - response.drag_delta().y).clamp(100.0, 900.0);
-                    self.details_height = h;
-                    self.target_details_height = h;
-                }
-                // Luminous subtle drag-grip bar along top edge of the lower workspace.
-                let grip_w = 72.0;
-                let grip_y = plan.details.top() - 1.5;
-                let grip_col = if response.hovered() || response.dragged() {
-                    details_accent
-                } else {
-                    details_accent.gamma_multiply(0.45)
-                };
-                ui.painter().line_segment(
-                    [
-                        Pos2::new(plan.details.center().x - grip_w * 0.5, grip_y),
-                        Pos2::new(plan.details.center().x + grip_w * 0.5, grip_y),
-                    ],
-                    Stroke::new(2.0, grip_col),
-                );
 
-                region(ui, plan.details, "details", Some(details_accent), |ui| {
-                    let content_h = plan.bounds.height();
-                    ui.horizontal_wrapped(|ui| {
-                        section_title(
-                            ui,
-                            match self.workspace {
-                                Workspace::Overview => "COMMAND OVERVIEW",
-                                Workspace::Treasury => "LEVIATHAN TREASURY",
-                                Workspace::Evolution => "LEVIATHAN EVOLUTION",
-                                Workspace::Head(i) => HEADS[i].0,
-                                Workspace::Positions => "PORTFOLIO / POSITIONS",
-                                Workspace::BlackBox => "EVENT TIMELINE",
-                                Workspace::Source => "SOURCE / CONNECTION",
-                            },
-                            details_accent,
+                    self.spatial_blocker_rects.clear();
+                    if is_spatial_mode {
+                        self.spatial.step(
+                            &self.last_head_world,
+                            self.last_heart_world,
+                            dt,
+                            self.reduced_motion,
                         );
-                        ui.label(
-                            RichText::new("INLINE WORKSPACE / DRAG TOP EDGE")
-                                .monospace()
-                                .size(9.5)
-                                .color(MUTED),
-                        );
-                        if ui
-                            .selectable_label(self.workspace == Workspace::Overview, "Overview")
-                            .clicked()
-                        {
-                            self.workspace = Workspace::Overview;
-                        }
-                        if ui
-                            .selectable_label(
-                                self.workspace == Workspace::Treasury,
-                                RichText::new("Treasury").color(Color32::from_rgb(245, 194, 92)),
-                            )
-                            .clicked()
-                        {
-                            self.workspace = Workspace::Treasury;
-                            self.target_details_height = self.target_details_height.max(460.0);
-                        }
-                        if ui
-                            .selectable_label(
-                                self.workspace == Workspace::Evolution,
-                                RichText::new("Updates").color(HEADS[6].2),
-                            )
-                            .clicked()
-                        {
-                            self.workspace = Workspace::Evolution;
-                            self.target_details_height = self.target_details_height.max(460.0);
-                        }
-                        if ui
-                            .selectable_label(self.workspace == Workspace::Source, "Source")
-                            .clicked()
-                        {
-                            self.workspace = Workspace::Source;
-                        }
-                        if ui
-                            .selectable_label(self.workspace == Workspace::BlackBox, "Timeline")
-                            .clicked()
-                        {
-                            self.workspace = Workspace::BlackBox;
-                        }
-                        if ui
-                            .selectable_label(self.workspace == Workspace::Positions, "Positions")
-                            .clicked()
-                        {
-                            self.workspace = Workspace::Positions;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .small_button("Expand")
-                                .on_hover_text("Expand lower analytical workspace")
-                                .clicked()
-                            {
-                                self.target_details_height = (content_h * 0.40).clamp(240.0, 620.0);
-                            }
-                            if ui
-                                .small_button("Balanced")
-                                .on_hover_text("Restore balanced workspace height")
-                                .clicked()
-                            {
-                                self.target_details_height = (content_h * 0.25).clamp(180.0, 340.0);
-                            }
-                            if ui
-                                .small_button("Compact")
-                                .on_hover_text("Maximize space for the seven-headed Leviathan")
-                                .clicked()
-                            {
-                                self.target_details_height = (content_h * 0.16).clamp(120.0, 220.0);
-                            }
-                        });
-                    });
-                    ui.add_space(4.0);
-                    egui::ScrollArea::both()
-                        .id_salt("integrated-workspace")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            if self.show_graphics {
-                                self.graphics_controls(ui);
-                            }
-                            self.body(ui);
-                        });
+                        let stage_p = ui.painter_at(plan.canvas);
+                        self.render_spatial_dock(ui.ctx(), plan.canvas, &states);
+                        self.render_spatial_panels(ui.ctx(), plan.canvas, elapsed_s, &stage_p);
+                    }
                 });
+                if !is_spatial_mode {
+                    let handle = egui::Rect::from_min_max(
+                        egui::pos2(plan.details.left(), plan.details.top() - 6.0),
+                        egui::pos2(plan.details.right(), plan.details.top() + 3.0),
+                    );
+                    let response = ui
+                        .interact(handle, ui.id().with("analysis-resize"), Sense::drag())
+                        .on_hover_cursor(egui::CursorIcon::ResizeVertical);
+                    if response.dragged() {
+                        let h = (self.details_height - response.drag_delta().y).clamp(100.0, 900.0);
+                        self.details_height = h;
+                        self.target_details_height = h;
+                    }
+                    let grip_w = 72.0;
+                    let grip_y = plan.details.top() - 1.5;
+                    let grip_col = if response.hovered() || response.dragged() {
+                        details_accent
+                    } else {
+                        details_accent.gamma_multiply(0.45)
+                    };
+                    ui.painter().line_segment(
+                        [
+                            Pos2::new(plan.details.center().x - grip_w * 0.5, grip_y),
+                            Pos2::new(plan.details.center().x + grip_w * 0.5, grip_y),
+                        ],
+                        Stroke::new(2.0, grip_col),
+                    );
+
+                    region(ui, plan.details, "details", Some(details_accent), |ui| {
+                        let content_h = plan.bounds.height();
+                        ui.horizontal_wrapped(|ui| {
+                            section_title(
+                                ui,
+                                match self.workspace {
+                                    Workspace::Overview => "COMMAND OVERVIEW",
+                                    Workspace::Treasury => "LEVIATHAN TREASURY",
+                                    Workspace::Evolution => "LEVIATHAN EVOLUTION",
+                                    Workspace::Head(i) => HEADS[i].0,
+                                    Workspace::Positions => "PORTFOLIO / POSITIONS",
+                                    Workspace::BlackBox => "EVENT TIMELINE",
+                                    Workspace::Source => "SOURCE / CONNECTION",
+                                },
+                                details_accent,
+                            );
+                            ui.label(
+                                RichText::new("INLINE WORKSPACE / DRAG TOP EDGE")
+                                    .monospace()
+                                    .size(9.5)
+                                    .color(MUTED),
+                            );
+                            if ui
+                                .selectable_label(self.workspace == Workspace::Overview, "Overview")
+                                .clicked()
+                            {
+                                self.open_workspace(Workspace::Overview);
+                            }
+                            if ui
+                                .selectable_label(
+                                    self.workspace == Workspace::Treasury,
+                                    RichText::new("Treasury").color(Color32::from_rgb(245, 194, 92)),
+                                )
+                                .clicked()
+                            {
+                                self.open_workspace(Workspace::Treasury);
+                            }
+                            if ui
+                                .selectable_label(
+                                    self.workspace == Workspace::Evolution,
+                                    RichText::new("Updates").color(HEADS[6].2),
+                                )
+                                .clicked()
+                            {
+                                self.open_workspace(Workspace::Evolution);
+                            }
+                            if ui
+                                .selectable_label(self.workspace == Workspace::Source, "Source")
+                                .clicked()
+                            {
+                                self.open_workspace(Workspace::Source);
+                            }
+                            if ui
+                                .selectable_label(self.workspace == Workspace::BlackBox, "Timeline")
+                                .clicked()
+                            {
+                                self.open_workspace(Workspace::BlackBox);
+                            }
+                            if ui
+                                .selectable_label(self.workspace == Workspace::Positions, "Positions")
+                                .clicked()
+                            {
+                                self.open_workspace(Workspace::Positions);
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui
+                                    .small_button("Expand")
+                                    .on_hover_text("Expand lower analytical workspace")
+                                    .clicked()
+                                {
+                                    self.target_details_height = (content_h * 0.40).clamp(240.0, 620.0);
+                                }
+                                if ui
+                                    .small_button("Balanced")
+                                    .on_hover_text("Restore balanced workspace height")
+                                    .clicked()
+                                {
+                                    self.target_details_height = (content_h * 0.25).clamp(180.0, 340.0);
+                                }
+                                if ui
+                                    .small_button("Compact")
+                                    .on_hover_text("Maximize space for the seven-headed Leviathan")
+                                    .clicked()
+                                {
+                                    self.target_details_height = (content_h * 0.16).clamp(120.0, 220.0);
+                                }
+                            });
+                        });
+                        ui.add_space(4.0);
+                        egui::ScrollArea::both()
+                            .id_salt("integrated-workspace")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                if self.show_graphics {
+                                    self.graphics_controls(ui);
+                                }
+                                self.body(ui);
+                            });
+                    });
+                }
                 region(ui, plan.footer, "footer", None, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(
@@ -2008,6 +2541,37 @@ pub fn run_with_initial_state(
     open_updates: bool,
     initial_head: Option<usize>,
 ) -> eframe::Result {
+    run_with_spatial_state(
+        path,
+        backend,
+        fullscreen,
+        borderless,
+        quality,
+        reduced_motion,
+        frame_limit,
+        open_treasury,
+        open_updates,
+        initial_head,
+        None,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_spatial_state(
+    path: PathBuf,
+    backend: crate::desktop_renderer::Backend,
+    fullscreen: bool,
+    borderless: bool,
+    quality: crate::leviathan_scene::SceneQuality,
+    reduced_motion: bool,
+    frame_limit: u32,
+    open_treasury: bool,
+    open_updates: bool,
+    initial_head: Option<usize>,
+    mode_override: Option<crate::leviathan_spatial::PresentationMode>,
+    orbit_deg: Option<f32>,
+) -> eframe::Result {
     let attempts = crate::desktop_renderer::attempts(backend)
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let mut failure: Option<String> = None;
@@ -2027,20 +2591,28 @@ pub fn run_with_initial_state(
                     let mut app = Cockpit::new(cc, database);
                     app.fullscreen = fullscreen;
                     app.borderless = borderless;
+                    if let Some(m) = mode_override {
+                        app.spatial_prefs.mode = m;
+                    }
                     if open_updates {
-                        app.workspace = Workspace::Evolution;
+                        app.open_workspace(Workspace::Evolution);
                         app.details_height = 520.0;
                         app.target_details_height = 520.0;
                     } else if open_treasury {
-                        app.workspace = Workspace::Treasury;
+                        app.open_workspace(Workspace::Treasury);
                         app.details_height = 520.0;
                         app.target_details_height = 520.0;
                     } else if let Some(h) = initial_head.filter(|&i| i < 7) {
-                        app.workspace = Workspace::Head(h);
+                        app.open_workspace(Workspace::Head(h));
                         app.details_height = 360.0;
                         app.target_details_height = 360.0;
                     }
+                    if let Some(deg) = orbit_deg {
+                        app.orbit.auto_orbit = false;
+                        app.orbit.set_orbit_deg(deg, None, None);
+                    }
                     app.configure_presentation(quality, reduced_motion, frame_limit);
+                    app.camera = app.orbit.to_camera(1.65);
                     Ok(Box::new(app))
                 }),
             )

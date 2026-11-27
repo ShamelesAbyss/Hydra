@@ -276,3 +276,23 @@ All seven milestone rows reviewed:
   locked pending complete round-trip fee/funding net settlement, stream/restart recovery, native
   protective exchange orders, authenticated local control IPC, watchdog supervision, and signed
   release-signing key infrastructure.
+
+### v1.9.0 — Project Synapse Phase I ("Spatial Consciousness")
+
+All seven milestone rows reviewed against Project Synapse master directive:
+
+- **M3 / M7 Spatial Consciousness Final Graphical Enhancement (`src/leviathan_spatial.rs`,
+  `src/leviathan_awareness.rs`, `src/leviathan_3d_math.rs`, `src/leviathan_mesh.rs`,
+  `src/leviathan_layout.rs`, `src/leviathan_scene.rs`, `src/cockpit.rs`, `src/bin/hydra-cockpit.rs`):**
+  Completed floating Hybrid World-Space + Native `egui` holographic workspaces tethered by
+  glowing conduits, 3D drag repositioning, interchangeable `SPATIAL | CLASSIC` modes with persistent
+  preferences, 360° orbital camera + collision avoidance + outer cathedral perimeter + rear dorsal
+  armor, seven personality-paced aware heads with dwell hysteresis, whole-body thoracic/wing/tail
+  compensation, pairwise skull separation, and permanent fixed safety controls (**478** desktop-wgpu
+  tests, **432** headless tests). Major graphics-first architecture work is now concluded.
+- **M1–M6 Next Engineering Queue (Project Synapse Phase II onward):** Advance directly to **Phase II
+  Connected Intelligence** (continuous HUNTER WebSocket streams, FANG shared live/replay/paper
+  planner, COGNITION calibrated assessment, AEGIS independent admission, NEXUS paper execution, and
+  versioned internal event architecture) followed by Phase III–V settlement, recovery, IPC, and
+  watchdog certification. Live-trading defaults (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`) and
+  Windows DPAPI vs. Unix `0700`/`0600` owner-only filesystem permission distinctions stay explicit.

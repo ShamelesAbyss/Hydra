@@ -16,8 +16,8 @@ Obsidian-glass command center · Dedicated OS-protected Treasury · Verified nat
 </div>
 
 > [!IMPORTANT]
-> **Public Release `v1.8.0 | PROJECT INCARNATION`. Live-trading safety certification remains incomplete.**
-> Public distribution does **not** constitute certification of unattended live-trading safety. Exchange integration exists and live execution defaults strictly disabled (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Unresolved orders and unknown net settlement block new exposure. All historical `v1.7.0` and `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
+> **Public Release `v1.9.0 | PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS`. Live-trading safety certification remains incomplete.**
+> Public distribution does **not** constitute certification of unattended live-trading safety. Exchange integration exists and live execution defaults strictly disabled (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Unresolved orders and unknown net settlement block new exposure. All historical `v1.8.0`, `v1.7.0`, and `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
 >
 > **Financial Risk Disclosure:** Cryptocurrency perpetual futures involve substantial risk of total capital loss. Entrust Leviathan only with a separate dedicated wallet funded solely with capital you are fully prepared to lose. No strategy, adaptive model, or backtest guarantees profit.
 
@@ -38,7 +38,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Track | Current Status | Contents in GitHub Releases |
 | :--- | :--- | :--- |
-| **Latest Public Release** | **`v1.8.0 \| PROJECT INCARNATION`** | Standalone **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` articulated sanctuary + Glow fallback), Windows portable ZIP (`HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, `hydra.exe`), Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
+| **Latest Public Release** | **`v1.9.0 \| PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS`** | Standalone **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Consciousness + `CLASSIC` fallback + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
 | **Road to HYDRA 2.0** | Active `v1.x` progression | Iterative public releases advancing toward the generational [`v2.0.0` milestone](ROADMAP_V2.md) |
 | **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous engineering directly on `main` (internal test prereleases never replace Latest) |
 
@@ -51,18 +51,26 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 <a id="cockpit"></a>
 ## The Living Leviathan Command Sanctuary
 
-<img src="docs/assets/leviathan-awakened-wgpu.png" width="100%" alt="Actual native WGPU 3D PBR render of the seven-headed Leviathan command sanctuary showing the 96-bone articulated 3D dragon, shadow mapping, HDR bloom, Amethyst Heart, Treasury and Update controls, obsidian-glass rails, and Ashlan Haley Rapponotti memorial" />
+<img src="docs/assets/leviathan-awakened-wgpu.png" width="100%" alt="Actual native WGPU 3D PBR Spatial Sanctuary capture showing the full-bleed 96-bone articulated 3D seven-headed Leviathan, fixed top safety bar, holographic dock, Amethyst Heart, and Ashlan Haley Rapponotti memorial" />
 
-*Actual native `--release --features desktop-wgpu` Sovereign Overview capture (`144.9 UI/s`, `0.66 ms` CPU, `0.32 ms` GPU pass on Windows 11 / RTX 4070) against a clean dormant offline database.*
+*Actual native `--release --features desktop-wgpu` **SPATIAL** Sovereign Overview capture (`v1.9.0`, RTX 4070, `WGPU 3D PBR`) against a clean dormant offline database.*
 
-<img src="docs/assets/leviathan-focused-head.png" width="100%" alt="Actual native WGPU 3D PBR 3/4 focused close-up of FANG showing diamond obsidian snout scales, nasal spurs, curved ivory fangs, glowing reptilian eyes, adjacent 3D heads, and inline grid planner" />
+<img src="docs/assets/leviathan-spatial-workspaces.png" width="100%" alt="Actual native WGPU 3D PBR Spatial Workspace capture showing a translucent obsidian-glass FANG holographic interface floating beside its articulated dragon head with a live glowing energy conduit" />
 
-*Heroic 3/4 focused-head inspection (`--head 1` / `Esc` to return to Sovereign Overview) revealing individual 3D dragon skulls, overlapping obsidian scales, amethyst sub-scale seams, fangs, and smooth camera transitions (`143.1 UI/s`, `0.68 ms` CPU, `0.27 ms` GPU).*
+*Interactive Hybrid World-Space + Native `egui` floating workspace (`--mode spatial --head 1`): obsidian-glass panels anchor smoothly in 3D space, accept 3D drag repositioning, remain upright and unmirrored at every orbit angle, and invite each head's gaze and whole-body posture to acknowledge open panels.*
+
+<img src="docs/assets/leviathan-orbit-profile.png" width="100%" alt="Actual native WGPU 3D PBR 360-degree orbital capture at 52 degrees azimuth focusing on AEGIS with a camera-facing floating Risk Shield workspace" />
+
+*360° Sanctuary Orbit (`--orbit 52 --head 3`): camera-basis billboarding keeps the `AEGIS · RISK SHIELD` panel upright and readable from oblique angles while preserving clean clearance for Ashlan's memorial and fixed top safety controls.*
+
+<img src="docs/assets/leviathan-focused-head.png" width="100%" alt="Actual native WGPU 3D PBR Classic mode 3/4 focused close-up of FANG showing docked side intelligence and protection rails alongside the inline workspace drawer" />
+
+*Interchangeable **`CLASSIC`** presentation mode (`--mode classic --head 1`) retaining docked Intelligence and Protection rails plus resizable inline drawers alongside the 3D Leviathan.*
 
 | Surface | Available Today |
 | :--- | :--- |
-| **Unified WGPU 3D PBR Cockpit** | 96-bone articulated 3D skeletal & procedural-mesh seven-headed Leviathan (`WGPU 3D PBR`: `1536 × 1536` PCF shadow mapping, Cook-Torrance GGX PBR, diamond obsidian scales, amethyst sub-scale bioluminescence, Hinged Jaws & Fangs, 3D reptilian slit eyes, half-res HDR bloom, ACES compositing, `Low`/`Medium`/`High`/`Ultra`/`Cinematic` presets, `TIMESTAMP_QUERY` GPU pass telemetry, smooth Overview ↔ 3/4 Focused Head camera flights, Glow fallback) and permanent Ashlan memorial |
-| **Leviathan Treasury & The Offering** | Dedicated-wallet onboarding altar (`Alt+T` / `--treasury`), Windows DPAPI / Unix `0600` local credential vault, read-only public-address Hyperliquid verification, truthful 12-metric portfolio surface, 6 operational modes (`DORMANT`..`SUSPENDED`), and one-click `EMERGENCY SUSPEND` |
+| **Unified WGPU 3D PBR Spatial Sanctuary** | 96-bone articulated 3D seven-headed Leviathan with dorsal thoracic armor, `1536 × 1536` PCF shadow mapping, Cook-Torrance GGX PBR, HDR bloom, ACES compositing, `Low`/`Medium`/`High`/`Ultra`/`Cinematic` presets, `TIMESTAMP_QUERY` GPU pass timing, 360° camera orbit + collision avoidance, 7 personality-paced aware heads + whole-body compensation, Hybrid World-Space + Native `egui` holographic workspaces, interchangeable `SPATIAL \| CLASSIC` modes, Glow fallback, and permanent Ashlan memorial |
+| **Leviathan Treasury & The Offering** | Dedicated-wallet onboarding altar (`Alt+T` / `--treasury`), Windows DPAPI encryption (`CryptProtectData`) on Windows and strict `0700`/`0600` owner-only filesystem permissions on Unix, read-only public-address Hyperliquid verification, truthful 12-metric portfolio surface, 6 operational modes (`DORMANT`..`SUSPENDED`), and permanent fixed `EMERGENCY SUSPEND` |
 | **Leviathan Evolution (Updates)** | Integrated native update manager (`Alt+U` / `--updates` / `CHECK FOR UPDATES`), GitHub Releases channel filtering (`Stable` / `Development`), SemVer comparison, FIPS 180-4 SHA-256 verification, `secp256k1` signed-manifest provenance checks, staging/backup/rollback, and trading-safe maintenance gating |
 | **Research Workspaces** | HUNTER Radar & liquidity map, FANG deterministic arbitration/EMA research, COGNITION shadow evaluation, AEGIS portfolio/correlation diagnostics, ORACLE held-out cost scenarios, and GENESIS resumable checkpoints & frozen-frontier assessment |
 | **Terminal (Ratatui) & Headless CLI** | Independent engine runtime, bounded Ratatui TUI, configuration checks, ledger sync, and offline forensic inspectors (`status-history`, `wire-history`, `intent-evidence`) |
@@ -88,7 +96,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 *Actual native capture of **LEVIATHAN TREASURY** and **THE OFFERING** inside the unified command window (`--treasury`).*
 
 - **Dedicated Trading Wallet Only:** Operators must create and fund a **separate dedicated cryptocurrency wallet** solely for Hydra and never connect their primary personal wallet. Seed phrases are never requested.
-- **OS-Protected Local Vault:** Private signing keys are encrypted locally via Windows DPAPI (`CryptProtectData`, current OS user scope) or strict Unix `0700`/`0600` storage, held in zeroizing memory buffers (`SecretString`), masked in UI inputs, and never transmitted to AI services, logs, telemetry, or developers.
+- **OS-Protected Local Vault:** Private signing keys are encrypted locally on Windows via Windows DPAPI (`CryptProtectData`, current OS user scope) or stored under strict `chmod 0700`/`0600` owner-only filesystem permissions (not encryption) on Unix, held in zeroizing memory buffers (`SecretString`), masked in native inputs, and never transmitted to AI services, logs, telemetry, or developers.
 - **Genuine Validation & No Withdrawals:** Verification queries Hyperliquid `/info` using **only the public address** (validating signer/agent role, standard perp `disabled` abstraction mode, collateral, and margin). Automatic withdrawals and arbitrary transfers are permanently absent.
 - **Operational Modes & Emergency Suspend:** Supports `DORMANT`, `OBSERVATION`, `SIMULATION`, gated `AWAKENED` (locked until full live certification passes), `GUARDIAN`, and persistent `SUSPENDED` via a prominent one-click **`EMERGENCY SUSPEND`** control.
 
@@ -186,7 +194,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 | **Atomic Admission** | Risk reservation and durable execution intent commit together in one SQLite `IMMEDIATE` transaction |
 | **Explicit Uncertainty** | Ambiguous acknowledgments and unknown net settlement preserve evidence and block new exposure |
 | **Account Ownership** | Persistent database account binding plus OS file locks prevent conflicting local controllers |
-| **Credential Isolation** | Private signing keys stay under OS DPAPI / `0600` local protection; zero key logging or exfiltration |
+| **Credential Isolation** | Private signing keys use Windows DPAPI encryption (`CryptProtectData`) on Windows or strict `0700`/`0600` owner-only permissions on Unix; zero key logging or exfiltration |
 | **No Withdrawals** | Automatic withdrawals and arbitrary wallet transfers are structurally absent |
 
 [Architecture](ARCHITECTURE.md) · [Hyperliquid Integration](HYPERLIQUID_INTEGRATION.md) · [Risk Management](RISK_MANAGEMENT.md)
@@ -198,14 +206,14 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 ### Windows Native Application (`HYDRA-Leviathan-Windows-x64.exe`)
 
-1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.8.0 | PROJECT INCARNATION`**).
+1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.9.0 | PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS`**).
 2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and the release's **`SHA256SUMS.txt`** manifest.
 3. Verify the executable integrity before launching:
    ```powershell
    Get-FileHash .\HYDRA-Leviathan-Windows-x64.exe -Algorithm SHA256
    ```
-4. **Double-click `HYDRA-Leviathan-Windows-x64.exe`** to launch directly into the living seven-headed `WGPU 3D PBR` sanctuary (Windows SmartScreen may display an unsigned-binary notice).
-   - Optional CLI compatibility flags: `--quality cinematic`, `--head 0..6`, `--renderer glow` (OpenGL fallback), `--renderer software` (CPU WGPU fallback), `--fullscreen`, `--treasury`, `--updates`.
+4. **Double-click `HYDRA-Leviathan-Windows-x64.exe`** to launch directly into the living seven-headed `WGPU 3D PBR` Spatial Consciousness sanctuary (Windows SmartScreen may display an unsigned-binary notice).
+   - Optional CLI compatibility flags: `--mode spatial|classic`, `--orbit <deg>`, `--quality cinematic`, `--head 0..6`, `--renderer glow` (OpenGL fallback), `--renderer software` (CPU WGPU fallback), `--fullscreen`, `--treasury`, `--updates`.
    - Startup logs and crash diagnostics are written to `%LOCALAPPDATA%\Hydra\logs\`.
 
 ### Linux x86_64 Headless Engine & CLI
@@ -213,9 +221,9 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 Obtain the Linux package and checksum manifest from [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases), verify, and extract:
 
 ```sh
-sha256sum --check hydra-1.8.0-linux-SHA256SUMS.txt
-mkdir hydra-1.8.0 && tar -xzf hydra-1.8.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.8.0
-cd hydra-1.8.0
+sha256sum --check hydra-1.9.0-linux-SHA256SUMS.txt
+mkdir hydra-1.9.0 && tar -xzf hydra-1.9.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.9.0
+cd hydra-1.9.0
 ./hydra --version
 ./hydra --no-banner config-check
 ```
@@ -254,8 +262,8 @@ Environment templates live in [`.env.example`](.env.example) and strategy parame
 
 | Verification Gate | Current Verified State |
 | :--- | :--- |
-| **Offline Regression Suite** | **470 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`) + **432 passing headless tests** (`cargo test --locked --all-targets`), covering the 96-bone 3D skeletal/mesh/PBR WGPU renderer, Shadow Maps + HDR Bloom, `Cinematic` quality & `TIMESTAMP_QUERY`, public SemVer release selection, SQLite startup health checks, Leviathan Evolution, HUNTER loopback public radar, FANG bounded grids, COGNITION causal regime inference, AEGIS margin stress, and ORACLE dataset integrity |
-| **Renderer & Fallback** | Verified native Windows 11 RTX 4070 `WGPU 3D PBR` rendering (`--features desktop-wgpu`, `143.1–144.9 UI/s`, `0.27–0.32 ms` GPU pass) plus Glow compatibility build (`--features desktop`, 0 warnings) and `catch_unwind` fallback |
+| **Offline Regression Suite** | **478 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`) + **432 passing headless tests** (`cargo test --locked --all-targets`), covering the 360° orbital camera, pole-safe billboard basis, 7-personality awareness springs & body compensation, spatial preferences/clamping, 96-bone 3D skeletal/PBR WGPU renderer, Shadow Maps + HDR Bloom, public SemVer release selection, SQLite startup health checks, Leviathan Evolution, HUNTER loopback radar, FANG bounded grids, COGNITION causal regime inference, AEGIS margin stress, and ORACLE dataset integrity |
+| **Renderer & Fallback** | Verified native Windows 11 RTX 4070 `WGPU 3D PBR` Spatial & Classic rendering (`--features desktop-wgpu`, `0.14–0.53 ms` GPU pass) plus Glow compatibility build (`--features desktop`, 0 warnings, runtime check passed) and `catch_unwind` fallback |
 | **Formatting, Clippy & Policy** | `cargo fmt --check`, `cargo clippy --locked --all-targets`, memorial verification, and automated GitHub compliance check pass |
 | **Dependency Audit** | `cargo audit` passes with **0 vulnerability entries** and 1 known Chrono maintenance warning (zero advisory ignores) |
 | **Signing Conformance** | 8 offline cross-language fixtures verified against published official Hyperliquid Python SDK constants |

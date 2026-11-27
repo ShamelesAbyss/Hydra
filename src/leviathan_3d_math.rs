@@ -445,8 +445,183 @@ pub fn cubic_bezier_tangent_v3(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: f32) -
 }
 
 // ============================================================================
-// Camera State & Smooth Focus Choreography
+// Camera Basis, 360° Orbital Sanctuary Camera & Smooth Focus Choreography
 // ============================================================================
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraBasis {
+    pub right: Vec3,
+    pub up: Vec3,
+    pub forward: Vec3,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OrbitState {
+    pub yaw_rad: f32,
+    pub pitch_rad: f32,
+    pub distance: f32,
+    pub pan_target: Vec3,
+    pub fov_y_deg: f32,
+    pub auto_orbit: bool,
+}
+
+impl Default for OrbitState {
+    fn default() -> Self {
+        Self::overview()
+    }
+}
+
+impl OrbitState {
+    pub fn overview() -> Self {
+        Self {
+            yaw_rad: 0.0,
+            pitch_rad: 0.037,
+            distance: 7.85,
+            pan_target: Vec3::new(0.0, 0.05, 0.05),
+            fov_y_deg: 48.0,
+            auto_orbit: false,
+        }
+    }
+
+    /// Heroic 3/4 orbital framing centered on a specific dragon skull.
+    pub fn for_head(head_idx: usize, head_world: Vec3, aspect: f32) -> Self {
+        let side_x = if head_idx < 3 {
+            1.36
+        } else if head_idx > 3 {
+            -1.36
+        } else {
+            1.08
+        };
+        let eye_offset = Vec3::new(side_x, 0.34, 2.86);
+        let target = head_world + Vec3::new(0.0, 0.06, 0.08);
+        let rel = eye_offset - Vec3::new(0.0, 0.06, 0.08);
+        let distance = rel.length().clamp(2.35, 13.5);
+        let pitch_rad = (rel.y / distance).clamp(-0.98, 0.98).asin();
+        let yaw_rad = rel.x.atan2(rel.z);
+        Self {
+            yaw_rad,
+            pitch_rad,
+            distance,
+            pan_target: target,
+            fov_y_deg: if aspect < 1.4 { 47.0 } else { 43.0 },
+            auto_orbit: false,
+        }
+    }
+
+    pub fn clamp_bounds(&mut self) {
+        if !self.yaw_rad.is_finite() {
+            self.yaw_rad = 0.0;
+        }
+        // Wrap full 360-degree azimuth cleanly into (-PI, PI].
+        let two_pi = 2.0 * PI;
+        self.yaw_rad = (self.yaw_rad + PI).rem_euclid(two_pi) - PI;
+        self.pitch_rad = if self.pitch_rad.is_finite() {
+            self.pitch_rad.clamp(-0.36, 0.95)
+        } else {
+            0.04
+        };
+        self.distance = if self.distance.is_finite() {
+            self.distance.clamp(2.35, 13.5)
+        } else {
+            7.85
+        };
+        let clamp_f = |v: f32, lo: f32, hi: f32, def: f32| {
+            if v.is_finite() {
+                v.clamp(lo, hi)
+            } else {
+                def
+            }
+        };
+        self.pan_target = Vec3::new(
+            clamp_f(self.pan_target.x, -3.2, 3.2, 0.0),
+            clamp_f(self.pan_target.y, -1.0, 2.4, 0.05),
+            clamp_f(self.pan_target.z, -2.2, 2.2, 0.05),
+        );
+        self.fov_y_deg = clamp_f(self.fov_y_deg, 32.0, 68.0, 48.0);
+    }
+
+    pub fn orbit_by(&mut self, dyaw_rad: f32, dpitch_rad: f32) {
+        if dyaw_rad.is_finite() {
+            self.yaw_rad += dyaw_rad;
+        }
+        if dpitch_rad.is_finite() {
+            self.pitch_rad += dpitch_rad;
+        }
+        self.clamp_bounds();
+    }
+
+    pub fn zoom_by(&mut self, wheel_delta: f32) {
+        if wheel_delta.is_finite() {
+            self.distance *= (1.0 - wheel_delta * 0.0014).clamp(0.75, 1.35);
+            self.clamp_bounds();
+        }
+    }
+
+    pub fn pan_by(&mut self, screen_delta: EguiVec2, basis: CameraBasis, viewport_h: f32) {
+        let scale = (self.distance * 2.0 * (self.fov_y_deg.to_radians() * 0.5).tan())
+            / viewport_h.max(120.0);
+        if screen_delta.x.is_finite() && screen_delta.y.is_finite() && scale.is_finite() {
+            self.pan_target = self.pan_target - basis.right * (screen_delta.x * scale)
+                + basis.up * (screen_delta.y * scale);
+            self.clamp_bounds();
+        }
+    }
+
+    pub fn set_orbit_deg(&mut self, yaw_deg: f32, pitch_deg: Option<f32>, distance: Option<f32>) {
+        if yaw_deg.is_finite() {
+            self.yaw_rad = yaw_deg.to_radians();
+        }
+        if let Some(p) = pitch_deg.filter(|v| v.is_finite()) {
+            self.pitch_rad = p.to_radians();
+        }
+        if let Some(d) = distance.filter(|v| v.is_finite()) {
+            self.distance = d;
+        }
+        self.clamp_bounds();
+    }
+
+    pub fn step_auto(&mut self, dt: f32, angular_speed: f32) {
+        if self.auto_orbit && dt.is_finite() && angular_speed.is_finite() {
+            self.orbit_by(dt.clamp(0.0, 0.1) * angular_speed, 0.0);
+        }
+    }
+
+    pub fn to_camera(&self, aspect: f32) -> LeviathanCamera {
+        let mut s = self.clone();
+        s.clamp_bounds();
+        let (sin_p, cos_p) = s.pitch_rad.sin_cos();
+        let (sin_y, cos_y) = s.yaw_rad.sin_cos();
+        let dir = Vec3::new(cos_p * sin_y, sin_p, cos_p * cos_y);
+        let mut eye = s.pan_target + dir * s.distance;
+
+        // Sanctuary collision avoidance: keep camera above obsidian dais floor and outside thorax.
+        if eye.y < -1.68 {
+            eye.y = -1.68;
+        }
+        let thorax_center = Vec3::new(0.0, -1.0, 0.15);
+        let min_radius = 1.65;
+        let from_thorax = eye - thorax_center;
+        let dist_t = from_thorax.length();
+        if dist_t < min_radius {
+            let push = from_thorax.normalize_or(dir.normalize_or(Vec3::Z));
+            eye = thorax_center + push * min_radius;
+            if eye.y < -1.68 {
+                eye.y = -1.68;
+            }
+        }
+
+        let fov_deg = if aspect < 1.55 {
+            s.fov_y_deg.max(48.0) + ((1.55 - aspect) * 20.0).clamp(0.0, 14.0)
+        } else {
+            s.fov_y_deg
+        };
+        LeviathanCamera {
+            eye,
+            target: s.pan_target,
+            fov_y_rad: fov_deg.to_radians(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LeviathanCamera {
@@ -480,21 +655,51 @@ impl LeviathanCamera {
     /// Heroic 3/4 anatomical close-up on head `0..=6` showcasing snout profile, fangs,
     /// eye socket, crown horns, and overlapping neck scales with clean headroom.
     pub fn focused_for_head(head_idx: usize, head_world: Vec3, aspect: f32) -> Self {
-        let side_x = if head_idx < 3 {
-            1.36
-        } else if head_idx > 3 {
-            -1.36
+        OrbitState::for_head(head_idx, head_world, aspect).to_camera(aspect)
+    }
+
+    /// Orthonormal camera basis vectors (`right`, `up`, `forward`) with near-vertical
+    /// pole protection so floating billboards remain upright and unmirrored.
+    pub fn basis(&self) -> CameraBasis {
+        let forward = (self.target - self.eye).normalize_or(-Vec3::Z);
+        let ref_up = if forward.dot(Vec3::Y).abs() > 0.985 {
+            Vec3::Z
         } else {
-            1.08
+            Vec3::Y
         };
-        let eye_offset = Vec3::new(side_x, 0.34, 2.86);
-        let target = head_world + Vec3::new(0.0, 0.06, 0.08);
-        let fov_deg: f32 = if aspect < 1.4 { 47.0 } else { 43.0 };
-        Self {
-            eye: head_world + eye_offset,
-            target,
-            fov_y_rad: fov_deg.to_radians(),
+        let right = forward.cross(ref_up).normalize_or(Vec3::X);
+        let up = right.cross(forward).normalize_or(Vec3::Y);
+        CameraBasis { right, up, forward }
+    }
+
+    /// Convert a screen-space pixel drag delta into a 3D world translation aligned to the camera plane.
+    pub fn unproject_drag_delta(
+        &self,
+        screen_delta: EguiVec2,
+        world_anchor: Vec3,
+        rect: Rect,
+    ) -> Vec3 {
+        if !screen_delta.x.is_finite() || !screen_delta.y.is_finite() {
+            return Vec3::ZERO;
         }
+        let basis = self.basis();
+        let depth = (world_anchor - self.eye)
+            .dot(basis.forward)
+            .clamp(0.8, 18.0);
+        let px_world = (2.0 * depth * (self.fov_y_rad * 0.5).tan()) / rect.height().max(120.0);
+        basis.right * (screen_delta.x * px_world) - basis.up * (screen_delta.y * px_world)
+    }
+
+    /// Advance camera smoothly toward desired camera state (orbit overview or focused head).
+    pub fn update_toward(&mut self, desired: &LeviathanCamera, dt: f32, motion: bool) {
+        if !motion {
+            *self = desired.clone();
+            return;
+        }
+        let alpha = 1.0 - (-dt.clamp(0.001, 0.1) * 7.5).exp();
+        self.eye = self.eye.lerp(desired.eye, alpha);
+        self.target = self.target.lerp(desired.target, alpha);
+        self.fov_y_rad += (desired.fov_y_rad - self.fov_y_rad) * alpha;
     }
 
     /// Advance camera smoothly toward overview or focused head target.
@@ -513,14 +718,7 @@ impl LeviathanCamera {
             }
             None => Self::overview(aspect),
         };
-        if !motion {
-            *self = desired;
-            return;
-        }
-        let alpha = 1.0 - (-dt.clamp(0.001, 0.1) * 7.5).exp();
-        self.eye = self.eye.lerp(desired.eye, alpha);
-        self.target = self.target.lerp(desired.target, alpha);
-        self.fov_y_rad += (desired.fov_y_rad - self.fov_y_rad) * alpha;
+        self.update_toward(&desired, dt, motion);
     }
 
     pub fn view_matrix(&self) -> Mat4 {
@@ -558,6 +756,37 @@ impl LeviathanCamera {
 }
 
 // ============================================================================
+// Procedural Creature Awareness & Whole-Body Compensation Data
+// ============================================================================
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HeadAwarenessOutput {
+    pub look_target: Option<Vec3>,
+    pub neck_pull: Vec3,
+    pub gaze_bias: [f32; 2],
+    pub jaw_extra: f32,
+    pub pitch_extra: f32,
+    pub roll_extra: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BodyCompensation {
+    pub thorax_yaw: f32,
+    pub thorax_pitch: f32,
+    pub thorax_roll: f32,
+    pub thorax_shift: Vec3,
+    pub wing_asym_l: f32,
+    pub wing_asym_r: f32,
+    pub tail_counter_yaw: f32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AwarenessPose {
+    pub heads: [HeadAwarenessOutput; 7],
+    pub body: BodyCompensation,
+}
+
+// ============================================================================
 // Hierarchical Articulated 96-Bone Skeleton
 // ============================================================================
 
@@ -573,6 +802,25 @@ pub struct SkeletonParams {
     pub head_emphasis: [f32; 7],
     pub head_eye_open: [f32; 7],
     pub selected: Option<usize>,
+    pub awareness: Option<AwarenessPose>,
+}
+
+impl Default for SkeletonParams {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            motion: false,
+            breath: 0.45,
+            heart_pulse: 0.32,
+            pointer_world: None,
+            head_activity: [0.0; 7],
+            head_warning: [false; 7],
+            head_emphasis: [0.0; 7],
+            head_eye_open: [1.0; 7],
+            selected: None,
+            awareness: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -720,44 +968,108 @@ impl LeviathanSkeleton {
             0.32
         };
 
+        let aw = params.awareness.as_ref();
+        let thorax_pivot = bind_pos[BONE_ROOT];
+        let (
+            thorax_yaw,
+            thorax_pitch,
+            thorax_roll,
+            thorax_shift,
+            wing_asym_l,
+            wing_asym_r,
+            tail_counter_yaw,
+        ) = if let Some(a) = aw {
+            let b = &a.body;
+            let clamp_s = |v: f32| {
+                if v.is_finite() {
+                    v.clamp(-0.16, 0.16)
+                } else {
+                    0.0
+                }
+            };
+            (
+                if b.thorax_yaw.is_finite() {
+                    b.thorax_yaw.clamp(-0.30, 0.30)
+                } else {
+                    0.0
+                },
+                if b.thorax_pitch.is_finite() {
+                    b.thorax_pitch.clamp(-0.10, 0.10)
+                } else {
+                    0.0
+                },
+                if b.thorax_roll.is_finite() {
+                    b.thorax_roll.clamp(-0.08, 0.08)
+                } else {
+                    0.0
+                },
+                Vec3::new(
+                    clamp_s(b.thorax_shift.x),
+                    clamp_s(b.thorax_shift.y),
+                    clamp_s(b.thorax_shift.z),
+                ),
+                if b.wing_asym_l.is_finite() {
+                    b.wing_asym_l.clamp(-0.22, 0.22)
+                } else {
+                    0.0
+                },
+                if b.wing_asym_r.is_finite() {
+                    b.wing_asym_r.clamp(-0.22, 0.22)
+                } else {
+                    0.0
+                },
+                if b.tail_counter_yaw.is_finite() {
+                    b.tail_counter_yaw.clamp(-0.36, 0.36)
+                } else {
+                    0.0
+                },
+            )
+        } else {
+            (0.0, 0.0, 0.0, Vec3::ZERO, 0.0, 0.0, 0.0)
+        };
+        let thorax_rot = Quat::from_euler_yxz(thorax_yaw, thorax_pitch, thorax_roll);
+        let apply_thorax =
+            |p: Vec3| thorax_pivot + thorax_rot.rotate_vec3(p - thorax_pivot) + thorax_shift;
+
         let breath_off = (b - 0.45) * 0.055;
         let thorax_scale = Vec3::new(
             1.0 + (b - 0.45) * 0.045,
             1.0 + (b - 0.45) * 0.032,
             1.0 + (b - 0.45) * 0.055,
         );
-        skin_mats[BONE_THORAX] = Mat4::from_trs(
-            bind_pos[BONE_THORAX] + Vec3::new(0.0, breath_off * 0.4, 0.0),
-            Quat::IDENTITY,
-            thorax_scale,
-        )
-        .mul_mat4(Mat4::from_translation(-bind_pos[BONE_THORAX]));
+        joint_pos[BONE_THORAX] =
+            apply_thorax(bind_pos[BONE_THORAX]) + Vec3::new(0.0, breath_off * 0.4, 0.0);
+        skin_mats[BONE_THORAX] = Mat4::from_trs(joint_pos[BONE_THORAX], thorax_rot, thorax_scale)
+            .mul_mat4(Mat4::from_translation(-bind_pos[BONE_THORAX]));
 
-        // Beating Amethyst Heart
+        // Beating Amethyst Heart (moves cleanly with thorax orientation)
         let heart_scale = Vec3::ONE * (1.0 + (pulse - 0.32) * 0.095);
-        joint_pos[BONE_HEART] = bind_pos[BONE_HEART] + Vec3::new(0.0, breath_off * 0.35, 0.02);
-        skin_mats[BONE_HEART] = Mat4::from_trs(joint_pos[BONE_HEART], Quat::IDENTITY, heart_scale)
+        joint_pos[BONE_HEART] =
+            apply_thorax(bind_pos[BONE_HEART]) + Vec3::new(0.0, breath_off * 0.35, 0.02);
+        skin_mats[BONE_HEART] = Mat4::from_trs(joint_pos[BONE_HEART], thorax_rot, heart_scale)
             .mul_mat4(Mat4::from_translation(-bind_pos[BONE_HEART]));
 
-        // Forelimbs breathe slightly at shoulders while claws remain planted on dais
+        // Forelimbs breathe slightly at shoulders & flex elbows while claws remain planted on dais
         for &(sh, el) in &[
             (BONE_ARM_L_SH, BONE_ARM_L_EL),
             (BONE_ARM_R_SH, BONE_ARM_R_EL),
         ] {
-            joint_pos[sh] = bind_pos[sh] + Vec3::new(0.0, breath_off * 0.5, 0.0);
-            joint_pos[el] = bind_pos[el] + Vec3::new(0.0, breath_off * 0.25, 0.0);
-            skin_mats[sh] = Mat4::from_translation(joint_pos[sh] - bind_pos[sh]);
+            joint_pos[sh] = apply_thorax(bind_pos[sh]) + Vec3::new(0.0, breath_off * 0.5, 0.0);
+            joint_pos[el] = bind_pos[el].lerp(apply_thorax(bind_pos[el]), 0.45)
+                + Vec3::new(0.0, breath_off * 0.25, 0.0);
+            skin_mats[sh] = Mat4::from_trs(joint_pos[sh], thorax_rot, Vec3::ONE)
+                .mul_mat4(Mat4::from_translation(-bind_pos[sh]));
             skin_mats[el] = Mat4::from_translation(joint_pos[el] - bind_pos[el]);
         }
 
-        // Wings lift organically with breath + faint secondary tip lag
+        // Wings lift organically with breath + asymmetric balance compensation
         let wing_lift = (b - 0.45) * 0.24;
         let wing_lag = if params.motion {
             (t * 1.18 - 0.45).sin() * 0.14
         } else {
             0.0
         };
-        for &(sh, el, t0, t1, t2, t3, side) in &[
+        for &(sh, el, t0, t1, t2, t3, side, asym) in &[
             (
                 BONE_WING_L_SH,
                 BONE_WING_L_EL,
@@ -766,6 +1078,7 @@ impl LeviathanSkeleton {
                 BONE_WING_L_TIP2,
                 BONE_WING_L_TIP3,
                 -1.0_f32,
+                wing_asym_l,
             ),
             (
                 BONE_WING_R_SH,
@@ -775,24 +1088,28 @@ impl LeviathanSkeleton {
                 BONE_WING_R_TIP2,
                 BONE_WING_R_TIP3,
                 1.0_f32,
+                wing_asym_r,
             ),
         ] {
-            let sh_pos = bind_pos[sh] + Vec3::new(0.0, breath_off * 0.7, 0.0);
-            let el_pos = bind_pos[el] + Vec3::new(side * 0.06, wing_lift * 0.9, wing_lift * 0.35);
-            let t0_pos =
-                bind_pos[t0] + Vec3::new(side * 0.12, wing_lift * 1.4 + wing_lag, wing_lift * 0.6);
-            let t1_pos =
-                bind_pos[t1] + Vec3::new(side * 0.09, wing_lift * 0.95 + wing_lag * 0.8, 0.0);
-            let t2_pos = bind_pos[t2] + Vec3::new(side * 0.05, wing_lift * 0.45, 0.0);
-            let t3_pos = bind_pos[t3] + Vec3::new(side * 0.02, wing_lift * 0.2, 0.0);
-            let el_rot = Quat::from_axis_angle(Vec3::Z, -side * wing_lift * 0.22);
+            let side_lift = wing_lift + asym;
+            let sh_pos = apply_thorax(bind_pos[sh]) + Vec3::new(0.0, breath_off * 0.7, 0.0);
+            let el_pos = apply_thorax(bind_pos[el])
+                + Vec3::new(side * 0.06, side_lift * 0.9, side_lift * 0.35);
+            let t0_pos = apply_thorax(bind_pos[t0])
+                + Vec3::new(side * 0.12, side_lift * 1.4 + wing_lag, side_lift * 0.6);
+            let t1_pos = apply_thorax(bind_pos[t1])
+                + Vec3::new(side * 0.09, side_lift * 0.95 + wing_lag * 0.8, 0.0);
+            let t2_pos = apply_thorax(bind_pos[t2]) + Vec3::new(side * 0.05, side_lift * 0.45, 0.0);
+            let t3_pos = apply_thorax(bind_pos[t3]) + Vec3::new(side * 0.02, side_lift * 0.2, 0.0);
+            let el_rot = thorax_rot * Quat::from_axis_angle(Vec3::Z, -side * side_lift * 0.22);
             joint_pos[sh] = sh_pos;
             joint_pos[el] = el_pos;
             joint_pos[t0] = t0_pos;
             joint_pos[t1] = t1_pos;
             joint_pos[t2] = t2_pos;
             joint_pos[t3] = t3_pos;
-            skin_mats[sh] = Mat4::from_translation(sh_pos - bind_pos[sh]);
+            skin_mats[sh] = Mat4::from_trs(sh_pos, thorax_rot, Vec3::ONE)
+                .mul_mat4(Mat4::from_translation(-bind_pos[sh]));
             skin_mats[el] = Mat4::from_trs(el_pos, el_rot, Vec3::ONE)
                 .mul_mat4(Mat4::from_translation(-bind_pos[el]));
             for (bone, pos) in [(t0, t0_pos), (t1, t1_pos), (t2, t2_pos), (t3, t3_pos)] {
@@ -801,7 +1118,7 @@ impl LeviathanSkeleton {
             }
         }
 
-        // Tail undulating gracefully along right flank
+        // Tail undulating gracefully along right flank + counter-balancing upper-body weight shift
         for i in 0..6 {
             let bone = BONE_TAIL_BASE + i;
             let amp = (i as f32 / 5.0).powf(1.3);
@@ -815,9 +1132,13 @@ impl LeviathanSkeleton {
             } else {
                 0.0
             };
-            let pos = bind_pos[bone] + Vec3::new(wave_x, wave_y, wave_x * 0.5);
+            let counter_q = Quat::from_axis_angle(Vec3::Y, tail_counter_yaw * amp);
+            let swung = thorax_pivot + counter_q.rotate_vec3(bind_pos[bone] - thorax_pivot);
+            let root_blended = swung.lerp(apply_thorax(bind_pos[bone]), (1.0 - amp).max(0.25));
+            let pos = root_blended + Vec3::new(wave_x, wave_y, wave_x * 0.5);
             joint_pos[bone] = pos;
-            skin_mats[bone] = Mat4::from_translation(pos - bind_pos[bone]);
+            skin_mats[bone] = Mat4::from_trs(pos, counter_q, Vec3::ONE)
+                .mul_mat4(Mat4::from_translation(-bind_pos[bone]));
         }
 
         // Seven individually articulated necks, skulls, and hinged jaws
@@ -826,13 +1147,19 @@ impl LeviathanSkeleton {
         let tempos = [0.68_f32, 0.84, 0.44, 0.36, 0.56, 0.40, 0.52];
         let reactivity = [0.95_f32, 0.88, 0.72, 0.58, 0.82, 0.65, 0.78];
 
+        let mut neck_p0 = [Vec3::ZERO; 7];
+        let mut neck_c1 = [Vec3::ZERO; 7];
+        let mut neck_c2 = [Vec3::ZERO; 7];
+        let mut skulls_live = [Vec3::ZERO; 7];
+        let mut skulls_rot = [Quat::IDENTITY; 7];
+        let mut jaw_extras = [0.0f32; 7];
+
         for h in 0..7 {
             let (p0_rest, c1_rest, c2_rest, skull_rest) = specs[h];
             let spread = (h as f32 - 3.0) / 3.0;
             let phase = h as f32 * 1.618 + 0.35;
             let tempo = tempos[h];
             let act = params.head_activity[h].clamp(0.0, 1.0);
-            let warn = if params.head_warning[h] { 1.0 } else { 0.0 };
             let emph = params.head_emphasis[h].clamp(0.0, 1.0);
 
             // Subtle idle organic head float + natural neighboring glances
@@ -852,20 +1179,57 @@ impl LeviathanSkeleton {
                 0.0
             };
 
-            // Selection acknowledgement nod / poised lean forward
+            let aw_h = aw.map(|a| a.heads[h]).unwrap_or_default();
+            let raw_pull = if aw_h.neck_pull.x.is_finite()
+                && aw_h.neck_pull.y.is_finite()
+                && aw_h.neck_pull.z.is_finite()
+            {
+                let len = aw_h.neck_pull.length();
+                if len > 0.52 {
+                    aw_h.neck_pull * (0.52 / len)
+                } else {
+                    aw_h.neck_pull
+                }
+            } else {
+                Vec3::ZERO
+            };
+
+            // Selection acknowledgement nod / poised lean forward + awareness pull
             let ack_forward = emph * 0.14 + act * 0.10;
-            let p0 = p0_rest + Vec3::new(0.0, breath_off * 0.6, 0.0);
-            let c1 = c1_rest + Vec3::new(sway_x * 0.42, sway_y * 0.35, sway_z * 0.45);
-            let c2 = c2_rest
+            let p0 = apply_thorax(p0_rest) + Vec3::new(0.0, breath_off * 0.6, 0.0);
+            let c1 = apply_thorax(c1_rest)
+                + Vec3::new(sway_x * 0.42, sway_y * 0.35, sway_z * 0.45)
+                + raw_pull * 0.28;
+            let c2 = apply_thorax(c2_rest)
                 + Vec3::new(
                     sway_x * 0.78,
                     sway_y * 0.72,
                     sway_z * 0.8 + ack_forward * 0.5,
-                );
-            let skull_live = skull_rest + Vec3::new(sway_x, sway_y, sway_z + ack_forward);
+                )
+                + raw_pull * 0.65;
+            let skull_live = apply_thorax(skull_rest)
+                + Vec3::new(sway_x, sway_y, sway_z + ack_forward)
+                + raw_pull;
 
-            // Gaze & head orientation toward cursor (when in canvas) or contemplative neighbor scan
-            let (gaze_x, gaze_y) = if let Some(ptr) = params.pointer_world {
+            // Gaze & head orientation toward awareness target, cursor, or sentinel scan
+            let mut aim_yaw = 0.0_f32;
+            let mut aim_pitch = 0.0_f32;
+            let (mut gaze_x, mut gaze_y) = if let Some(target) = aw_h.look_target {
+                let d = target - skull_live;
+                let fwd_z = if d.z.abs() < 0.25 {
+                    0.25_f32.copysign(d.z)
+                } else {
+                    d.z
+                };
+                let desired_yaw = d.x.atan2(fwd_z.max(0.25)) - (-spread * 0.22 + thorax_yaw);
+                let horiz = (d.x * d.x + d.z * d.z).sqrt().max(0.35);
+                let desired_pitch = (-d.y).atan2(horiz);
+                aim_yaw = (desired_yaw * 0.72).clamp(-0.72, 0.72);
+                aim_pitch = (desired_pitch * 0.55).clamp(-0.28, 0.38);
+                let gx = (d.x / horiz.max(1.8)).clamp(-1.0, 1.0) * reactivity[h];
+                let gy = (d.y / horiz.max(1.8)).clamp(-1.0, 1.0) * reactivity[h] * 0.75;
+                (gx, gy)
+            } else if let Some(ptr) = params.pointer_world {
                 let d = ptr - skull_live;
                 let nx = (d.x / 3.8).clamp(-1.0, 1.0) * reactivity[h];
                 let ny = (d.y / 2.6).clamp(-1.0, 1.0) * reactivity[h] * 0.75;
@@ -878,22 +1242,69 @@ impl LeviathanSkeleton {
             } else {
                 (0.0, 0.0)
             };
+            if aw_h.gaze_bias[0].is_finite() {
+                gaze_x = (gaze_x + aw_h.gaze_bias[0]).clamp(-1.0, 1.0);
+            }
+            if aw_h.gaze_bias[1].is_finite() {
+                gaze_y = (gaze_y + aw_h.gaze_bias[1]).clamp(-1.0, 1.0);
+            }
             head_look[h] = [gaze_x, gaze_y];
 
-            // Pitch skull snout downward (+pitch around X) so eyes, brows, nasal crest,
-            // crown horns, and curved fangs command both Overview and 3/4 Focus cameras!
-            let base_yaw = -spread * 0.22;
-            let base_pitch = 0.30 + spread.abs() * 0.04;
-            let live_yaw = base_yaw
-                + gaze_x * 0.24
-                + if params.motion {
-                    (t * tempo * 0.7 + phase).sin() * 0.05
-                } else {
-                    0.0
-                };
-            let live_pitch = base_pitch - gaze_y * 0.18 + ack_forward * 0.06;
-            let live_roll = -spread * 0.08 - gaze_x * 0.08;
-            let skull_rot = Quat::from_euler_yxz(live_yaw, live_pitch, live_roll);
+            // Constrained anatomical skull orientation respecting joint limits
+            let base_yaw = -spread * 0.22 + thorax_yaw * 0.65;
+            let base_pitch = 0.30 + spread.abs() * 0.04 + thorax_pitch * 0.45;
+            let idle_yaw = if params.motion {
+                (t * tempo * 0.7 + phase).sin() * 0.05
+            } else {
+                0.0
+            };
+            let live_yaw = (base_yaw + aim_yaw + gaze_x * 0.20 + idle_yaw).clamp(-0.95, 0.95);
+            let live_pitch =
+                (base_pitch + aim_pitch - gaze_y * 0.16 + ack_forward * 0.06 + aw_h.pitch_extra)
+                    .clamp(-0.36, 0.72);
+            let live_roll = (-spread * 0.08 - gaze_x * 0.07 + aw_h.roll_extra).clamp(-0.34, 0.34);
+
+            neck_p0[h] = p0;
+            neck_c1[h] = c1;
+            neck_c2[h] = c2;
+            skulls_live[h] = skull_live;
+            skulls_rot[h] = Quat::from_euler_yxz(live_yaw, live_pitch, live_roll);
+            jaw_extras[h] = if aw_h.jaw_extra.is_finite() {
+                aw_h.jaw_extra.clamp(0.0, 0.25)
+            } else {
+                0.0
+            };
+        }
+
+        // Collision-aware pairwise skull separation pass (prevents interpenetration when tracking panels)
+        if aw.is_some() {
+            let min_dist = 0.88_f32;
+            for _iter in 0..2 {
+                for i in 0..7 {
+                    for j in (i + 1)..7 {
+                        let d = skulls_live[j] - skulls_live[i];
+                        let dist = d.length();
+                        if dist < min_dist && dist > 1e-4 {
+                            let push = d * ((min_dist - dist) * 0.5 / dist);
+                            skulls_live[i] = skulls_live[i] - push;
+                            skulls_live[j] = skulls_live[j] + push;
+                            neck_c2[i] = neck_c2[i] - push * 0.55;
+                            neck_c2[j] = neck_c2[j] + push * 0.55;
+                        }
+                    }
+                }
+            }
+        }
+
+        for h in 0..7 {
+            let (p0_rest, c1_rest, c2_rest, skull_rest) = specs[h];
+            let p0 = neck_p0[h];
+            let c1 = neck_c1[h];
+            let c2 = neck_c2[h];
+            let skull_live = skulls_live[h];
+            let skull_rot = skulls_rot[h];
+            let act = params.head_activity[h].clamp(0.0, 1.0);
+            let warn = if params.head_warning[h] { 1.0 } else { 0.0 };
 
             // Compute live neck joints & local ribbon frames
             for seg in 0..NECK_BONES_PER_HEAD {
@@ -913,8 +1324,7 @@ impl LeviathanSkeleton {
             skin_mats[sk_bone] = Mat4::from_trs(skull_live, skull_rot, Vec3::ONE)
                 .mul_mat4(Mat4::from_translation(-bind_pos[sk_bone]));
 
-            // Hinged Lower Jaw (naturally slightly parted so curved ivory fangs glint even at rest;
-            // flares wide strictly on real subsystem activity or alerts!)
+            // Hinged Lower Jaw
             let jaw_bone = head_jaw_bone(h);
             let rest_hinge_offset = bind_pos[jaw_bone] - bind_pos[sk_bone];
             let jaw_world = skull_live + skull_rot.rotate_vec3(rest_hinge_offset);
@@ -925,8 +1335,8 @@ impl LeviathanSkeleton {
             };
             let fang_snarl = if h == 1 { 0.07 } else { 0.0 };
             let jaw_open_rad =
-                (idle_breath_jaw + fang_snarl + act * 0.24 + warn * 0.20).clamp(0.0, 0.50);
-            // Positive pitch rotates forward snout down (opening the mouth!)
+                (idle_breath_jaw + fang_snarl + jaw_extras[h] + act * 0.24 + warn * 0.20)
+                    .clamp(0.0, 0.52);
             let jaw_rot = skull_rot * Quat::from_axis_angle(Vec3::X, jaw_open_rad);
             joint_pos[jaw_bone] = jaw_world;
             skin_mats[jaw_bone] = Mat4::from_trs(jaw_world, jaw_rot, Vec3::ONE)
@@ -1018,12 +1428,7 @@ mod tests {
             motion: false,
             breath: 0.45,
             heart_pulse: 0.32,
-            pointer_world: None,
-            head_activity: [0.0; 7],
-            head_warning: [false; 7],
-            head_emphasis: [0.0; 7],
-            head_eye_open: [1.0; 7],
-            selected: None,
+            ..Default::default()
         };
         let later = SkeletonParams {
             time: 1234.5,
@@ -1050,12 +1455,8 @@ mod tests {
             motion: true,
             breath: 0.6,
             heart_pulse: 0.7,
-            pointer_world: None,
             head_activity: [0.2; 7],
-            head_warning: [false; 7],
-            head_emphasis: [0.0; 7],
-            head_eye_open: [1.0; 7],
-            selected: None,
+            ..Default::default()
         });
         let rect = Rect::from_min_size(Pos2::ZERO, EguiVec2::new(1024.0, 560.0));
         let (hits, anchors) = projected_head_regions(rect, &skel, &cam, None);
@@ -1068,6 +1469,76 @@ mod tests {
                     anchors[i],
                     anchors[j]
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn orbit_camera_basis_360_and_collision_avoidance_stay_valid() {
+        let mut orbit = OrbitState::overview();
+        for step in 0..16 {
+            orbit.orbit_by(PI / 8.0, 0.0);
+            let cam = orbit.to_camera(16.0 / 9.0);
+            assert!(cam.eye.y >= -1.68 - 1e-4);
+            let thorax_dist = (cam.eye - Vec3::new(0.0, -1.0, 0.15)).length();
+            assert!(
+                thorax_dist >= 1.64,
+                "step {step} clipped into thorax: {thorax_dist}"
+            );
+            let b = cam.basis();
+            assert!((b.right.length() - 1.0).abs() < 1e-3);
+            assert!((b.up.length() - 1.0).abs() < 1e-3);
+            assert!((b.forward.length() - 1.0).abs() < 1e-3);
+            assert!(
+                b.up.y >= -0.25,
+                "unexpected billboard inversion at step {step}"
+            );
+        }
+        // Extreme vertical pole safety check
+        let pole_cam = LeviathanCamera {
+            eye: Vec3::new(0.0, 8.0, 0.01),
+            target: Vec3::ZERO,
+            fov_y_rad: 0.8,
+        };
+        let pb = pole_cam.basis();
+        assert!(pb.right.x.is_finite() && pb.up.y.is_finite());
+        assert!((pb.right.dot(pb.up)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn awareness_compensation_keeps_skulls_separated_and_matrices_finite() {
+        let mut aw = AwarenessPose::default();
+        aw.body = BodyCompensation {
+            thorax_yaw: 0.24,
+            thorax_pitch: -0.06,
+            thorax_roll: 0.02,
+            thorax_shift: Vec3::new(0.05, 0.0, 0.04),
+            wing_asym_l: 0.14,
+            wing_asym_r: -0.10,
+            tail_counter_yaw: -0.26,
+        };
+        for h in 0..7 {
+            aw.heads[h].look_target = Some(Vec3::new(0.0, 1.4, 2.5));
+            aw.heads[h].neck_pull = Vec3::new((3.0 - h as f32) * 0.35, 0.15, 0.22);
+        }
+        let skel = LeviathanSkeleton::evaluate(&SkeletonParams {
+            time: 3.2,
+            motion: true,
+            awareness: Some(aw),
+            ..Default::default()
+        });
+        for i in 0..7 {
+            for j in (i + 1)..7 {
+                let d = (skel.joint_pos[head_skull_bone(i)] - skel.joint_pos[head_skull_bone(j)])
+                    .length();
+                assert!(d >= 0.85, "skulls {i} and {j} too close: {d}");
+            }
+        }
+        for m in &skel.skin_mats {
+            for col in &m.cols {
+                for &v in col {
+                    assert!(v.is_finite());
+                }
             }
         }
     }

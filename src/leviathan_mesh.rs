@@ -740,6 +740,48 @@ pub fn build_leviathan_mesh() -> LeviathanMeshData {
         }
     }
 
+    // 1B. Sculpted Dorsal Thoracic Carapace Ridge & 5 Spine Plates (rear -Z coherence for 360° orbit)
+    let dorsal_ridge = [
+        Vec3::new(0.0, -1.56, -0.34),
+        Vec3::new(0.0, -1.22, -0.44),
+        Vec3::new(0.0, -0.86, -0.38),
+        Vec3::new(0.0, -0.52, -0.22),
+    ];
+    add_curved_horn(
+        &mut mb,
+        &dorsal_ridge,
+        0.13,
+        0.045,
+        8,
+        false,
+        MAT_OBSIDIAN_SCALES,
+        7,
+        BONE_THORAX as u32,
+    );
+    for sp in 0..5 {
+        let u = sp as f32 / 4.0;
+        let y_sp = -1.44 + u * 0.88;
+        let z_sp = -0.36 - (u * std::f32::consts::PI).sin() * 0.12;
+        add_curved_horn(
+            &mut mb,
+            &[
+                Vec3::new(0.0, y_sp, z_sp + 0.04),
+                Vec3::new(
+                    0.0,
+                    y_sp + 0.12,
+                    z_sp - 0.20 - 0.04 * (1.0 - (u - 0.45).abs()),
+                ),
+            ],
+            0.056,
+            0.008,
+            5,
+            true,
+            MAT_KERATIN_HORN,
+            7,
+            BONE_THORAX as u32,
+        );
+    }
+
     // ========================================================================
     // 2. Physically Integrated Faceted 3D Amethyst Heart & 7 Anatomical Conduits
     // ========================================================================
@@ -1960,16 +2002,14 @@ fn build_gothic_sanctuary(mb: &mut MeshBuilder, root: Vec3) {
         MAT_SANCTUARY_STONE,
     );
 
-    // Towering fluted gothic obsidian cathedral pillars receding in Z depth behind the dragon
-    let pillars = [
-        (Vec3::new(-3.4, 0.8, -3.4), 0.34, 4.4),
-        (Vec3::new(3.4, 0.8, -3.4), 0.34, 4.4),
-        (Vec3::new(-5.8, 1.0, -5.2), 0.42, 5.2),
-        (Vec3::new(5.8, 1.0, -5.2), 0.42, 5.2),
-        (Vec3::new(-1.9, 1.2, -6.5), 0.30, 5.4),
-        (Vec3::new(1.9, 1.2, -6.5), 0.30, 5.4),
-    ];
-    for (p, r, h) in pillars {
+    // Towering fluted gothic obsidian cathedral colonnade at outer ring_r = 11.2
+    // so full 360-degree camera orbit stays cleanly inside the sanctuary perimeter.
+    let ring_r = 11.2_f32;
+    for k in 0..8usize {
+        let ang = (k as f32 + 0.5) * (TAU / 8.0);
+        let p = Vec3::new(ang.sin() * ring_r, 1.0, ang.cos() * ring_r);
+        let r = 0.42_f32;
+        let h = 5.6_f32;
         add_box_prism(
             mb,
             p,
@@ -1982,33 +2022,35 @@ fn build_gothic_sanctuary(mb: &mut MeshBuilder, root: Vec3) {
         add_box_prism(
             mb,
             p + Vec3::new(0.0, h * 0.72, 0.0),
-            Vec3::new(r * 1.45, 0.22, r * 1.45),
+            Vec3::new(r * 1.48, 0.24, r * 1.48),
             BONE_ROOT as u32,
             MAT_SANCTUARY_STONE,
             false,
         );
     }
 
-    // Pointed Gothic Sanctuary Arch Ribs spanning high across the background vault
-    for z in [-3.4_f32, -5.2_f32] {
-        let span = if z > -4.0 { 3.4 } else { 5.8 };
-        for side in [-1.0_f32, 1.0_f32] {
-            add_curved_horn(
-                mb,
-                &[
-                    Vec3::new(side * span, 2.8, z),
-                    Vec3::new(side * span * 0.55, 4.3, z),
-                    Vec3::new(0.0, 5.1, z),
-                ],
-                0.22,
-                0.14,
-                6,
-                false,
-                MAT_SANCTUARY_STONE,
-                7,
-                BONE_ROOT as u32,
-            );
-        }
+    // Overhead pointed Gothic Sanctuary Vault Ribs spanning across the outer colonnade
+    for k in 0..4usize {
+        let ang = (k as f32 + 0.5) * (TAU / 8.0);
+        let a_pts = Vec3::new(ang.sin() * ring_r, 3.6, ang.cos() * ring_r);
+        let opp = Vec3::new(-a_pts.x, 3.6, -a_pts.z);
+        add_curved_horn(
+            mb,
+            &[
+                a_pts,
+                Vec3::new(a_pts.x * 0.45, 6.2, a_pts.z * 0.45),
+                Vec3::new(0.0, 6.9, 0.0),
+                Vec3::new(opp.x * 0.45, 6.2, opp.z * 0.45),
+                opp,
+            ],
+            0.20,
+            0.18,
+            8,
+            false,
+            MAT_SANCTUARY_STONE,
+            7,
+            BONE_ROOT as u32,
+        );
     }
 }
 

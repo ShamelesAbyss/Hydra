@@ -1801,6 +1801,7 @@ mod tests {
             head_emphasis: [0.0; 7],
             head_eye_open: [1.0; 7],
             selected: None,
+            awareness: None,
         });
         let params = Scene3DParams {
             time: f32::NAN,

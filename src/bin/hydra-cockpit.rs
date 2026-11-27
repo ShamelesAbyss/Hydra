@@ -3,6 +3,12 @@
 use clap::Parser;
 use std::path::PathBuf;
 
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum CliMode {
+    Spatial,
+    Classic,
+}
+
 #[derive(Parser)]
 #[command(
     version,
@@ -35,6 +41,12 @@ struct Options {
     /// Optional subsystem head index (0..=6) to focus at startup.
     #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
     head: Option<u8>,
+    /// Interface presentation mode: spatial holographic panels or classic docked rails.
+    #[arg(long, value_enum)]
+    mode: Option<CliMode>,
+    /// Optional initial camera horizontal orbit azimuth in degrees (-180..=180).
+    #[arg(long)]
+    orbit: Option<f32>,
 }
 
 fn main() {
@@ -42,6 +54,10 @@ fn main() {
     let options = Options::parse();
     let db_path = hydra::startup_diagnostics::resolve_default_database(options.db);
     let db_health = hydra::startup_diagnostics::verify_local_database_health(&db_path);
+    let mode_override = options.mode.map(|m| match m {
+        CliMode::Spatial => hydra::leviathan_spatial::PresentationMode::Spatial,
+        CliMode::Classic => hydra::leviathan_spatial::PresentationMode::Classic,
+    });
     hydra::startup_diagnostics::log_startup(&format!(
         "Launching HYDRA cockpit v{} (renderer={}, fullscreen={}, quality={:?}, db={}, db_health={:?})",
         env!("CARGO_PKG_VERSION"),
@@ -52,7 +68,7 @@ fn main() {
         db_health
     ));
 
-    if let Err(err) = hydra::cockpit::run_with_initial_state(
+    if let Err(err) = hydra::cockpit::run_with_spatial_state(
         db_path,
         options.renderer,
         options.fullscreen,
@@ -63,6 +79,8 @@ fn main() {
         options.treasury,
         options.updates,
         options.head.map(usize::from),
+        mode_override,
+        options.orbit,
     ) {
         let detail = format!("{err}");
         hydra::startup_diagnostics::log_startup(&format!("STARTUP FAILED: {detail}"));

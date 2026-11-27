@@ -76,6 +76,8 @@ pub struct SceneInput<'a> {
     pub operational_mode: crate::treasury::OperationalMode,
     pub focus_head: Option<usize>,
     pub camera: Option<crate::leviathan_3d_math::LeviathanCamera>,
+    pub awareness: Option<crate::leviathan_3d_math::AwarenessPose>,
+    pub allow_camera_drag: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2199,10 +2201,33 @@ fn heart(p: &egui::Painter, c: Canvas, input: &SceneInput<'_>) {
     );
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SceneResponse {
     pub clicked: Option<usize>,
     pub hovered: Option<usize>,
+    pub orbit_delta: Vec2,
+    pub pan_delta: Vec2,
+    pub zoom_delta: f32,
+    pub double_clicked: bool,
+    pub stage_rect: Rect,
+    pub head_world_pos: [crate::leviathan_3d_math::Vec3; 7],
+    pub heart_world_pos: crate::leviathan_3d_math::Vec3,
+}
+
+impl Default for SceneResponse {
+    fn default() -> Self {
+        Self {
+            clicked: None,
+            hovered: None,
+            orbit_delta: Vec2::ZERO,
+            pan_delta: Vec2::ZERO,
+            zoom_delta: 0.0,
+            double_clicked: false,
+            stage_rect: Rect::NOTHING,
+            head_world_pos: [crate::leviathan_3d_math::Vec3::ZERO; 7],
+            heart_world_pos: crate::leviathan_3d_math::Vec3::ZERO,
+        }
+    }
 }
 
 /// Draw one connected native creature in the caller's region. Only supplied
@@ -2232,11 +2257,8 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
         let pointer_world = pointer.filter(|pt| rect.contains(*pt)).map(|pt| {
             let nu = (pt.x - rect.left()) / rect.width().max(1.0) - 0.5;
             let nv = 0.5 - (pt.y - rect.top()) / rect.height().max(1.0);
-            crate::leviathan_3d_math::Vec3::new(
-                cam.target.x + nu * 9.5,
-                cam.target.y + nv * 6.0,
-                cam.target.z + 1.2,
-            )
+            let basis = cam.basis();
+            cam.target + basis.right * (nu * 9.5) + basis.up * (nv * 6.0)
         });
         let head_activity = std::array::from_fn(|i| safe_activity(&input.heads[i]));
         let head_warning = std::array::from_fn(|i| input.heads[i].warning);
@@ -2263,15 +2285,23 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
                 head_emphasis,
                 head_eye_open,
                 selected: input.selected,
+                awareness: input.awareness.clone(),
             },
         );
         let (hits, anchors) =
             crate::leviathan_3d_math::projected_head_regions(rect, &skel, &cam, input.focus_head);
 
-        let mut response_out = SceneResponse::default();
+        let mut response_out = SceneResponse {
+            stage_rect: rect,
+            head_world_pos: std::array::from_fn(|i| {
+                skel.joint_pos[crate::leviathan_3d_math::head_skull_bone(i)]
+            }),
+            heart_world_pos: skel.joint_pos[crate::leviathan_3d_math::BONE_HEART],
+            ..Default::default()
+        };
         for (i, hit) in hits.into_iter().enumerate() {
             let response = ui.interact(hit, ui.id().with(("leviathan-head", i)), Sense::click());
-            if response.hovered() {
+            if response.hovered() && input.allow_camera_drag {
                 response_out.hovered = Some(i);
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 response.clone().on_hover_text(format!(
@@ -2279,8 +2309,33 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
                     input.heads[i].name, input.heads[i].status
                 ));
             }
-            if response.clicked() {
+            if response.clicked() && input.allow_camera_drag {
                 response_out.clicked = Some(i);
+            }
+        }
+        if input.allow_camera_drag {
+            let drag_resp = ui.interact(
+                rect,
+                ui.id().with("leviathan-orbit-stage"),
+                Sense::click_and_drag(),
+            );
+            if drag_resp.dragged_by(egui::PointerButton::Primary) {
+                response_out.orbit_delta = drag_resp.drag_delta();
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            } else if drag_resp.dragged_by(egui::PointerButton::Secondary)
+                || drag_resp.dragged_by(egui::PointerButton::Middle)
+            {
+                response_out.pan_delta = drag_resp.drag_delta();
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+            }
+            if drag_resp.double_clicked() && response_out.clicked.is_none() {
+                response_out.double_clicked = true;
+            }
+            if pointer.is_some_and(|pt| rect.contains(pt)) {
+                let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+                if scroll_y.abs() > 0.01 && scroll_y.is_finite() {
+                    response_out.zoom_delta = scroll_y;
+                }
             }
         }
 
@@ -2354,6 +2409,8 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
             operational_mode: input.operational_mode,
             focus_head: input.focus_head,
             camera: Some(cam),
+            awareness: input.awareness.clone(),
+            allow_camera_drag: input.allow_camera_drag,
         };
         render_wgpu_3d_hud_overlay(&p, rect, c, &anchors, &hits, &effective_input);
         return response_out;
@@ -2363,14 +2420,17 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
 
     // Hit-test first so hovering a head responds immediately on the same frame!
     let hits = head_hit_regions(rect, input.time, input.motion);
-    let mut response_out = SceneResponse::default();
+    let mut response_out = SceneResponse {
+        stage_rect: rect,
+        ..Default::default()
+    };
     for (i, hit) in hits.into_iter().enumerate() {
         let response = ui.interact(
             hit.intersect(rect),
             ui.id().with(("leviathan-head", i)),
             Sense::click(),
         );
-        if response.hovered() {
+        if response.hovered() && input.allow_camera_drag {
             response_out.hovered = Some(i);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             response.clone().on_hover_text(format!(
@@ -2378,7 +2438,7 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
                 input.heads[i].name, input.heads[i].status
             ));
         }
-        if response.clicked() {
+        if response.clicked() && input.allow_camera_drag {
             response_out.clicked = Some(i);
         }
     }
@@ -2400,6 +2460,8 @@ pub fn show_interactive(ui: &mut egui::Ui, input: &SceneInput<'_>) -> SceneRespo
         operational_mode: input.operational_mode,
         focus_head: input.focus_head,
         camera: input.camera.clone(),
+        awareness: input.awareness.clone(),
+        allow_camera_drag: input.allow_camera_drag,
     };
 
     let used_wgpu = atmosphere(&p, rect, c, &poses, &effective_input, pointer);
@@ -2938,6 +3000,8 @@ mod tests {
                     operational_mode: crate::treasury::OperationalMode::Dormant,
                     focus_head: None,
                     camera: None,
+                    awareness: None,
+                    allow_camera_drag: true,
                 };
                 let output = ctx.run_ui(
                     egui::RawInput {
@@ -3015,6 +3079,8 @@ mod interaction_tests {
                                 operational_mode: crate::treasury::OperationalMode::Dormant,
                                 focus_head: None,
                                 camera: None,
+                                awareness: None,
+                                allow_camera_drag: true,
                             },
                         );
                     });
@@ -3110,6 +3176,8 @@ mod interaction_tests {
                                     operational_mode: crate::treasury::OperationalMode::Dormant,
                                     focus_head: None,
                                     camera: None,
+                                    awareness: None,
+                                    allow_camera_drag: true,
                                 },
                             );
                         });

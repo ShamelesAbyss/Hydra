@@ -1,3 +1,23 @@
+## 1.9.0 — v1.9.0 | PROJECT SYNAPSE — SPATIAL CONSCIOUSNESS
+
+- **Hybrid World-Space + Native `egui` Spatial Interface (`src/leviathan_spatial.rs`, `src/leviathan_layout.rs`, `src/cockpit.rs`):**
+  Added interchangeable **`SPATIAL | CLASSIC`** modes, translucent obsidian-glass floating
+  workspaces (`Head(0..=6)` + global panels) projected upright and back-to-front depth-ordered
+  from world anchors, holographic energy conduits (`paint_spatial_conduits`), 3D drag-to-reposition
+  via `LeviathanCamera::unproject_drag_delta`, pinning/collapse/close controls, persistent
+  `%LOCALAPPDATA%\Hydra\spatial_prefs.json` settings, and permanent fixed top safety controls.
+- **360° Orbital Camera, Collision Avoidance & Outer Cathedral (`src/leviathan_3d_math.rs`, `src/leviathan_mesh.rs`, `src/bin/hydra-cockpit.rs`):**
+  Added pole-safe `CameraBasis`, `OrbitState` (`--mode`, `--orbit <deg>` CLI flags, primary orbit,
+  secondary/middle pan, scroll zoom, `Reset Cam` / double-click / `Esc` overview return, floor &
+  thorax collision avoidance), outer `ring_r = 11.2` cathedral colonnade for unobstructed 360°
+  orbits, and a sculpted dorsal thoracic carapace ridge with 5 spine plates for rear coherence.
+- **Creature Awareness, Seven Personalities & Whole-Body Compensation (`src/leviathan_awareness.rs`, `src/leviathan_scene.rs`):**
+  Implemented critically damped tracking springs with anti-thrashing dwell hysteresis (`2.6–7.4s`)
+  across all seven head personalities, open/dragged panel gaze and skull tracking, restrained
+  thorax/wing/tail whole-body compensation, pairwise skull separation, and pointer-guarded canvas
+  interaction while preserving Glow fallback (`--features desktop`), `MODE: DORMANT`, and Ashlan
+  Haley Rapponotti's permanent memorial.
+
 ## 1.8.0 — v1.8.0 | PROJECT INCARNATION (The Living Sovereign — Articulated 3D Skeletal PBR Engine)
 
 - **3D Skeletal & Procedural Dragon Anatomy (`src/leviathan_3d_math.rs`, `src/leviathan_mesh.rs`):**
