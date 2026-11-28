@@ -11,7 +11,9 @@
 //! - Emits each verified round-trip outcome at most once for downstream learning.
 
 use crate::ledger::{ExchangeFill, FillSide, FundingPayment, PnlConvention};
+use crate::storage::Storage;
 use anyhow::{bail, ensure, Context, Result};
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -40,6 +42,20 @@ pub struct FundingCoverageWindow {
     pub start_ms: i64,
     pub end_ms: i64,
     pub complete: bool,
+}
+
+/// Durable obligation tracking a missed/unresolved funding interval independently of forward
+/// cursor progress, including already-closed positions awaiting backfill before settlement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingFundingObligation {
+    pub obligation_id: String,
+    pub symbol: String,
+    pub interval_start_ms: i64,
+    pub interval_end_ms: i64,
+    pub position_qty: Decimal,
+    pub side_label: String,
+    pub resolved: bool,
+    pub funding_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -135,6 +151,7 @@ pub struct SettlementEngine {
     funding_by_id: BTreeMap<String, FundingPayment>,
     cash_flows_by_id: BTreeMap<String, ExternalCashFlow>,
     funding_coverage: BTreeMap<String, Vec<FundingCoverageWindow>>,
+    pending_funding: BTreeMap<String, PendingFundingObligation>,
     round_trips: Vec<SettledRoundTrip>,
     round_trip_keys: BTreeSet<String>,
     emitted_round_trips: BTreeSet<String>,
@@ -230,6 +247,50 @@ impl SettlementEngine {
                 ..window
             });
         Ok(())
+    }
+
+    pub fn record_pending_funding_obligation(
+        &mut self,
+        obligation: PendingFundingObligation,
+    ) -> Result<()> {
+        ensure!(
+            !obligation.obligation_id.trim().is_empty()
+                && !obligation.symbol.trim().is_empty()
+                && obligation.interval_end_ms >= obligation.interval_start_ms
+                && obligation.position_qty > Decimal::ZERO,
+            "invalid pending funding obligation"
+        );
+        let mut norm = obligation;
+        norm.symbol = norm.symbol.trim().to_ascii_uppercase();
+        self.pending_funding
+            .insert(norm.obligation_id.clone(), norm);
+        Ok(())
+    }
+
+    pub fn resolve_pending_funding_obligation(
+        &mut self,
+        obligation_id: &str,
+        funding_id: &str,
+    ) -> Result<()> {
+        let ob = self
+            .pending_funding
+            .get_mut(obligation_id)
+            .with_context(|| format!("missing pending funding obligation '{obligation_id}'"))?;
+        ob.resolved = true;
+        ob.funding_id = Some(funding_id.to_string());
+        Ok(())
+    }
+
+    pub fn restore_emitted_learning(&mut self, round_trip_id: String, seq: u64) {
+        self.emitted_round_trips.insert(round_trip_id);
+        self.next_learning_seq = self.next_learning_seq.max(seq);
+    }
+
+    pub fn unresolved_pending_funding_count(&self) -> usize {
+        self.pending_funding
+            .values()
+            .filter(|p| !p.resolved)
+            .count()
     }
 
     /// Recomputes deterministic FIFO partial-fill round trips from the full idempotent
@@ -388,7 +449,13 @@ impl SettlementEngine {
                 if let Some(h) = &fee_hold {
                     holds.insert(h.clone());
                 }
-                if !self.has_complete_funding_coverage(&sym, earliest_open_ms, fill.timestamp_ms) {
+                if !self.has_complete_funding_coverage(&sym, earliest_open_ms, fill.timestamp_ms)
+                    || self.has_unresolved_pending_funding(
+                        &sym,
+                        earliest_open_ms,
+                        fill.timestamp_ms,
+                    )
+                {
                     holds.insert(SettlementHoldReason::MissingFundingCoverage);
                 }
                 if fill.pnl_convention == PnlConvention::Unverified
@@ -513,6 +580,15 @@ impl SettlementEngine {
             .any(|w| w.complete && w.start_ms <= start_ms && w.end_ms >= end_ms)
     }
 
+    fn has_unresolved_pending_funding(&self, symbol: &str, start_ms: i64, end_ms: i64) -> bool {
+        self.pending_funding.values().any(|ob| {
+            !ob.resolved
+                && ob.symbol.eq_ignore_ascii_case(symbol)
+                && ob.interval_end_ms >= start_ms
+                && ob.interval_start_ms <= end_ms
+        })
+    }
+
     pub fn reconcile_account_equity(
         &mut self,
         start_equity_usdc: Decimal,
@@ -611,6 +687,398 @@ impl SettlementEngine {
 
     pub fn round_trips(&self) -> &[SettledRoundTrip] {
         &self.round_trips
+    }
+}
+
+/// Durable SQLite-backed financial settlement repository ensuring atomic commit of fills,
+/// funding payments, missed-interval pending funding obligations, external cash flows,
+/// round-trip settlement holds, and at-most-once learning emissions across process crashes.
+#[derive(Clone)]
+pub struct SettlementStore {
+    storage: Storage,
+    account_scope: String,
+}
+
+impl SettlementStore {
+    pub fn open(storage: Storage, account_scope: impl Into<String>) -> Result<Self> {
+        let account_scope = account_scope.into().trim().to_ascii_lowercase();
+        ensure!(
+            !account_scope.is_empty(),
+            "settlement account_scope required"
+        );
+        storage.with_conn(|conn| -> Result<()> {
+            conn.execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS settlement_fills (
+                    account_scope TEXT NOT NULL,
+                    fill_id TEXT NOT NULL,
+                    owner_strategy TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (account_scope, fill_id)
+                );
+                CREATE TABLE IF NOT EXISTS settlement_funding (
+                    account_scope TEXT NOT NULL,
+                    funding_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (account_scope, funding_id)
+                );
+                CREATE TABLE IF NOT EXISTS settlement_cash_flows (
+                    account_scope TEXT NOT NULL,
+                    cash_flow_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (account_scope, cash_flow_id)
+                );
+                CREATE TABLE IF NOT EXISTS settlement_funding_coverage (
+                    account_scope TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    start_ms INTEGER NOT NULL,
+                    end_ms INTEGER NOT NULL,
+                    complete INTEGER NOT NULL,
+                    PRIMARY KEY (account_scope, symbol, start_ms, end_ms)
+                );
+                CREATE TABLE IF NOT EXISTS settlement_pending_funding (
+                    account_scope TEXT NOT NULL,
+                    obligation_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (account_scope, obligation_id)
+                );
+                CREATE TABLE IF NOT EXISTS settlement_round_trips (
+                    account_scope TEXT NOT NULL,
+                    round_trip_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (account_scope, round_trip_id)
+                );
+                CREATE TABLE IF NOT EXISTS settlement_learning_emissions (
+                    account_scope TEXT NOT NULL,
+                    round_trip_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (account_scope, round_trip_id)
+                );
+                "#,
+            )?;
+            Ok(())
+        })?;
+        Ok(Self {
+            storage,
+            account_scope,
+        })
+    }
+
+    pub fn record_fill(&self, fill: &ExchangeFill, owner_strategy: Option<&str>) -> Result<bool> {
+        ensure!(
+            fill.quantity > Decimal::ZERO && fill.price > Decimal::ZERO && fill.timestamp_ms > 0,
+            "fill quantity, price, and timestamp must be positive"
+        );
+        let strat = owner_strategy.unwrap_or("unattributed").trim();
+        ensure!(!strat.is_empty(), "owner_strategy cannot be empty");
+        let payload = serde_json::to_string(fill)?;
+        self.storage.with_conn(|conn| -> Result<bool> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let prev: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT owner_strategy, payload_json FROM settlement_fills WHERE account_scope=?1 AND fill_id=?2",
+                    params![self.account_scope, fill.fill_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            if let Some((prev_strat, prev_json)) = prev {
+                let prev_fill: ExchangeFill = serde_json::from_str(&prev_json)?;
+                ensure!(
+                    prev_fill == *fill,
+                    "conflicting duplicate durable fill '{}'",
+                    fill.fill_id
+                );
+                if owner_strategy.is_some() {
+                    ensure!(
+                        prev_strat == strat,
+                        "conflicting strategy ownership for fill '{}'",
+                        fill.fill_id
+                    );
+                }
+                tx.commit()?;
+                return Ok(false);
+            }
+            tx.execute(
+                "INSERT INTO settlement_fills (account_scope, fill_id, owner_strategy, payload_json) VALUES (?1,?2,?3,?4)",
+                params![self.account_scope, fill.fill_id, strat, payload],
+            )?;
+            tx.commit()?;
+            Ok(true)
+        })
+    }
+
+    pub fn record_funding(&self, payment: &FundingPayment) -> Result<bool> {
+        ensure!(
+            payment.timestamp_ms > 0,
+            "funding timestamp must be positive"
+        );
+        let payload = serde_json::to_string(payment)?;
+        self.storage.with_conn(|conn| -> Result<bool> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let prev: Option<String> = tx
+                .query_row(
+                    "SELECT payload_json FROM settlement_funding WHERE account_scope=?1 AND funding_id=?2",
+                    params![self.account_scope, payment.funding_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(prev_json) = prev {
+                let prev_fp: FundingPayment = serde_json::from_str(&prev_json)?;
+                ensure!(
+                    prev_fp == *payment,
+                    "conflicting duplicate funding '{}'",
+                    payment.funding_id
+                );
+                tx.commit()?;
+                return Ok(false);
+            }
+            tx.execute(
+                "INSERT INTO settlement_funding (account_scope, funding_id, payload_json) VALUES (?1,?2,?3)",
+                params![self.account_scope, payment.funding_id, payload],
+            )?;
+            tx.commit()?;
+            Ok(true)
+        })
+    }
+
+    pub fn record_external_cash_flow(&self, flow: &ExternalCashFlow) -> Result<bool> {
+        ensure!(
+            !flow.cash_flow_id.trim().is_empty() && flow.timestamp_ms > 0,
+            "invalid external cash flow"
+        );
+        let payload = serde_json::to_string(flow)?;
+        self.storage.with_conn(|conn| -> Result<bool> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let prev: Option<String> = tx
+                .query_row(
+                    "SELECT payload_json FROM settlement_cash_flows WHERE account_scope=?1 AND cash_flow_id=?2",
+                    params![self.account_scope, flow.cash_flow_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(prev_json) = prev {
+                let prev_cf: ExternalCashFlow = serde_json::from_str(&prev_json)?;
+                ensure!(
+                    prev_cf == *flow,
+                    "conflicting duplicate cash flow '{}'",
+                    flow.cash_flow_id
+                );
+                tx.commit()?;
+                return Ok(false);
+            }
+            tx.execute(
+                "INSERT INTO settlement_cash_flows (account_scope, cash_flow_id, payload_json) VALUES (?1,?2,?3)",
+                params![self.account_scope, flow.cash_flow_id, payload],
+            )?;
+            tx.commit()?;
+            Ok(true)
+        })
+    }
+
+    pub fn record_funding_coverage(&self, window: &FundingCoverageWindow) -> Result<()> {
+        ensure!(
+            window.end_ms >= window.start_ms && !window.symbol.trim().is_empty(),
+            "invalid funding coverage window"
+        );
+        let sym = window.symbol.trim().to_ascii_uppercase();
+        self.storage.with_conn(|conn| -> Result<()> {
+            conn.execute(
+                "INSERT INTO settlement_funding_coverage (account_scope, symbol, start_ms, end_ms, complete)
+                 VALUES (?1,?2,?3,?4,?5)
+                 ON CONFLICT(account_scope, symbol, start_ms, end_ms) DO UPDATE SET complete=excluded.complete",
+                params![
+                    self.account_scope,
+                    sym,
+                    window.start_ms,
+                    window.end_ms,
+                    if window.complete { 1 } else { 0 }
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn record_pending_funding(&self, ob: &PendingFundingObligation) -> Result<()> {
+        ensure!(
+            !ob.obligation_id.trim().is_empty()
+                && !ob.symbol.trim().is_empty()
+                && ob.interval_end_ms >= ob.interval_start_ms
+                && ob.position_qty > Decimal::ZERO,
+            "invalid pending funding obligation"
+        );
+        let mut norm = ob.clone();
+        norm.symbol = norm.symbol.trim().to_ascii_uppercase();
+        let payload = serde_json::to_string(&norm)?;
+        self.storage.with_conn(|conn| -> Result<()> {
+            conn.execute(
+                "INSERT INTO settlement_pending_funding (account_scope, obligation_id, payload_json)
+                 VALUES (?1,?2,?3)
+                 ON CONFLICT(account_scope, obligation_id) DO UPDATE SET payload_json=excluded.payload_json",
+                params![self.account_scope, norm.obligation_id, payload],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn resolve_pending_funding_and_ingest(
+        &self,
+        obligation_id: &str,
+        payment: &FundingPayment,
+    ) -> Result<()> {
+        ensure!(
+            payment.timestamp_ms > 0,
+            "funding timestamp must be positive"
+        );
+        let fp_json = serde_json::to_string(payment)?;
+        self.storage.with_conn(|conn| -> Result<()> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            let ob_json: String = tx
+                .query_row(
+                    "SELECT payload_json FROM settlement_pending_funding WHERE account_scope=?1 AND obligation_id=?2",
+                    params![self.account_scope, obligation_id],
+                    |r| r.get(0),
+                )
+                .with_context(|| format!("missing durable pending funding obligation '{obligation_id}'"))?;
+            let mut ob: PendingFundingObligation = serde_json::from_str(&ob_json)?;
+            ob.resolved = true;
+            ob.funding_id = Some(payment.funding_id.clone());
+            let new_ob_json = serde_json::to_string(&ob)?;
+            tx.execute(
+                "UPDATE settlement_pending_funding SET payload_json=?1 WHERE account_scope=?2 AND obligation_id=?3",
+                params![new_ob_json, self.account_scope, obligation_id],
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO settlement_funding (account_scope, funding_id, payload_json) VALUES (?1,?2,?3)",
+                params![self.account_scope, payment.funding_id, fp_json],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+    }
+
+    pub fn rebuild_engine(&self) -> Result<SettlementEngine> {
+        let mut eng = SettlementEngine::new();
+        self.storage.with_conn(|conn| -> Result<()> {
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT symbol, start_ms, end_ms, complete FROM settlement_funding_coverage WHERE account_scope=?1",
+                )?;
+                let rows = stmt.query_map(params![self.account_scope], |r| {
+                    Ok(FundingCoverageWindow {
+                        symbol: r.get(0)?,
+                        start_ms: r.get(1)?,
+                        end_ms: r.get(2)?,
+                        complete: r.get::<_, i64>(3)? != 0,
+                    })
+                })?;
+                for w in rows {
+                    eng.record_funding_coverage(w?)?;
+                }
+            }
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT payload_json FROM settlement_pending_funding WHERE account_scope=?1",
+                )?;
+                let rows = stmt.query_map(params![self.account_scope], |r| r.get::<_, String>(0))?;
+                for raw in rows {
+                    let ob: PendingFundingObligation = serde_json::from_str(&raw?)?;
+                    eng.record_pending_funding_obligation(ob)?;
+                }
+            }
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT payload_json FROM settlement_cash_flows WHERE account_scope=?1",
+                )?;
+                let rows = stmt.query_map(params![self.account_scope], |r| r.get::<_, String>(0))?;
+                for raw in rows {
+                    let cf: ExternalCashFlow = serde_json::from_str(&raw?)?;
+                    eng.ingest_external_cash_flow(cf)?;
+                }
+            }
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT payload_json FROM settlement_funding WHERE account_scope=?1",
+                )?;
+                let rows = stmt.query_map(params![self.account_scope], |r| r.get::<_, String>(0))?;
+                for raw in rows {
+                    let fp: FundingPayment = serde_json::from_str(&raw?)?;
+                    eng.ingest_funding(fp)?;
+                }
+            }
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT owner_strategy, payload_json FROM settlement_fills WHERE account_scope=?1",
+                )?;
+                let rows = stmt.query_map(params![self.account_scope], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (strat, raw) = row?;
+                    let f: ExchangeFill = serde_json::from_str(&raw)?;
+                    eng.ingest_fill(f, Some(&strat))?;
+                }
+            }
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT round_trip_id, seq FROM settlement_learning_emissions WHERE account_scope=?1",
+                )?;
+                let rows = stmt.query_map(params![self.account_scope], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64))
+                })?;
+                for row in rows {
+                    let (rt_id, seq) = row?;
+                    eng.restore_emitted_learning(rt_id, seq);
+                }
+            }
+            Ok(())
+        })?;
+        Ok(eng)
+    }
+
+    pub fn recompute_and_commit(
+        &self,
+    ) -> Result<(Vec<SettledRoundTrip>, Vec<VerifiedLearningOutcome>)> {
+        let mut eng = self.rebuild_engine()?;
+        let rts = eng.settle_all()?.to_vec();
+        let newly_emitted = eng.emit_eligible_learning_outcomes();
+        self.storage.with_conn(|conn| -> Result<()> {
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+            for rt in &rts {
+                let raw = serde_json::to_string(rt)?;
+                tx.execute(
+                    "INSERT INTO settlement_round_trips (account_scope, round_trip_id, payload_json)
+                     VALUES (?1,?2,?3)
+                     ON CONFLICT(account_scope, round_trip_id) DO UPDATE SET payload_json=excluded.payload_json",
+                    params![self.account_scope, rt.round_trip_id, raw],
+                )?;
+            }
+            for lo in &newly_emitted {
+                let raw = serde_json::to_string(lo)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO settlement_learning_emissions (account_scope, round_trip_id, seq, payload_json)
+                     VALUES (?1,?2,?3,?4)",
+                    params![self.account_scope, lo.round_trip_id, lo.exactly_once_seq as i64, raw],
+                )?;
+            }
+            tx.commit()?;
+            Ok(())
+        })?;
+        Ok((rts, newly_emitted))
+    }
+
+    pub fn emitted_learning_outcomes(&self) -> Result<Vec<VerifiedLearningOutcome>> {
+        self.storage.with_conn(|conn| -> Result<Vec<VerifiedLearningOutcome>> {
+            let mut stmt = conn.prepare(
+                "SELECT payload_json FROM settlement_learning_emissions WHERE account_scope=?1 ORDER BY seq ASC",
+            )?;
+            let rows = stmt.query_map(params![self.account_scope], |r| r.get::<_, String>(0))?;
+            let mut out = Vec::new();
+            for raw in rows {
+                out.push(serde_json::from_str(&raw?)?);
+            }
+            Ok(out)
+        })
     }
 }
 
@@ -893,5 +1361,99 @@ mod tests {
         assert!(bad_rep
             .holds
             .contains(&SettlementHoldReason::ExternalCashFlowGap));
+    }
+
+    #[test]
+    fn durable_settlement_store_survives_restart_holds_pending_funding_and_emits_learning_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("settle.db");
+        let st1 = Storage::open(&db).unwrap();
+        let ss1 = SettlementStore::open(st1, "0x1111111111111111111111111111111111111111").unwrap();
+        ss1.record_funding_coverage(&FundingCoverageWindow {
+            symbol: "BTC".into(),
+            start_ms: 1_000,
+            end_ms: 10_000,
+            complete: true,
+        })
+        .unwrap();
+        ss1.record_fill(
+            &mk_fill(
+                "d1",
+                10,
+                FillSide::Buy,
+                1,
+                50_000,
+                Some(Decimal::from(10)),
+                2_000,
+            ),
+            Some("adaptive_ema_anchor"),
+        )
+        .unwrap();
+        ss1.record_fill(
+            &mk_fill(
+                "d2",
+                11,
+                FillSide::Sell,
+                1,
+                51_000,
+                Some(Decimal::from(10)),
+                6_000,
+            ),
+            None,
+        )
+        .unwrap();
+        // Record missed-hour pending funding obligation independently of forward cursor
+        ss1.record_pending_funding(&PendingFundingObligation {
+            obligation_id: "pend-btc-4000".into(),
+            symbol: "BTC".into(),
+            interval_start_ms: 3_000,
+            interval_end_ms: 4_000,
+            position_qty: Decimal::ONE,
+            side_label: "LONG".into(),
+            resolved: false,
+            funding_id: None,
+        })
+        .unwrap();
+
+        let (rts1, learn1) = ss1.recompute_and_commit().unwrap();
+        assert_eq!(rts1.len(), 1);
+        assert_eq!(rts1[0].status, SettlementStatus::HeldIncompleteEvidence);
+        assert!(rts1[0]
+            .holds
+            .contains(&SettlementHoldReason::MissingFundingCoverage));
+        assert!(learn1.is_empty());
+
+        // Simulate process restart on fresh Storage + SettlementStore handle
+        drop(ss1);
+        let st2 = Storage::open(&db).unwrap();
+        let ss2 = SettlementStore::open(st2, "0x1111111111111111111111111111111111111111").unwrap();
+        ss2.resolve_pending_funding_and_ingest(
+            "pend-btc-4000",
+            &FundingPayment {
+                funding_id: "fund-backfill-4000".into(),
+                symbol: "BTC".into(),
+                payment: Some(TokenAmount {
+                    token: "USDC".into(),
+                    amount: Decimal::from(-3),
+                }),
+                timestamp_ms: 4_000,
+            },
+        )
+        .unwrap();
+
+        let (rts2, learn2) = ss2.recompute_and_commit().unwrap();
+        assert_eq!(rts2[0].status, SettlementStatus::VerifiedSettled);
+        // Gross 1000 - 10 - 10 - 3 = 977
+        assert_eq!(rts2[0].verified_net_pnl_usdc, Some(Decimal::from(977)));
+        assert_eq!(learn2.len(), 1);
+        assert_eq!(learn2[0].verified_net_pnl_usdc, Decimal::from(977));
+
+        // Second recompute after another restart MUST NOT re-emit the learning outcome
+        drop(ss2);
+        let st3 = Storage::open(&db).unwrap();
+        let ss3 = SettlementStore::open(st3, "0x1111111111111111111111111111111111111111").unwrap();
+        let (_rts3, learn3) = ss3.recompute_and_commit().unwrap();
+        assert!(learn3.is_empty());
+        assert_eq!(ss3.emitted_learning_outcomes().unwrap().len(), 1);
     }
 }

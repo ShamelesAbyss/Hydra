@@ -189,6 +189,20 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             confidence_pct REAL NOT NULL,       -- 0–100 confidence in the value (Bayesian-ish)
             updated_at     TEXT NOT NULL
         );
+
+        -- v1.16.0: Durable ORACLE & GENESIS research event audit trail (never executable without owner gate).
+        CREATE TABLE IF NOT EXISTS research_events (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            experiment_id     TEXT NOT NULL,
+            head              TEXT NOT NULL,
+            data_fingerprint  TEXT NOT NULL,
+            policy_id         TEXT NOT NULL,
+            provenance        TEXT NOT NULL,
+            activation_state  TEXT NOT NULL,
+            payload_json      TEXT NOT NULL,
+            created_at        TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_exp ON research_events(experiment_id);
     "#)?;
 
     let mut columns = conn.prepare("PRAGMA table_info(closed_trades)")?;

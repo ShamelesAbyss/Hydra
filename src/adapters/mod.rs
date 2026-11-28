@@ -95,6 +95,38 @@ pub trait VenueAdapter: Send + Sync {
     async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
         anyhow::bail!("venue does not supply an authoritative risk snapshot")
     }
+
+    /// Authoritative open order list from the venue for startup & restart reconciliation.
+    async fn open_exchange_orders(
+        &self,
+    ) -> Result<Vec<crate::execution_recovery::ExchangeOrderSnapshot>> {
+        anyhow::bail!("venue does not supply authoritative open order snapshots")
+    }
+
+    /// List native reduce-only protective stop orders currently resting on the venue.
+    async fn list_protective_stops(
+        &self,
+    ) -> Result<Vec<crate::protective_orders::ProtectiveOrderSpec>> {
+        anyhow::bail!("venue does not supply native protective stop inspection")
+    }
+
+    /// Place a verified native `reduce_only: true` exchange protective stop order.
+    async fn place_protective_stop(
+        &self,
+        _spec: &crate::protective_orders::ProtectiveOrderSpec,
+    ) -> Result<crate::protective_orders::ProtectiveOrderSpec> {
+        anyhow::bail!("venue does not support native protective stop placement")
+    }
+
+    /// Cancel an orphaned/superseded protective stop order on the venue.
+    async fn cancel_protective_stop(
+        &self,
+        _symbol: &str,
+        _exchange_oid: Option<u64>,
+        _cloid: &str,
+    ) -> Result<()> {
+        anyhow::bail!("venue does not support native protective stop cancellation")
+    }
 }
 
 #[derive(Debug, Clone)]

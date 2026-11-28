@@ -100,9 +100,26 @@ impl Default for Nsga2Options {
 pub struct Nsga2Checkpoint {
     pub schema_version: u32,
     pub dataset_sha3_256: String,
+    #[serde(default)]
+    pub experiment_fingerprint: String,
     pub rng_state: u64,
     pub generations_completed: usize,
     pub evaluated: Vec<Nsga2Candidate>,
+}
+
+pub fn compute_experiment_fingerprint(
+    train_digest: &str,
+    opts: &Nsga2Options,
+    train_bars: usize,
+    embargo_bars: usize,
+) -> Result<String> {
+    let mut h = Sha3_256::new();
+    h.update(train_digest.as_bytes());
+    h.update(crate::fang_engine::REGISTRY_VERSION.as_bytes());
+    h.update(serde_json::to_vec(opts)?);
+    h.update((train_bars as u64).to_le_bytes());
+    h.update((embargo_bars as u64).to_le_bytes());
+    Ok(hex::encode(h.finalize()))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -307,6 +324,8 @@ pub fn run_nsga2_campaign(
 
     let train_ds = dataset.slice_range(0, train_bars)?;
     let (_, train_digest) = train_ds.validate_and_fingerprint()?;
+    let exp_fingerprint =
+        compute_experiment_fingerprint(&train_digest, opts, train_bars, embargo_bars)?;
     let held_out_ds = dataset.slice_range(train_bars + embargo_bars, timeline.len())?;
 
     let mut evaluated_map: BTreeMap<Nsga2Params, Nsga2Candidate> = BTreeMap::new();
@@ -314,6 +333,10 @@ pub fn run_nsga2_campaign(
         ensure!(
             cp.dataset_sha3_256 == train_digest,
             "checkpoint dataset mismatch"
+        );
+        ensure!(
+            cp.experiment_fingerprint.is_empty() || cp.experiment_fingerprint == exp_fingerprint,
+            "checkpoint experiment fingerprint mismatch (code/config/options changed)"
         );
         for c in &cp.evaluated {
             evaluated_map.insert(c.params.clone(), c.clone());
@@ -357,7 +380,7 @@ pub fn run_nsga2_campaign(
             // Bounded deterministic parallel evaluation: each chunk returns ordered results.
             let chunk_sz = missing.len().div_ceil(workers).max(1);
             let mut results_buf: Vec<Result<Nsga2Candidate>> = Vec::with_capacity(missing.len());
-            std::thread::scope(|scope| {
+            std::thread::scope(|scope| -> Result<()> {
                 let mut handles = Vec::new();
                 for chunk in missing.chunks(chunk_sz) {
                     handles.push(scope.spawn(|| {
@@ -369,11 +392,13 @@ pub fn run_nsga2_campaign(
                     }));
                 }
                 for h in handles {
-                    if let Ok(part) = h.join() {
-                        results_buf.extend(part);
-                    }
+                    let part = h
+                        .join()
+                        .map_err(|_| anyhow::anyhow!("NSGA-II evaluation worker panicked"))?;
+                    results_buf.extend(part);
                 }
-            });
+                Ok(())
+            })?;
             for res in results_buf {
                 let cand = res?;
                 evaluated_map.insert(cand.params.clone(), cand);
@@ -448,6 +473,7 @@ pub fn run_nsga2_campaign(
     let checkpoint = Nsga2Checkpoint {
         schema_version: 1,
         dataset_sha3_256: train_digest,
+        experiment_fingerprint: exp_fingerprint,
         rng_state: rng.0,
         generations_completed: opts.generations,
         evaluated: all_cands,
@@ -469,6 +495,33 @@ pub fn run_nsga2_campaign(
             "Research proposals only (`auto_deployment_authorized = false`); never writes live trading configuration".into(),
             "Evaluated with strict embargo gap separating training selection from held-out assessment".into(),
         ],
+    })
+}
+
+/// Persists a non-executable GENESIS research event record into durable SQLite `research_events`.
+pub fn persist_genesis_research_event(
+    storage: &crate::storage::Storage,
+    experiment_id: &str,
+    report: &Nsga2CampaignReport,
+) -> Result<()> {
+    ensure!(
+        !report.auto_deployment_authorized,
+        "GENESIS proposals remain non-executable without explicit owner authorization"
+    );
+    let best_id = report
+        .pareto_front
+        .first()
+        .map(|c| c.id.clone())
+        .unwrap_or_else(|| "none".into());
+    storage.record_research_event(&crate::storage::ResearchEventRecord {
+        experiment_id: experiment_id.into(),
+        head: "GENESIS".into(),
+        data_fingerprint: report.checkpoint.experiment_fingerprint.clone(),
+        policy_id: best_id,
+        provenance: "evolution_proposal".into(),
+        activation_state: "proposal_only_non_executable".into(),
+        payload_json: serde_json::to_string(report)?,
+        created_at: chrono::Utc::now().to_rfc3339(),
     })
 }
 

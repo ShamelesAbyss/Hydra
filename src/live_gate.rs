@@ -99,6 +99,7 @@ impl LiveAuthorizationRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VenueTransportClass {
     ProductionMainnet,
+    TestnetSandbox,
     #[cfg(test)]
     LoopbackTestFixture,
 }
@@ -107,13 +108,25 @@ impl VenueTransportClass {
     pub const fn is_production(self) -> bool {
         match self {
             Self::ProductionMainnet => true,
+            Self::TestnetSandbox => false,
             #[cfg(test)]
             Self::LoopbackTestFixture => false,
         }
     }
+
+    pub const fn is_testnet(self) -> bool {
+        matches!(self, Self::TestnetSandbox)
+    }
 }
 
-/// Returns `true` for any exchange endpoint that is not an explicit local loopback test server.
+/// Returns `true` for the official Hyperliquid Testnet origin.
+pub fn is_hyperliquid_testnet_url(url: &str) -> bool {
+    let normalized = url.trim().to_ascii_lowercase();
+    normalized.starts_with("https://api.hyperliquid-testnet.xyz")
+        || normalized.starts_with("wss://api.hyperliquid-testnet.xyz")
+}
+
+/// Returns `true` for any exchange endpoint that is not an explicit local loopback test server or Testnet sandbox.
 pub fn is_production_exchange_url(url: &str) -> bool {
     let normalized = url.trim().to_ascii_lowercase();
     !(normalized.starts_with("http://127.0.0.1:")
@@ -121,7 +134,8 @@ pub fn is_production_exchange_url(url: &str) -> bool {
         || normalized.starts_with("http://[::1]:")
         || normalized.starts_with("ws://127.0.0.1:")
         || normalized.starts_with("ws://localhost:")
-        || normalized.starts_with("ws://[::1]:"))
+        || normalized.starts_with("ws://[::1]:")
+        || is_hyperliquid_testnet_url(&normalized))
 }
 
 /// Authoritative fail-closed gate for any real-money production execution path.

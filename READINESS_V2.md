@@ -1,9 +1,7 @@
 # HYDRA v2.0.0 Live-Trading Readiness Matrix (Section 26)
 
-> **Evidence-First Verdict (`v1.15.0 | PROJECT SOVEREIGNTY`):**
-> **All internal Sovereign Trilogy engineering requirements (Phases I–III) are implemented and offline/loopback verified.** However, per Section 26 (*"Never declare HYDRA 2.0 ready merely to satisfy a release schedule"*), **`v2.0.0` remains HELD in `MODE: DORMANT` / `PendingCertification`** strictly on **two genuine external prerequisites** that require real elapsed wall-clock public-market time and offline owner action:
-> 1. **Extended Multi-Week Public Paper Qualification (`>= 14–30` continuous days of live WebSocket `paper-service` telemetry across varying volatility/funding regimes).**
-> 2. **Owner-Provisioned Offline `secp256k1` Release-Signing Keys (`PINNED_RELEASE_SIGNING_PUBKEY_HEX` in `src/evolution.rs`).**
+> **Evidence-First Verdict (`v1.16.0 | PROJECT CONVERGENCE — UNIFIED EXECUTION & FINANCIAL TRUTH`):**
+> **Unified Convergence engineering & Section 26 foundation are implemented and offline/loopback verified (**535** `desktop-wgpu` / **489** headless tests, `0` clippy warnings across Convergence modules, 3x Windows `engine_ipc` stress pass).** Per **Accelerated Awakening**, mandatory `72h` and `14–30` day fixed calendar waits are removed for an initial **Restricted Actively Monitored Live Pilot** (`MODE: DORMANT` by default) and replaced with measurable evidence-based qualification in **`v1.17.0 | PROJECT SENTINEL`** (real external watchdog, resource profiler, historical OOS validation, live public-market paper lifecycle, and Hyperliquid Testnet functional exchange proof where keys/permissions allow), alongside owner-provisioned `PINNED_RELEASE_SIGNING_PUBKEY_HEX` in `src/evolution.rs`. Unattended `AWAKENED` trading remains separately gated.
 
 ---
 
@@ -30,12 +28,12 @@
 
 ## 2. Monitored Limited-Capital Live Pilot vs. Unattended Live Operation
 
-| Criterion | Monitored Limited-Capital Pilot (`$ <= 500–1,000`, active operator) | Unattended `AWAKENED` Production Operation |
+| Criterion | Restricted Actively Monitored Live Pilot (`v2.0.0` Candidate) | Unattended `AWAKENED` Production Operation |
 | :--- | :--- | :--- |
-| **Prerequisite 1: Paper Service Soak** | >= 72 hours continuous `paper-service` uptime on target Windows 11 host with 0 unhandled faults | >= 14–30 continuous days multi-regime public `paper-service` qualification with audited slippage/funding accuracy |
-| **Prerequisite 2: Strategy Acceptance** | `hydra strategy-accept` returns `EligibleForMonitoredPilot` on genuine multi-market dataset | Sustained positive post-cost expectancy in both purged OOS research and live pilot fills |
-| **Prerequisite 3: Exchange Protective Orders** | Manually observed test-order placement & `reduce_only` stop confirmation in monitored session | Automated multi-session stop verification & recovery across reconnects |
-| **Prerequisite 4: Signing & Emergency Controls** | Dedicated small-balance Hyperliquid wallet loaded in DPAPI Treasury (`SecretString`); `EMERGENCY SUSPEND` reachable | Owner-pinned `PINNED_RELEASE_SIGNING_PUBKEY_HEX`, external OS watchdog service running, zero unresolved holds |
+| **Prerequisite 1: Live Service & Watchdog** | **Project Sentinel (`v1.17.0`):** Real watchdog supervising live worker heartbeat/hang/restart + functional public-market paper lifecycle on standalone EXE (no fixed calendar wait) | Sustained real monitored pilot track record across varying market & volatility regimes with zero unresolved faults |
+| **Prerequisite 2: Strategy Acceptance** | Genuine historical dataset passes `hydra strategy-accept` (`EligibleForMonitoredPilot`) with finite OOS & downside bounds | Sustained positive post-cost expectancy in both purged OOS research and live pilot fills |
+| **Prerequisite 3: Exchange & Protective Orders** | **Hyperliquid Testnet** functional proof of account signing, order ack/cancel, and native `reduce_only` protective stop placement + reconciliation | Audited small-capital monitored pilot live-fill & native stop reconciliation |
+| **Prerequisite 4: Owner Limits & Emergency Controls** | Explicit owner-defined capital/leverage/loss/drawdown ceilings, dedicated small-balance wallet in Windows DPAPI `EngineSignerAuthority`, active monitoring & `EmergencySuspend` | Owner-pinned `PINNED_RELEASE_SIGNING_PUBKEY_HEX`, external OS watchdog service running, zero unresolved holds |
 
 ---
 

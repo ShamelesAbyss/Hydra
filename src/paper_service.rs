@@ -724,6 +724,9 @@ fn handle_ipc_connection(
     session_id: &str,
     pid: u32,
 ) -> Result<()> {
+    // Windows inherits non-blocking socket state from the listening socket; restore
+    // blocking mode before applying read/write timeouts to prevent WSAEWOULDBLOCK / 10054 RST.
+    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     let line = read_bounded_ipc_line(&stream, MAX_IPC_LINE_BYTES)?;
@@ -751,6 +754,8 @@ fn handle_ipc_connection(
         let mut out = serde_json::to_string(&resp)?;
         out.push('\n');
         stream.write_all(out.as_bytes())?;
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
         return Ok(());
     }
 
@@ -809,6 +814,8 @@ fn handle_ipc_connection(
     let mut out = serde_json::to_string(&resp)?;
     out.push('\n');
     stream.write_all(out.as_bytes())?;
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())
 }
 

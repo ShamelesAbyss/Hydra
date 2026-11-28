@@ -10,6 +10,7 @@ use sha3::{Digest, Keccak256};
 use std::str::FromStr;
 
 const MAINNET_EXCHANGE: &str = "https://api.hyperliquid.xyz/exchange";
+pub const TESTNET_EXCHANGE: &str = "https://api.hyperliquid-testnet.xyz/exchange";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 pub fn keccak256(bytes: impl AsRef<[u8]>) -> [u8; 32] {
@@ -285,6 +286,221 @@ impl OrderAction {
     }
 }
 
+/// Native Hyperliquid exchange trigger stop-loss wire action (`r: true`, `tpsl: "sl"`).
+#[derive(Clone, Serialize)]
+pub struct TriggerOrderAction {
+    #[serde(rename = "type")]
+    action_type: &'static str,
+    orders: Vec<TriggerWireOrder>,
+    grouping: &'static str,
+}
+
+#[derive(Clone, Serialize)]
+struct TriggerWireOrder {
+    a: u32,
+    b: bool,
+    p: String,
+    s: String,
+    r: bool,
+    t: TriggerKind,
+    c: String,
+}
+
+#[derive(Clone, Serialize)]
+struct TriggerKind {
+    trigger: TriggerSpecWire,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TriggerSpecWire {
+    is_market: bool,
+    trigger_px: String,
+    tpsl: &'static str,
+}
+
+impl TriggerOrderAction {
+    /// Builds a strict `reduce_only: true` native Hyperliquid stop-loss trigger order.
+    pub fn reduce_only_stop(
+        asset: u32,
+        buy_to_close: bool,
+        trigger_price: f64,
+        exec_limit_price: f64,
+        size: f64,
+        cloid: &str,
+    ) -> Result<Self> {
+        ensure!(asset < 10_000, "unsupported asset id");
+        let norm_cloid = if let Ok(id) = uuid::Uuid::parse_str(cloid) {
+            format!("0x{}", id.simple())
+        } else {
+            let trimmed = cloid.trim();
+            if trimmed.starts_with("0x")
+                && trimmed.len() == 34
+                && trimmed[2..].bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                trimmed.to_ascii_lowercase()
+            } else {
+                format!("0x{}", hex::encode(&keccak256(trimmed.as_bytes())[..16]))
+            }
+        };
+        Ok(Self {
+            action_type: "order",
+            orders: vec![TriggerWireOrder {
+                a: asset,
+                b: buy_to_close,
+                p: decimal_wire(exec_limit_price)?,
+                s: decimal_wire(size)?,
+                r: true,
+                t: TriggerKind {
+                    trigger: TriggerSpecWire {
+                        is_market: true,
+                        trigger_px: decimal_wire(trigger_price)?,
+                        tpsl: "sl",
+                    },
+                },
+                c: norm_cloid,
+            }],
+            grouping: "na",
+        })
+    }
+
+    pub fn packed(&self) -> Result<Vec<u8>> {
+        Ok(rmp_serde::to_vec_named(self)?)
+    }
+
+    pub fn is_reduce_only(&self) -> bool {
+        self.orders.iter().all(|o| o.r && o.t.trigger.tpsl == "sl")
+    }
+
+    pub fn client_order_id(&self) -> Option<&str> {
+        self.orders.first().map(|o| o.c.as_str())
+    }
+}
+
+/// Native Hyperliquid exchange cancel-by-oid wire action.
+#[derive(Clone, Serialize)]
+pub struct CancelAction {
+    #[serde(rename = "type")]
+    action_type: &'static str,
+    cancels: Vec<CancelSpec>,
+}
+
+#[derive(Clone, Serialize)]
+struct CancelSpec {
+    a: u32,
+    o: u64,
+}
+
+impl CancelAction {
+    pub fn by_oid(asset: u32, oid: u64) -> Result<Self> {
+        ensure!(asset < 10_000, "unsupported asset id");
+        ensure!(oid > 0, "cancel oid must be positive");
+        Ok(Self {
+            action_type: "cancel",
+            cancels: vec![CancelSpec { a: asset, o: oid }],
+        })
+    }
+
+    pub fn packed(&self) -> Result<Vec<u8>> {
+        Ok(rmp_serde::to_vec_named(self)?)
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericExchangePayload<'a, T: Serialize> {
+    action: &'a T,
+    signature: WireSignature,
+    nonce: u64,
+    vault_address: Option<String>,
+}
+
+async fn post_signed_action<T: Serialize>(
+    key: &str,
+    packed: &[u8],
+    action: &T,
+    mainnet: bool,
+) -> Result<ExchangeResponseStatus> {
+    let signer = derive_address(key)?;
+    let nonce = reserve_nonce_at(
+        crate::signer_nonce::NonceCoordinator::operator_default()?,
+        &signer,
+    )
+    .await?;
+    let endpoint = if mainnet {
+        MAINNET_EXCHANGE
+    } else {
+        TESTNET_EXCHANGE
+    };
+    let http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+    let signature = sign_digest(
+        key,
+        agent_digest(action_hash(packed, nonce, None, None), mainnet),
+    )?;
+    let mut response = http
+        .post(endpoint)
+        .json(&GenericExchangePayload {
+            action,
+            signature,
+            nonce,
+            vault_address: None,
+        })
+        .send()
+        .await
+        .map_err(|_| anyhow::anyhow!("exchange transport failed; acknowledgment unresolved"))?;
+    ensure!(
+        response.status().is_success(),
+        "exchange HTTP status {}; acknowledgment unresolved",
+        response.status()
+    );
+    if let Some(length) = response.content_length() {
+        ensure!(
+            length <= MAX_RESPONSE_BYTES as u64,
+            "exchange response exceeds byte limit"
+        );
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| anyhow::anyhow!("exchange response interrupted; acknowledgment unresolved"))?
+    {
+        ensure!(
+            body.len()
+                .checked_add(chunk.len())
+                .is_some_and(|n| n <= MAX_RESPONSE_BYTES),
+            "exchange response exceeds byte limit"
+        );
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body)
+        .map_err(|_| anyhow::anyhow!("invalid exchange response; acknowledgment unresolved"))
+}
+
+pub async fn submit_trigger_stop(
+    key: &str,
+    action: &TriggerOrderAction,
+    mainnet: bool,
+) -> Result<ExchangeResponseStatus> {
+    ensure!(
+        action.is_reduce_only(),
+        "protective stop MUST be reduce_only"
+    );
+    post_signed_action(key, &action.packed()?, action, mainnet).await
+}
+
+pub async fn submit_cancel_by_oid(
+    key: &str,
+    action: &CancelAction,
+    mainnet: bool,
+) -> Result<ExchangeResponseStatus> {
+    post_signed_action(key, &action.packed()?, action, mainnet).await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangePayload<'a> {
@@ -521,5 +737,30 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains(&zero));
+    }
+
+    #[test]
+    fn native_trigger_stop_enforces_reduce_only_and_cancel_encodes_cleanly() {
+        let stop = TriggerOrderAction::reduce_only_stop(
+            4,
+            false,
+            58_800.0,
+            58_212.0,
+            0.25,
+            "protect-BTC-mom-0.25",
+        )
+        .unwrap();
+        assert!(stop.is_reduce_only());
+        let val = serde_json::to_value(&stop).unwrap();
+        assert_eq!(val["orders"][0]["r"], true);
+        assert_eq!(val["orders"][0]["t"]["trigger"]["tpsl"], "sl");
+        assert_eq!(val["orders"][0]["t"]["trigger"]["isMarket"], true);
+        assert!(!stop.packed().unwrap().is_empty());
+
+        let cancel = CancelAction::by_oid(4, 12345).unwrap();
+        let cval = serde_json::to_value(&cancel).unwrap();
+        assert_eq!(cval["type"], "cancel");
+        assert_eq!(cval["cancels"][0]["o"], 12345);
+        assert!(!cancel.packed().unwrap().is_empty());
     }
 }

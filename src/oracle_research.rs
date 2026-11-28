@@ -73,11 +73,48 @@ impl MultiMarketDataset {
                 let ts_ms = c.ts.timestamp_millis();
                 timestamps.insert(ts_ms);
                 hasher.update(ts_ms.to_le_bytes());
+                hasher.update(c.open.to_le_bytes());
+                hasher.update(c.high.to_le_bytes());
+                hasher.update(c.low.to_le_bytes());
                 hasher.update(c.close.to_le_bytes());
+                hasher.update(c.volume.to_le_bytes());
             }
+        }
+        for (sym, spec) in &self.specs {
+            hasher.update(sym.as_bytes());
+            hasher.update(spec.max_leverage.to_le_bytes());
+            hasher.update(spec.maintenance_margin_rate.to_le_bytes());
+            hasher.update(spec.min_notional_usd.to_le_bytes());
+        }
+        for (sym, rates) in &self.funding_bps_1h {
+            hasher.update(sym.as_bytes());
+            for (ts, bps) in rates {
+                ensure!(bps.is_finite(), "non-finite funding rate for {sym}@{ts}");
+                hasher.update(ts.to_le_bytes());
+                hasher.update(bps.to_le_bytes());
+            }
+        }
+        for o in &self.outage_windows {
+            hasher.update(o.start_ms.to_le_bytes());
+            hasher.update(o.end_ms.to_le_bytes());
+            hasher.update(o.reason.as_bytes());
         }
         let digest = hex::encode(hasher.finalize());
         Ok((timestamps.into_iter().collect(), digest))
+    }
+
+    pub fn experiment_fingerprint(
+        &self,
+        strat_cfg: &UnifiedStrategyConfig,
+        exec_cfg: &ExecutionModelConfig,
+    ) -> Result<String> {
+        let (_, ds_digest) = self.validate_and_fingerprint()?;
+        let mut h = Sha3_256::new();
+        h.update(ds_digest.as_bytes());
+        h.update(crate::fang_engine::REGISTRY_VERSION.as_bytes());
+        h.update(serde_json::to_vec(strat_cfg)?);
+        h.update(serde_json::to_vec(exec_cfg)?);
+        Ok(hex::encode(h.finalize()))
     }
 
     pub fn slice_range(&self, start_idx: usize, end_exclusive: usize) -> Result<Self> {
@@ -804,6 +841,33 @@ pub fn block_bootstrap_ci(
         p05_mean_return_pct: means[(means.len() as f64 * 0.05) as usize],
         median_mean_return_pct: means[means.len() / 2],
         p95_mean_return_pct: means[((means.len() as f64 * 0.95) as usize).min(means.len() - 1)],
+    })
+}
+
+/// Validates finite ORACLE metrics and persists a durable non-executable validation record.
+pub fn persist_oracle_research_event(
+    storage: &crate::storage::Storage,
+    experiment_id: &str,
+    policy_id: &str,
+    fingerprint: &str,
+    report: &PortfolioResearchReport,
+) -> Result<()> {
+    ensure!(
+        report.metrics.initial_equity.is_finite()
+            && report.metrics.final_equity.is_finite()
+            && report.metrics.net_return_pct.is_finite()
+            && report.metrics.max_drawdown_pct.is_finite(),
+        "non-finite ORACLE research report metrics rejected"
+    );
+    storage.record_research_event(&crate::storage::ResearchEventRecord {
+        experiment_id: experiment_id.into(),
+        head: "ORACLE".into(),
+        data_fingerprint: fingerprint.into(),
+        policy_id: policy_id.into(),
+        provenance: "historical_validation".into(),
+        activation_state: "validated_research_non_executable".into(),
+        payload_json: serde_json::to_string(report)?,
+        created_at: chrono::Utc::now().to_rfc3339(),
     })
 }
 

@@ -1,3 +1,10 @@
+## 1.16.0 — v1.16.0 | PROJECT CONVERGENCE — UNIFIED EXECUTION & FINANCIAL TRUTH
+
+- **Windows IPC 10054 Fix & Real Engine Authority (`src/engine_ipc.rs`, `src/paper_service.rs`):**
+  Cleared inherited non-blocking mode on accepted sockets (`stream.set_nonblocking(false)`), added chunked bounded line reads for fragmented/slow frames, flushed & shutdown Write-half cleanly, bounded concurrent clients (`MAX_CONCURRENT_IPC_CLIENTS=8`), enforced fail-closed error fields (`mode: "UNKNOWN"`, `protective_stops_verified: false`, `maintenance_ready: false`), applied Windows owner ACLs (`icacls`) + `engine-ipc-audit.jsonl`, and wired `EngineControlAuthority` directly to live `Engine` state & persistent `meta_kv`.
+- **Engine Convergence, Durable `SettlementStore`, Treasury Signer & Native `reduce_only` Stops (`src/core/engine.rs`, `src/fang_engine.rs`, `src/settlement.rs`, `src/treasury.rs`, `src/hyperliquid_wire.rs`, `src/adapters/mod.rs`, `src/adapters/hyperliquid.rs`, `src/live_gate.rs`, `src/protective_orders.rs`):**
+  Replaced legacy `strat.evaluate()` with shared `FangUnifiedPlanner` execution (`BoundedGrid` marked `research_only: true`), wired fail-closed `evaluate_sovereign_admission`, `InstrumentOrderConstraints` precision rounding, `reconcile_startup_and_recovery`, place-new-then-cancel-old native `reduce_only` protective stops (`TriggerOrderAction` / `CancelAction`), `VenueTransportClass::TestnetSandbox`, `EngineSignerAuthority`, durable SQLite `SettlementStore` + `PendingFundingObligation`, ORACLE/GENESIS full input/config fingerprinting & SQLite `research_events`, plus `tests/convergence_e2e.rs` and actual-engine `tests/fang_parity.rs` (**535** desktop-wgpu / **489** headless tests, 0 `v1.16.0` clippy warnings).
+
 ## 1.15.0 — v1.15.0 | PROJECT SOVEREIGNTY — AUTONOMOUS QUANTITATIVE INTELLIGENCE
 
 - **External OS Watchdog Supervision (`src/watchdog.rs`, `src/cli/mod.rs`):**

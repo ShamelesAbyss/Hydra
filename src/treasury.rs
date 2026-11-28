@@ -5,6 +5,11 @@
 //! Security & financial invariants:
 //! - Private signing keys NEVER leave this machine, NEVER enter logs/telemetry/errors,
 //!   and are NEVER transmitted over the network (including during account verification).
+//! - Threat-model note: Windows DPAPI (`CryptProtectData`) encrypts secrets under the
+//!   current OS user identity; same-user OS malware running under the same user SID can
+//!   query DPAPI, whereas cross-user access and plain config inspection are blocked.
+//! - Callers should obtain an `EngineSignerAuthority` via `open_engine_signer` rather than
+//!   handling raw key strings; plaintext export (`load_secret_for_local_signer`) is crate-private.
 //! - No automatic withdrawals or arbitrary asset transfers exist anywhere in Hydra.
 //! - Live / AWAKENED operation remains strictly gated behind all engineering,
 //!   financial settlement, security, and operator acknowledgment requirements.
@@ -265,6 +270,63 @@ pub fn mask_address(address: &str) -> String {
     }
 }
 
+/// Engine-owned signing capability that never exposes plaintext private key bytes to external
+/// callers, research modules, or UI components.
+pub struct EngineSignerAuthority {
+    dedicated_wallet_address: String,
+    derived_signer_address: String,
+    signer_relationship: SignerRelationship,
+    protection_backend: ProtectionBackend,
+    signing_key: SecretString,
+}
+
+impl fmt::Debug for EngineSignerAuthority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EngineSignerAuthority")
+            .field("dedicated_wallet_address", &self.dedicated_wallet_address)
+            .field("derived_signer_address", &self.derived_signer_address)
+            .field("signer_relationship", &self.signer_relationship)
+            .field("protection_backend", &self.protection_backend)
+            .field("signing_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl EngineSignerAuthority {
+    /// Construct from an explicit disposable test/testnet fixture key without persisting on disk.
+    pub fn from_test_fixture(wallet_address: &str, private_key: &str) -> Result<Self> {
+        let validated = validate_wallet_inputs(wallet_address, private_key)?;
+        Ok(Self {
+            dedicated_wallet_address: validated.dedicated_wallet_address,
+            derived_signer_address: validated.derived_signer_address,
+            signer_relationship: validated.signer_relationship,
+            protection_backend: ProtectionBackend::current(),
+            signing_key: SecretString::new(private_key.trim().to_string()),
+        })
+    }
+
+    pub fn wallet_address(&self) -> &str {
+        &self.dedicated_wallet_address
+    }
+
+    pub fn signer_address(&self) -> &str {
+        &self.derived_signer_address
+    }
+
+    pub fn signer_relationship(&self) -> SignerRelationship {
+        self.signer_relationship
+    }
+
+    pub fn protection_backend(&self) -> ProtectionBackend {
+        self.protection_backend
+    }
+
+    /// Sign a 32-byte digest strictly inside the authority boundary; never returns key material.
+    pub fn sign_digest(&self, digest: [u8; 32]) -> Result<crate::hyperliquid_wire::WireSignature> {
+        crate::hyperliquid_wire::sign_digest(self.signing_key.as_str()?, digest)
+    }
+}
+
 /// Persistent OS-protected Treasury credential store.
 #[derive(Clone, Debug)]
 pub struct TreasuryStore {
@@ -432,8 +494,8 @@ impl TreasuryStore {
         Ok(derived)
     }
 
-    /// Engine-only local secret load. Returns a zeroizing `SecretString`.
-    pub fn load_secret_for_local_signer(&self) -> Result<SecretString> {
+    /// Engine-only local secret load (crate-internal). Prefer `open_engine_signer`.
+    pub(crate) fn load_secret_for_local_signer(&self) -> Result<SecretString> {
         let path = self.secret_path();
         ensure!(
             path.is_file(),
@@ -455,6 +517,50 @@ impl TreasuryStore {
             backend.label()
         );
         Ok(backend)
+    }
+
+    /// Opens an engine-owned `EngineSignerAuthority` wrapping signing capabilities without
+    /// ever returning raw private key bytes to external callers or UI components.
+    pub fn open_engine_signer(
+        &self,
+        scope: SigningAccessScope,
+        require_authorized: bool,
+    ) -> Result<EngineSignerAuthority> {
+        ensure!(
+            scope == SigningAccessScope::EngineExclusive,
+            "EngineSignerAuthority denied for non-engine scope {:?}",
+            scope
+        );
+        let backend = self.require_encrypted_credential_backend()?;
+        let profile = self
+            .load_profile()?
+            .ok_or_else(|| anyhow!("no treasury profile configured"))?;
+        ensure!(
+            !profile.emergency_suspended,
+            "treasury emergency suspension active; signer unavailable"
+        );
+        if require_authorized {
+            ensure!(
+                profile.wallet_authorized && profile.risk_acknowledged,
+                "dedicated treasury wallet is not authorized or risk acknowledgment is missing"
+            );
+        }
+        let secret = self.load_secret_for_local_signer()?;
+        let derived = derive_address(secret.as_str()?).map_err(|_| {
+            anyhow!("stored signing key failed local validation; key material omitted")
+        })?;
+        let derived = canonical_account(&derived)?;
+        ensure!(
+            derived == profile.derived_signer_address,
+            "stored key signer does not match recorded treasury profile"
+        );
+        Ok(EngineSignerAuthority {
+            dedicated_wallet_address: profile.dedicated_wallet_address,
+            derived_signer_address: derived,
+            signer_relationship: profile.signer_relationship,
+            protection_backend: backend,
+            signing_key: secret,
+        })
     }
 
     /// Enforces `EngineExclusive` access control for decryption; GUI/research/external callers must use `UiReadOnly`.
@@ -1775,6 +1881,25 @@ mod tests {
                 .load_secret_with_scope(SigningAccessScope::EngineExclusive)
                 .unwrap();
             assert_eq!(format!("{sec:?}"), "[REDACTED]");
+
+            // Re-authorize wallet cleanly and verify EngineSignerAuthority signs without exporting key bytes.
+            let _ = store.update_flags(true, true, false, None).unwrap();
+            let signer = store
+                .open_engine_signer(SigningAccessScope::EngineExclusive, true)
+                .unwrap();
+            let dbg = format!("{signer:?}");
+            assert!(dbg.contains("[REDACTED]"));
+            assert!(!dbg.contains(&TEST_KEY[2..]));
+            let sig = signer.sign_digest([0x11; 32]).unwrap();
+            assert_eq!(sig.r.len(), 66);
         }
+
+        // UiReadOnly is rejected by open_engine_signer too, and from_test_fixture signs safely.
+        assert!(store
+            .open_engine_signer(SigningAccessScope::UiReadOnly, false)
+            .is_err());
+        let fx = EngineSignerAuthority::from_test_fixture(&derived, TEST_KEY).unwrap();
+        assert_eq!(fx.signer_address(), derived);
+        assert!(fx.sign_digest([0x22; 32]).is_ok());
     }
 }

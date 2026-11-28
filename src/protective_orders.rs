@@ -39,6 +39,8 @@ pub struct ProtectiveOrderSpec {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ProtectiveReconcileAction {
     PlaceReduceOnlyStop(ProtectiveOrderSpec),
+    /// Replacement invariant: callers MUST place and verify acknowledgment of `new_spec`
+    /// BEFORE cancelling `replace_exchange_oid` / `old_cloid` to eliminate unprotected windows.
     ReplaceReduceOnlyStop {
         replace_exchange_oid: Option<u64>,
         old_cloid: String,

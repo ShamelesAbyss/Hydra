@@ -677,6 +677,72 @@ impl Storage {
         )?;
         Ok(())
     }
+
+    pub fn count_unresolved_intents(&self) -> Result<usize> {
+        let conn = self.inner.lock().unwrap();
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM execution_intents WHERE state NOT IN ('rejected','applied')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(n.max(0) as usize)
+    }
+
+    pub fn record_research_event(&self, ev: &ResearchEventRecord) -> Result<()> {
+        let conn = self.inner.lock().unwrap();
+        conn.execute(
+            "INSERT INTO research_events (experiment_id, head, data_fingerprint, policy_id, provenance, activation_state, payload_json, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                ev.experiment_id,
+                ev.head,
+                ev.data_fingerprint,
+                ev.policy_id,
+                ev.provenance,
+                ev.activation_state,
+                ev.payload_json,
+                ev.created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_research_events(&self, experiment_id: &str) -> Result<Vec<ResearchEventRecord>> {
+        let conn = self.inner.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT experiment_id, head, data_fingerprint, policy_id, provenance, activation_state, payload_json, created_at
+             FROM research_events WHERE experiment_id=?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![experiment_id], |r| {
+            Ok(ResearchEventRecord {
+                experiment_id: r.get(0)?,
+                head: r.get(1)?,
+                data_fingerprint: r.get(2)?,
+                policy_id: r.get(3)?,
+                provenance: r.get(4)?,
+                activation_state: r.get(5)?,
+                payload_json: r.get(6)?,
+                created_at: r.get(7)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ResearchEventRecord {
+    pub experiment_id: String,
+    pub head: String,
+    pub data_fingerprint: String,
+    pub policy_id: String,
+    pub provenance: String,
+    pub activation_state: String,
+    pub payload_json: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone)]

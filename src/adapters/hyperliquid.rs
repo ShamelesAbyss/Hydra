@@ -153,6 +153,33 @@ impl HyperliquidAdapter {
         )
     }
 
+    /// Construct a Hyperliquid Testnet sandbox adapter (`TestnetSandbox`).
+    /// Structurally isolated from `ProductionMainnet` (EIP-712 source `"b"`, testnet endpoint);
+    /// requires explicit `account_address` + disposable testnet key (never mainnet production keys).
+    pub async fn new_testnet(cfg: &AppConfig) -> Result<Self> {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()?;
+        let account_address = crate::ownership::configured_account(cfg)?;
+        let adapter = Self {
+            http,
+            live_authorized: cfg.live_trading,
+            transport_class: crate::live_gate::VenueTransportClass::TestnetSandbox,
+            max_slippage_bps: cfg.risk.max_slippage_bps,
+            base_url: "https://api.hyperliquid-testnet.xyz".to_string(),
+            account_address,
+            wallet_key: cfg.hl_private_key.clone(),
+            identity_verified_at: Arc::new(Mutex::new(None)),
+            sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            #[cfg(test)]
+            test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            #[cfg(test)]
+            test_nonce_root: None,
+        };
+        adapter.warm_meta().await;
+        Ok(adapter)
+    }
+
     pub async fn new(cfg: &AppConfig) -> Result<Self> {
         if cfg.live_trading {
             let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
@@ -848,6 +875,213 @@ impl VenueAdapter for HyperliquidAdapter {
     async fn risk_snapshot(&self) -> Result<crate::aegis::AccountSnapshot> {
         Ok(self.account_exposure_evidence().await?.snapshot)
     }
+
+    async fn open_exchange_orders(
+        &self,
+    ) -> Result<Vec<crate::execution_recovery::ExchangeOrderSnapshot>> {
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account missing"))?;
+        let orders: Vec<OpenOrderWire> = self
+            .info(json!({"type":"frontendOpenOrders","user":account,"dex":""}))
+            .await?;
+        let now_ms = Utc::now().timestamp_millis();
+        let mut out = Vec::with_capacity(orders.len());
+        for o in orders {
+            let sz: rust_decimal::Decimal = o.sz.parse().unwrap_or(rust_decimal::Decimal::ZERO);
+            let orig: rust_decimal::Decimal = o.orig_sz.parse().unwrap_or(sz);
+            let filled = (orig - sz).max(rust_decimal::Decimal::ZERO);
+            let state = if filled > rust_decimal::Decimal::ZERO && sz > rust_decimal::Decimal::ZERO
+            {
+                crate::execution_recovery::OrderLifecycleState::PartiallyFilled
+            } else {
+                crate::execution_recovery::OrderLifecycleState::Acknowledged
+            };
+            out.push(crate::execution_recovery::ExchangeOrderSnapshot {
+                source: crate::ledger::EvidenceSource::RestSnapshot,
+                cloid: o.cloid,
+                exchange_oid: o.oid,
+                symbol: o.coin,
+                side: if o.side.eq_ignore_ascii_case("B") {
+                    crate::core::Side::Long
+                } else {
+                    crate::core::Side::Short
+                },
+                state,
+                filled_qty: filled,
+                avg_fill_px: o.limit_px.parse().ok(),
+                observed_at_ms: o.timestamp.unwrap_or(now_ms),
+            });
+        }
+        Ok(out)
+    }
+
+    async fn list_protective_stops(
+        &self,
+    ) -> Result<Vec<crate::protective_orders::ProtectiveOrderSpec>> {
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account missing"))?;
+        let orders: Vec<OpenOrderWire> = self
+            .info(json!({"type":"frontendOpenOrders","user":account,"dex":""}))
+            .await?;
+        let mut out = Vec::new();
+        for o in orders {
+            if !o.reduce_only {
+                continue;
+            }
+            let Some(trig_str) = o.trigger_px else {
+                continue;
+            };
+            let Ok(trig) = trig_str.parse::<rust_decimal::Decimal>() else {
+                continue;
+            };
+            let Ok(qty) = o.sz.parse::<rust_decimal::Decimal>() else {
+                continue;
+            };
+            let protective_side = if o.side.eq_ignore_ascii_case("B") {
+                crate::core::Side::Long
+            } else {
+                crate::core::Side::Short
+            };
+            let position_side = match protective_side {
+                crate::core::Side::Long => crate::core::Side::Short,
+                crate::core::Side::Short => crate::core::Side::Long,
+            };
+            out.push(crate::protective_orders::ProtectiveOrderSpec {
+                symbol: o.coin,
+                owner_strategy: "exchange-native".into(),
+                position_side,
+                protective_side,
+                qty,
+                trigger_price: trig,
+                reduce_only: true,
+                cloid: o.cloid.unwrap_or_else(|| format!("oid-{}", o.oid)),
+                exchange_oid: Some(o.oid),
+            });
+        }
+        Ok(out)
+    }
+
+    async fn place_protective_stop(
+        &self,
+        spec: &crate::protective_orders::ProtectiveOrderSpec,
+    ) -> Result<crate::protective_orders::ProtectiveOrderSpec> {
+        anyhow::ensure!(
+            spec.reduce_only,
+            "protective stop placement MUST enforce reduce_only=true"
+        );
+        if self.transport_class.is_production()
+            || crate::live_gate::is_production_exchange_url(&self.base_url)
+        {
+            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                crate::live_gate::ExecutionChannel::VenueAdapterDirect,
+                self.live_authorized,
+                false,
+            );
+            crate::live_gate::require_certified_live_execution(&req)?;
+        }
+        let dp = self.sz_decimals_for(&spec.symbol).await?;
+        let asset = self.asset_id_for(&spec.symbol).await?;
+        let trig_f: f64 = spec.trigger_price.to_string().parse()?;
+        let qty_f = round_to_decimals(spec.qty.to_string().parse()?, dp);
+        anyhow::ensure!(
+            trig_f > 0.0 && qty_f > 0.0,
+            "protective stop rounds to zero"
+        );
+        let buy_to_close = spec.protective_side.is_buy();
+        let slip = (self.max_slippage_bps / 10_000.0).clamp(0.001, 0.10);
+        let exec_px = round_perp_price(
+            trig_f * if buy_to_close { 1.0 + slip } else { 1.0 - slip },
+            dp,
+            buy_to_close,
+        );
+        let trig_px = round_perp_price(trig_f, dp, buy_to_close);
+        let action = crate::hyperliquid_wire::TriggerOrderAction::reduce_only_stop(
+            asset,
+            buy_to_close,
+            trig_px,
+            exec_px,
+            qty_f,
+            &spec.cloid,
+        )?;
+        let key = self
+            .wallet_key
+            .as_deref()
+            .ok_or_else(|| anyhow!("signing key missing for protective stop"))?;
+        let mainnet = self.transport_class.is_production();
+        let resp = crate::hyperliquid_wire::submit_trigger_stop(key, &action, mainnet).await?;
+        let parsed = parse_order_response(resp, &spec.cloid)?;
+        anyhow::ensure!(
+            parsed.accepted,
+            "exchange did not accept protective stop: {}",
+            parsed.message
+        );
+        let mut acked = spec.clone();
+        acked.exchange_oid = parsed.venue_order_id.and_then(|s| s.parse().ok());
+        Ok(acked)
+    }
+
+    async fn cancel_protective_stop(
+        &self,
+        symbol: &str,
+        exchange_oid: Option<u64>,
+        _cloid: &str,
+    ) -> Result<()> {
+        let oid = exchange_oid.ok_or_else(|| anyhow!("exchange_oid required to cancel stop"))?;
+        if self.transport_class.is_production()
+            || crate::live_gate::is_production_exchange_url(&self.base_url)
+        {
+            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                crate::live_gate::ExecutionChannel::VenueAdapterDirect,
+                self.live_authorized,
+                false,
+            );
+            crate::live_gate::require_certified_live_execution(&req)?;
+        }
+        let asset = self.asset_id_for(symbol).await?;
+        let key = self
+            .wallet_key
+            .as_deref()
+            .ok_or_else(|| anyhow!("signing key missing for protective cancel"))?;
+        let cancel = crate::hyperliquid_wire::CancelAction::by_oid(asset, oid)?;
+        let resp = crate::hyperliquid_wire::submit_cancel_by_oid(
+            key,
+            &cancel,
+            self.transport_class.is_production(),
+        )
+        .await?;
+        match resp {
+            crate::hyperliquid_wire::ExchangeResponseStatus::Ok(_) => Ok(()),
+            crate::hyperliquid_wire::ExchangeResponseStatus::Err(e) => {
+                anyhow::bail!("exchange rejected protective cancel: {e}")
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenOrderWire {
+    coin: String,
+    side: String,
+    #[serde(deserialize_with = "flex_string::deserialize")]
+    sz: String,
+    #[serde(default, deserialize_with = "flex_string::deserialize")]
+    orig_sz: String,
+    #[serde(default, deserialize_with = "flex_string::deserialize")]
+    limit_px: String,
+    oid: u64,
+    #[serde(default)]
+    cloid: Option<String>,
+    #[serde(default)]
+    reduce_only: bool,
+    #[serde(default, deserialize_with = "flex_string_opt::deserialize")]
+    trigger_px: Option<String>,
+    #[serde(default)]
+    timestamp: Option<i64>,
 }
 
 #[derive(Deserialize)]

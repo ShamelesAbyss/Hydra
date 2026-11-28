@@ -51,6 +51,7 @@ pub struct StrategyDescriptor {
     pub risk_constraints: Vec<String>,
     pub research_provenance: String,
     pub activation_requirement: String,
+    pub research_only: bool,
 }
 
 pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
@@ -72,6 +73,7 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
                 "Clean-room Rust formulation inspired by Passivbot EMA-band anchoring research (attributed in PASSIVBOT_AUDIT.md; no GPL copy)"
                     .into(),
             activation_requirement: "Minimum 12 completed bars & AEGIS -10% stress pass".into(),
+            research_only: false,
         },
         StrategyDescriptor {
             id: "momentum_breakout".into(),
@@ -84,6 +86,7 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
             ],
             research_provenance: "Hydra canonical momentum/breakout kernel".into(),
             activation_requirement: "Aligned trend + cost-adjusted positive expected edge".into(),
+            research_only: false,
         },
         StrategyDescriptor {
             id: "mean_reversion_bb".into(),
@@ -95,6 +98,7 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
             ],
             research_provenance: "Hydra canonical Bollinger/RSI reversion kernel".into(),
             activation_requirement: "MeanRevertingRange regime + band excursion".into(),
+            research_only: false,
         },
         StrategyDescriptor {
             id: "rsi_divergence".into(),
@@ -108,6 +112,7 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
             risk_constraints: vec!["Swing divergence >= RSI threshold & net cost clearance".into()],
             research_provenance: "Hydra canonical swing RSI divergence kernel".into(),
             activation_requirement: "Minimum 24 completed bars".into(),
+            research_only: false,
         },
         StrategyDescriptor {
             id: "trend_continuation".into(),
@@ -117,6 +122,7 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
             risk_constraints: vec!["Pullback must hold slow EMA structure".into()],
             research_provenance: "Hydra Project Omniscience pullback continuation research".into(),
             activation_requirement: "Multi-bar trend persistence & fresh microstructure".into(),
+            research_only: false,
         },
         StrategyDescriptor {
             id: "volatility_breakout".into(),
@@ -132,6 +138,7 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
             ],
             research_provenance: "Hydra Project Omniscience range-compression breakout".into(),
             activation_requirement: "Recent bar range > 1.35x prior ATR median".into(),
+            research_only: false,
         },
         StrategyDescriptor {
             id: "bounded_grid_planner".into(),
@@ -145,7 +152,8 @@ pub fn default_strategy_registry() -> Vec<StrategyDescriptor> {
             research_provenance:
                 "Hydra deterministic arithmetic/geometric bounded grid (PASSIVBOT_AUDIT.md attribution)"
                     .into(),
-            activation_requirement: "Explicit per-symbol budget & single-owner enforcement".into(),
+            activation_requirement: "Research-only until full multi-level grid lifecycle is certified".into(),
+            research_only: true,
         },
     ]
 }
