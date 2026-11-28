@@ -3,7 +3,7 @@
 This is the current acceptance ledger, not a release counter. Reviewed against the
 owner's original directive (sections 7–28 and strategic order in section 30), the
 seven major milestones in IMPLEMENTATION_PLAN.md, actual source and tests through
-Reviewed against `v2.0.0 | THE AWAKENING — RESTRICTED MONITORED MAINNET PILOT (LOCKED QUALIFICATION BUILD)` (`A01`–`A09`), passing **552** `desktop-wgpu` / **506** headless offline tests. **Unattended `AWAKENED` remains `PendingCertification`, and Restricted Pilot remains locked (`MODE: DORMANT`) on `NO_QUALIFIED_STRATEGY` (`-9.27%` net holdout / `-0.83%` WF OOS), owner Testnet functional execution proof, and owner pilot consent.**
+Reviewed against `v2.0.1 | THE AWAKENING — RESTRICTED MONITORED MAINNET PILOT (LOCKED QUALIFICATION BUILD)` (`A01`–`A09`), passing **552** `desktop-wgpu` / **506** headless offline tests across Windows & Linux. **Unattended `AWAKENED` remains `PendingCertification`, and Restricted Pilot remains locked (`MODE: DORMANT`) on `NO_QUALIFIED_STRATEGY` (`-9.27%` net holdout / `-0.83%` WF OOS), owner Testnet functional execution proof, and owner pilot consent.**
 
 ## Essential gates versus independent work
 

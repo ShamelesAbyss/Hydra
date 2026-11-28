@@ -1,4 +1,9 @@
-## 2.0.0 — v2.0.0 | THE AWAKENING — RESTRICTED MONITORED MAINNET PILOT (LOCKED QUALIFICATION BUILD)
+## 2.0.1 — v2.0.1 | THE AWAKENING — RESTRICTED MONITORED MAINNET PILOT (LOCKED QUALIFICATION BUILD)
+
+- **Linux CI Test Stability Fix (`src/account_stream.rs`):**
+  - Accumulated `orders`/`fills`/`fundings` across `handle.drain_updates()` polls in `private_account_stream_ingests_dedups_and_flags_reconnect_gap` and extended the second connection window to `400ms`, eliminating the Ubuntu CI test race observed on unpublished tag `v2.0.0` (`e1b5144`) with zero runtime behavior changes.
+
+## 2.0.0 — v2.0.0 (Superseded Tag, No Published Release) | THE AWAKENING — RESTRICTED MONITORED MAINNET PILOT (LOCKED QUALIFICATION BUILD)
 
 - **Capability Isolation & Cryptographic Pilot Binding (`build.rs`, `src/live_gate.rs`, `src/hyperliquid_wire.rs`, `src/adapters/hyperliquid.rs`, `src/execution/mod.rs`, `src/state/mod.rs`):**
   - Added compile-time `HYDRA_BUILD_COMMIT` / `HYDRA_BUILD_DIRTY` embedding (`build.rs`), strict separation between full entry pilot authority (`require_live_runtime_construction`) and risk-reducing stop/close authority (`require_risk_reduction_authority`), non-forgeable `PilotAuthorityCell` bound to `ProductionMainnet` scope, trading account, signer, strategy config SHA3, sovereign risk policy SHA3, build identity, `MonitoredPilotLimits`, and `Utc::now()` checked immediately before signing and HTTP transmission.

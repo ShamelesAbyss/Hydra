@@ -509,7 +509,7 @@ mod tests {
                 tokio::time::timeout(Duration::from_secs(6), listener.accept()).await
             {
                 if let Ok(mut ws2) = tokio_tungstenite::accept_async(s2).await {
-                    tokio::time::sleep(Duration::from_millis(120)).await;
+                    tokio::time::sleep(Duration::from_millis(400)).await;
                     let _ = ws2.close(None).await;
                 }
             }
@@ -521,18 +521,28 @@ mod tests {
         })
         .unwrap();
 
+        let mut all_orders = Vec::new();
+        let mut all_fills = Vec::new();
+        let mut all_fundings = Vec::new();
+        let mut saw_needs_backfill = false;
+        let mut first_reconnect_count = 0u64;
         let mut got_all = false;
-        for _ in 0..40 {
+        for _ in 0..60 {
             tokio::time::sleep(Duration::from_millis(50)).await;
             let batch = handle.drain_updates();
-            if !batch.orders.is_empty() && !batch.fills.is_empty() && !batch.fundings.is_empty() {
+            all_orders.extend(batch.orders);
+            all_fills.extend(batch.fills);
+            all_fundings.extend(batch.fundings);
+            saw_needs_backfill |= batch.needs_rest_backfill;
+            first_reconnect_count = first_reconnect_count.max(batch.reconnect_count);
+            if !all_orders.is_empty() && !all_fills.is_empty() && !all_fundings.is_empty() {
                 assert_eq!(
-                    batch.fills.len(),
+                    all_fills.len(),
                     1,
                     "duplicate fill tid must be deduplicated"
                 );
-                assert!(batch.needs_rest_backfill);
-                handle.mark_rest_backfill_complete(batch.reconnect_count);
+                assert!(saw_needs_backfill);
+                handle.mark_rest_backfill_complete(first_reconnect_count);
                 got_all = true;
                 break;
             }
@@ -540,8 +550,8 @@ mod tests {
         assert!(got_all);
         // Wait for disconnect + reconnect (backoff=1s) to complete & flag needs_rest_backfill again.
         let mut saw_reconnect = false;
-        for _ in 0..60 {
-            tokio::time::sleep(Duration::from_millis(80)).await;
+        for _ in 0..120 {
+            tokio::time::sleep(Duration::from_millis(40)).await;
             let batch = handle.drain_updates();
             if batch.reconnect_count >= 1 && batch.connected && batch.needs_rest_backfill {
                 saw_reconnect = true;
