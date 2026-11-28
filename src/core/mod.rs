@@ -72,6 +72,14 @@ pub struct MarketSnapshot {
     pub spread_bps: Option<f64>,
     pub last_update: DateTime<Utc>,
     pub candles: Vec<Candle>,
+    #[serde(default)]
+    pub l2_depth_usd: Option<f64>,
+    #[serde(default)]
+    pub funding_bps_1h: Option<f64>,
+    #[serde(default)]
+    pub observed_exchange_ts_ms: Option<i64>,
+    #[serde(default)]
+    pub microstructure: Option<crate::hunter_microstructure::MicrostructureSnapshot>,
 }
 
 impl MarketSnapshot {

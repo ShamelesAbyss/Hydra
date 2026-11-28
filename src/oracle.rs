@@ -315,8 +315,12 @@ pub fn replay_with_strategies(
                     bid: None,
                     ask: None,
                     spread_bps: Some(0.0),
+                    l2_depth_usd: None,
+                    funding_bps_1h: None,
                     last_update: bar.ts,
+                    observed_exchange_ts_ms: Some(bar.ts.timestamp_millis()),
                     candles: history.to_vec(),
+                    microstructure: None,
                 };
                 for strategy in strategies {
                     if let Some(mut signal) = strategy.evaluate(&snapshot, regime, cfg) {

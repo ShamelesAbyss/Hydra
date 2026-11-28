@@ -261,6 +261,13 @@ pub struct Cockpit {
     research_changed_at: [Option<Instant>; 7],
     offering_pulse_at: Option<Instant>,
     synapse: SynapseCockpitState,
+    engine_ipc_root: PathBuf,
+    engine_ipc_id: String,
+    engine_ipc_state: Option<crate::engine_ipc::EngineControlResponse>,
+    engine_ipc_notice: Option<String>,
+    engine_ipc_nonce: u64,
+    engine_pilot_session_input: String,
+    last_engine_ipc_poll: Option<Instant>,
 
     treasury: crate::treasury_ui::TreasuryWorkspace,
     evolution: crate::evolution_ui::EvolutionWorkspace,
@@ -365,6 +372,13 @@ impl Cockpit {
                 }
             })
             .expect("create read-only telemetry worker");
+        let engine_ipc_root = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("data"));
+        let mut research = crate::research_ui::ResearchWorkspace::default();
+        research.set_db_path(path.clone());
         let mut app = Self {
             started: Instant::now(),
             last_frame: None,
@@ -408,10 +422,17 @@ impl Cockpit {
             research_changed_at: [None; 7],
             offering_pulse_at: None,
             synapse: SynapseCockpitState::default(),
+            engine_ipc_root,
+            engine_ipc_id: "main-engine".into(),
+            engine_ipc_state: None,
+            engine_ipc_notice: None,
+            engine_ipc_nonce: 1,
+            engine_pilot_session_input: String::new(),
+            last_engine_ipc_poll: None,
 
             treasury: crate::treasury_ui::TreasuryWorkspace::default(),
             evolution: crate::evolution_ui::EvolutionWorkspace::default(),
-            research: crate::research_ui::ResearchWorkspace::default(),
+            research,
             hunter: crate::hunter_ui::HunterWorkspace::default(),
             diagnostics: crate::diagnostics_ui::DiagnosticWorkspace::default(),
             database_input: path.display().to_string(),
@@ -1093,6 +1114,8 @@ impl Cockpit {
                     .color(AMBER),
             );
         }
+        ui.add_space(8.0);
+        self.engine_ipc_panel(ui);
         ui.add_space(12.0);
         self.synapse_section(ui);
         ui.add_space(12.0);
@@ -1100,6 +1123,137 @@ impl Cockpit {
         ui.add_space(12.0);
         ui.heading("Latest persisted decisions");
         signals(ui, data, "");
+    }
+
+    fn poll_engine_ipc(&mut self, now: Instant, force: bool) {
+        if !force
+            && self
+                .last_engine_ipc_poll
+                .is_some_and(|t| now.duration_since(t) < Duration::from_secs(2))
+        {
+            return;
+        }
+        self.last_engine_ipc_poll = Some(now);
+        let desc = crate::engine_ipc::descriptor_path(&self.engine_ipc_root, &self.engine_ipc_id);
+        if !desc.is_file() {
+            self.engine_ipc_state = None;
+            return;
+        }
+        self.engine_ipc_nonce = self.engine_ipc_nonce.saturating_add(1);
+        match crate::engine_ipc::EngineIpcClient::send_command(
+            &self.engine_ipc_root,
+            &self.engine_ipc_id,
+            self.engine_ipc_nonce,
+            crate::engine_ipc::EngineControlCommand::GetState,
+        ) {
+            Ok(resp) => {
+                self.engine_ipc_state = Some(resp);
+            }
+            Err(_) => {
+                self.engine_ipc_state = None;
+            }
+        }
+    }
+
+    fn send_engine_ipc_command(&mut self, cmd: crate::engine_ipc::EngineControlCommand) {
+        let desc = crate::engine_ipc::descriptor_path(&self.engine_ipc_root, &self.engine_ipc_id);
+        if !desc.is_file() {
+            self.engine_ipc_state = None;
+            self.engine_ipc_notice = Some(format!(
+                "No active headless engine IPC descriptor at {}",
+                desc.display()
+            ));
+            return;
+        }
+        self.engine_ipc_nonce = self.engine_ipc_nonce.saturating_add(1);
+        match crate::engine_ipc::EngineIpcClient::send_command(
+            &self.engine_ipc_root,
+            &self.engine_ipc_id,
+            self.engine_ipc_nonce,
+            cmd,
+        ) {
+            Ok(resp) => {
+                self.engine_ipc_notice = Some(format!(
+                    "[IPC ok={}] mode={} susp={} :: {}",
+                    resp.ok, resp.mode, resp.emergency_suspended, resp.message
+                ));
+                self.engine_ipc_state = Some(resp);
+            }
+            Err(e) => {
+                self.engine_ipc_notice = Some(format!("Engine IPC error: {e:#}"));
+            }
+        }
+    }
+
+    fn engine_ipc_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                section_title(ui, "HEADLESS ENGINE AUTHENTICATED IPC", CYAN);
+                if let Some(ref st) = self.engine_ipc_state {
+                    pill(
+                        ui,
+                        &format!(
+                            "PID {} · {} · POS {} · STOPS {}",
+                            st.pid,
+                            st.mode,
+                            st.open_positions,
+                            if st.protective_stops_verified {
+                                "OK"
+                            } else {
+                                "UNVERIFIED"
+                            }
+                        ),
+                        if st.emergency_suspended {
+                            Color32::from_rgb(247, 95, 105)
+                        } else if st.ok {
+                            EMERALD
+                        } else {
+                            AMBER
+                        },
+                    );
+                } else {
+                    pill(ui, "ENGINE IPC OFFLINE", AMBER);
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Refresh Engine State").clicked() {
+                    self.send_engine_ipc_command(crate::engine_ipc::EngineControlCommand::GetState);
+                }
+                if ui.button("Maintenance Readiness").clicked() {
+                    self.send_engine_ipc_command(
+                        crate::engine_ipc::EngineControlCommand::MaintenanceReadiness,
+                    );
+                }
+                if ui.button("Emergency Suspend Engine").clicked() {
+                    self.treasury
+                        .trigger_emergency_suspension("Cockpit Engine IPC suspend");
+                    self.send_engine_ipc_command(
+                        crate::engine_ipc::EngineControlCommand::EmergencySuspend {
+                            reason: "Operator Cockpit IPC suspend".into(),
+                        },
+                    );
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Pilot Session ID:").small().color(MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.engine_pilot_session_input)
+                        .hint_text("Explicit active pilot session UUID")
+                        .desired_width(220.0),
+                );
+                if ui.button("Renew Supervision Lease").clicked() {
+                    let sid = self.engine_pilot_session_input.trim().to_string();
+                    self.send_engine_ipc_command(
+                        crate::engine_ipc::EngineControlCommand::RenewPilotSupervision {
+                            session_id: sid,
+                        },
+                    );
+                }
+            });
+            if let Some(ref note) = self.engine_ipc_notice {
+                ui.label(RichText::new(note).small().monospace().color(AMBER));
+            }
+        });
     }
 
     fn synapse_section(&mut self, ui: &mut egui::Ui) {
@@ -1184,6 +1338,29 @@ impl Cockpit {
                                         ) {
                                             Ok(pid) => {
                                                 self.synapse.status = format!("STARTED DETACHED SERVICE (PID {pid})");
+                                                self.synapse.error = None;
+                                            }
+                                            Err(e) => self.synapse.error = Some(format!("{e:#}")),
+                                        }
+                                    }
+                                }
+                                if ui
+                                    .button("Start Supervised (Watchdog)")
+                                    .on_hover_text("Launch external WatchdogSupervisor monitoring heartbeat progress, restart budget & exponential backoff")
+                                    .clicked()
+                                {
+                                    if let (Some(ref store), Some(ref root)) =
+                                        (&self.synapse.store, &self.synapse.service_root)
+                                    {
+                                        match crate::paper_service::PaperServiceClient::spawn_watchdog_supervised(
+                                            root,
+                                            store.db_path(),
+                                            &sess.session_id,
+                                            5,
+                                            4,
+                                        ) {
+                                            Ok(pid) => {
+                                                self.synapse.status = format!("WATCHDOG SUPERVISOR ACTIVE (PID {pid})");
                                                 self.synapse.error = None;
                                             }
                                             Err(e) => self.synapse.error = Some(format!("{e:#}")),
@@ -1654,7 +1831,28 @@ impl Cockpit {
                 pill(ui, "TREASURY UNCONFIGURED", AMBER);
             }
             pill(ui, "READ ONLY / LOCAL RESEARCH", CYAN);
-            pill(ui, "ENGINE LINK UNVERIFIED", AMBER);
+            if let Some(ref ipc) = self.engine_ipc_state {
+                let txt = format!(
+                    "ENGINE IPC: {} · POS {} · STOPS {}",
+                    ipc.mode,
+                    ipc.open_positions,
+                    if ipc.protective_stops_verified {
+                        "OK"
+                    } else {
+                        "UNVERIFIED"
+                    }
+                );
+                let col = if ipc.emergency_suspended {
+                    Color32::from_rgb(247, 95, 105)
+                } else if ipc.ok {
+                    EMERALD
+                } else {
+                    AMBER
+                };
+                pill(ui, &txt, col);
+            } else {
+                pill(ui, "ENGINE IPC OFFLINE", AMBER);
+            }
             if self.loading {
                 pill(ui, "READING LOCAL HISTORY", MUTED);
             } else if self.snapshot.is_some() {
@@ -1751,6 +1949,11 @@ impl Cockpit {
             {
                 self.treasury
                     .trigger_emergency_suspension("Command bar emergency suspension");
+                self.send_engine_ipc_command(
+                    crate::engine_ipc::EngineControlCommand::EmergencySuspend {
+                        reason: "Command bar emergency suspension".into(),
+                    },
+                );
             }
             if let Some(frame) = self.frame_stats.summary() {
                 #[cfg(feature = "desktop-wgpu")]
@@ -2529,6 +2732,14 @@ impl eframe::App for Cockpit {
         if treasury_events.offering_illuminated {
             self.offering_pulse_at = Some(frame_start);
         }
+        if treasury_events.emergency_suspended {
+            self.send_engine_ipc_command(
+                crate::engine_ipc::EngineControlCommand::EmergencySuspend {
+                    reason: "Treasury workspace emergency suspension".into(),
+                },
+            );
+        }
+        self.poll_engine_ipc(frame_start, false);
         let evo_events = self.evolution.poll(ui.ctx());
         if evo_events.genesis_pulse {
             self.research_changed_at[6] = Some(frame_start);

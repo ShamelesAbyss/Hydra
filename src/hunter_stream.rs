@@ -212,14 +212,25 @@ impl FieldFreshness {
         as_of_ms: i64,
         stale_after_ms: i64,
     ) -> Self {
-        let is_stale = match updated_at_ms {
-            Some(ts) => ts > as_of_ms || as_of_ms.saturating_sub(ts) > stale_after_ms,
+        const MAX_CLOCK_SKEW_MS: i64 = 5_000;
+        let receipt_stale = match updated_at_ms {
+            Some(ts) => {
+                ts > as_of_ms.saturating_add(MAX_CLOCK_SKEW_MS)
+                    || as_of_ms.saturating_sub(ts) > stale_after_ms
+            }
             None => true,
+        };
+        let exchange_stale = match exchange_ts_ms {
+            Some(ex_ts) => {
+                ex_ts > as_of_ms.saturating_add(MAX_CLOCK_SKEW_MS)
+                    || as_of_ms.saturating_sub(ex_ts) > stale_after_ms
+            }
+            None => false,
         };
         Self {
             updated_at_ms,
             exchange_ts_ms,
-            is_stale,
+            is_stale: receipt_stale || exchange_stale,
         }
     }
 }
@@ -1736,5 +1747,26 @@ mod tests {
         let discovered = client.resolve_bootstrap_universe(&[], &BTreeSet::new());
         assert!(discovered.contains(&"BBB".to_string()));
         assert!(!discovered.is_empty());
+    }
+
+    #[test]
+    fn field_freshness_rejects_stale_and_future_exchange_timestamps() {
+        let now = 1_700_000_060_000i64;
+        let stale_after_ms = 15_000i64;
+
+        let fresh = FieldFreshness::evaluate(Some(now), Some(now - 2_000), now, stale_after_ms);
+        assert!(!fresh.is_stale);
+
+        let stale_exchange = FieldFreshness::evaluate(
+            Some(now),
+            Some(now - stale_after_ms - 1),
+            now,
+            stale_after_ms,
+        );
+        assert!(stale_exchange.is_stale);
+
+        let future_exchange =
+            FieldFreshness::evaluate(Some(now), Some(now + 5_001), now, stale_after_ms);
+        assert!(future_exchange.is_stale);
     }
 }

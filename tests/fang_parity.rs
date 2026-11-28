@@ -52,8 +52,12 @@ impl VenueAdapter for ParityMockVenue {
             bid: Some(self.mid * 0.9999),
             ask: Some(self.mid * 1.0001),
             spread_bps: Some(2.0),
+            l2_depth_usd: None,
+            funding_bps_1h: None,
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: slice,
+            microstructure: None,
         })
     }
     async fn open_positions(&self) -> anyhow::Result<Vec<VenuePosition>> {
@@ -205,8 +209,12 @@ async fn fang_cross_consumer_fixture_parity_is_identical() {
         bid: Some(last_close * 0.9999),
         ask: Some(last_close * 1.0001),
         spread_bps: Some(2.0),
+        l2_depth_usd: None,
+        funding_bps_1h: None,
         last_update: Utc::now(),
+        observed_exchange_ts_ms: None,
         candles: bars.clone(),
+        microstructure: None,
     };
     let eng_out = engine.unified_planning_step(1, &[snap]).unwrap();
     assert_eq!(eng_out.report.selected.len(), 1);

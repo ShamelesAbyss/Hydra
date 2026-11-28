@@ -119,23 +119,37 @@ impl VenueTransportClass {
     }
 }
 
-/// Returns `true` for the official Hyperliquid Testnet origin.
+/// Returns `true` strictly for the official Hyperliquid Testnet origin.
 pub fn is_hyperliquid_testnet_url(url: &str) -> bool {
-    let normalized = url.trim().to_ascii_lowercase();
-    normalized.starts_with("https://api.hyperliquid-testnet.xyz")
-        || normalized.starts_with("wss://api.hyperliquid-testnet.xyz")
+    let Ok(parsed) = reqwest::Url::parse(url.trim()) else {
+        return false;
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+    matches!(parsed.scheme(), "https" | "wss")
+        && parsed
+            .host_str()
+            .is_some_and(|h| h.eq_ignore_ascii_case("api.hyperliquid-testnet.xyz"))
+        && parsed.port().is_none()
 }
 
 /// Returns `true` for any exchange endpoint that is not an explicit local loopback test server or Testnet sandbox.
 pub fn is_production_exchange_url(url: &str) -> bool {
-    let normalized = url.trim().to_ascii_lowercase();
-    !(normalized.starts_with("http://127.0.0.1:")
-        || normalized.starts_with("http://localhost:")
-        || normalized.starts_with("http://[::1]:")
-        || normalized.starts_with("ws://127.0.0.1:")
-        || normalized.starts_with("ws://localhost:")
-        || normalized.starts_with("ws://[::1]:")
-        || is_hyperliquid_testnet_url(&normalized))
+    let Ok(parsed) = reqwest::Url::parse(url.trim()) else {
+        return true;
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return true;
+    }
+    if is_hyperliquid_testnet_url(url) {
+        return false;
+    }
+    let is_loopback_host = matches!(
+        parsed.host_str(),
+        Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1")
+    );
+    !(matches!(parsed.scheme(), "http" | "ws") && is_loopback_host && parsed.port().is_some())
 }
 
 /// Authoritative fail-closed gate for any real-money production execution path.
@@ -210,6 +224,17 @@ pub enum EvidenceEnvironment {
     HyperliquidMainnet,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceProducer {
+    LocalVerificationSuite,
+    HistoricalLaboratory,
+    PublicPaperService,
+    HyperliquidTestnetProbe,
+    #[default]
+    ManualUnattested,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EvidenceRecord {
     pub pillar_index: u8,
@@ -222,10 +247,67 @@ pub struct EvidenceRecord {
     pub dataset_fingerprint: String,
     pub recorded_at_ms: i64,
     pub summary: String,
+    #[serde(default)]
+    pub producer: EvidenceProducer,
+    #[serde(default)]
+    pub artifact_sha256: String,
+    #[serde(default)]
+    pub strategy_config_sha3: String,
+    #[serde(default)]
+    pub max_age_ms: Option<i64>,
+    #[serde(default)]
+    pub revoked: bool,
     pub record_sha3: String,
 }
 
 impl EvidenceRecord {
+    #[allow(clippy::too_many_arguments)]
+    pub fn produce_attested(
+        producer: EvidenceProducer,
+        pillar_index: u8,
+        tier: VerificationTier,
+        risk_policy_sha3: impl Into<String>,
+        environment: EvidenceEnvironment,
+        account_mode: impl Into<String>,
+        dataset_fingerprint: impl Into<String>,
+        artifact_sha256: impl Into<String>,
+        strategy_config_sha3: impl Into<String>,
+        max_age_ms: Option<i64>,
+        recorded_at_ms: i64,
+        summary: impl Into<String>,
+    ) -> Result<Self> {
+        ensure!(
+            producer != EvidenceProducer::ManualUnattested,
+            "ManualUnattested producer cannot produce attested evidence"
+        );
+        let artifact_sha256 = artifact_sha256.into();
+        let strategy_config_sha3 = strategy_config_sha3.into();
+        ensure!(
+            !artifact_sha256.trim().is_empty() && !strategy_config_sha3.trim().is_empty(),
+            "attested evidence requires non-empty artifact_sha256 and strategy_config_sha3"
+        );
+        let mut rec = Self {
+            pillar_index,
+            tier,
+            software_version: env!("CARGO_PKG_VERSION").to_string(),
+            strategy_registry_version: crate::fang_engine::REGISTRY_VERSION.to_string(),
+            risk_policy_sha3: risk_policy_sha3.into(),
+            environment,
+            account_mode: account_mode.into(),
+            dataset_fingerprint: dataset_fingerprint.into(),
+            recorded_at_ms,
+            summary: summary.into(),
+            producer,
+            artifact_sha256,
+            strategy_config_sha3,
+            max_age_ms,
+            revoked: false,
+            record_sha3: String::new(),
+        };
+        rec.record_sha3 = rec.compute_digest();
+        Ok(rec)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn signed_new(
         pillar_index: u8,
@@ -248,6 +330,11 @@ impl EvidenceRecord {
             dataset_fingerprint: dataset_fingerprint.into(),
             recorded_at_ms,
             summary: summary.into(),
+            producer: EvidenceProducer::ManualUnattested,
+            artifact_sha256: String::new(),
+            strategy_config_sha3: String::new(),
+            max_age_ms: None,
+            revoked: false,
             record_sha3: String::new(),
         };
         rec.record_sha3 = rec.compute_digest();
@@ -257,7 +344,7 @@ impl EvidenceRecord {
     pub fn compute_digest(&self) -> String {
         use sha3::{Digest, Sha3_256};
         let canonical = format!(
-            "v1|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            "v2|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
             self.pillar_index,
             self.tier,
             self.software_version,
@@ -267,7 +354,12 @@ impl EvidenceRecord {
             self.account_mode,
             self.dataset_fingerprint,
             self.recorded_at_ms,
-            self.summary
+            self.summary,
+            self.producer,
+            self.artifact_sha256,
+            self.strategy_config_sha3,
+            self.max_age_ms.unwrap_or(-1),
+            self.revoked,
         );
         let mut h = Sha3_256::new();
         h.update(canonical.as_bytes());
@@ -286,6 +378,25 @@ impl EvidenceRegistry {
         expected_env: Option<EvidenceEnvironment>,
         expected_risk_sha3: &str,
     ) -> bool {
+        let now_ms = record
+            .max_age_ms
+            .map(|_| chrono::Utc::now().timestamp_millis());
+        Self::verify_record_at(record, expected_env, expected_risk_sha3, now_ms)
+    }
+
+    pub fn verify_record_at(
+        record: &EvidenceRecord,
+        expected_env: Option<EvidenceEnvironment>,
+        expected_risk_sha3: &str,
+        now_ms: Option<i64>,
+    ) -> bool {
+        if record.revoked || record.producer == EvidenceProducer::ManualUnattested {
+            return false;
+        }
+        if record.artifact_sha256.trim().is_empty() || record.strategy_config_sha3.trim().is_empty()
+        {
+            return false;
+        }
         if record.software_version != env!("CARGO_PKG_VERSION") {
             return false;
         }
@@ -302,6 +413,11 @@ impl EvidenceRegistry {
         }
         if record.dataset_fingerprint.trim().is_empty() || record.recorded_at_ms <= 0 {
             return false;
+        }
+        if let (Some(now), Some(max_age)) = (now_ms, record.max_age_ms) {
+            if now < record.recorded_at_ms || now.saturating_sub(record.recorded_at_ms) > max_age {
+                return false;
+            }
         }
         record.record_sha3 == record.compute_digest()
     }
@@ -557,41 +673,139 @@ impl MonitoredPilotLimits {
 }
 
 /// Ephemeral in-memory restricted monitored pilot authorization grant.
-/// Never auto-persisted for automatic restart resumption.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Non-forgeable (all fields private, never auto-persisted or deserializable from disk).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct MonitoredPilotGrant {
-    pub limits: MonitoredPilotLimits,
-    pub owner_consent_statement: String,
-    pub granted_at_ms: i64,
-    pub session_expires_at_ms: i64,
-    pub supervision_expires_at_ms: i64,
-    pub evidence_digest: String,
+    session_id: String,
+    limits: MonitoredPilotLimits,
+    owner_consent_statement: String,
+    granted_at_ms: i64,
+    session_expires_at_ms: i64,
+    supervision_expires_at_ms: i64,
+    last_renewed_at_ms: i64,
+    evidence_digest: String,
 }
 
 impl MonitoredPilotGrant {
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    pub fn limits(&self) -> &MonitoredPilotLimits {
+        &self.limits
+    }
+
+    pub fn owner_consent_statement(&self) -> &str {
+        &self.owner_consent_statement
+    }
+
+    pub fn granted_at_ms(&self) -> i64 {
+        self.granted_at_ms
+    }
+
+    pub fn session_expires_at_ms(&self) -> i64 {
+        self.session_expires_at_ms
+    }
+
+    pub fn supervision_expires_at_ms(&self) -> i64 {
+        self.supervision_expires_at_ms
+    }
+
+    pub fn last_renewed_at_ms(&self) -> i64 {
+        self.last_renewed_at_ms
+    }
+
+    pub fn evidence_digest(&self) -> &str {
+        &self.evidence_digest
+    }
+
     pub fn session_expired(&self, now_ms: i64) -> bool {
-        now_ms >= self.session_expires_at_ms
+        now_ms < self.granted_at_ms || now_ms >= self.session_expires_at_ms
     }
 
     pub fn supervision_expired(&self, now_ms: i64) -> bool {
-        now_ms >= self.supervision_expires_at_ms
+        now_ms < self.granted_at_ms || now_ms >= self.supervision_expires_at_ms
     }
 
     pub fn is_active_at(&self, now_ms: i64) -> bool {
-        !self.supervision_expired(now_ms) && !self.session_expired(now_ms)
+        now_ms >= self.granted_at_ms
+            && !self.supervision_expired(now_ms)
+            && !self.session_expired(now_ms)
     }
 
     pub fn renew_supervision(&mut self, now_ms: i64) -> Result<()> {
+        ensure!(
+            now_ms >= self.last_renewed_at_ms,
+            "monotonic clock required for pilot supervision renewal"
+        );
         ensure!(
             !self.session_expired(now_ms),
             "pilot session duration expired; full re-authorization required"
         );
         let lease_ms = (self.limits.operator_supervision_lease_secs as i64).saturating_mul(1_000);
+        self.last_renewed_at_ms = now_ms;
         self.supervision_expires_at_ms = now_ms
             .saturating_add(lease_ms)
             .min(self.session_expires_at_ms);
         Ok(())
     }
+}
+
+/// Centralized monitored pilot execution authorization barrier checked immediately before
+/// any pilot admission or order submission.
+#[allow(clippy::too_many_arguments)]
+pub fn require_authorized_pilot_execution(
+    grant: &MonitoredPilotGrant,
+    now_ms: i64,
+    emergency_suspended: bool,
+    daily_pnl_usd: rust_decimal::Decimal,
+    session_pnl_usd: rust_decimal::Decimal,
+    symbol: &str,
+    strategy_id: &str,
+    requested_notional_usd: rust_decimal::Decimal,
+    current_exposure_usd: rust_decimal::Decimal,
+) -> Result<()> {
+    ensure!(
+        !emergency_suspended,
+        "pilot execution blocked: emergency suspension active"
+    );
+    ensure!(
+        grant.is_active_at(now_ms),
+        "pilot execution blocked: supervision lease or session duration expired"
+    );
+    ensure!(
+        -daily_pnl_usd < grant.limits.max_daily_loss_usd,
+        "pilot execution blocked: daily loss ceiling reached"
+    );
+    ensure!(
+        -session_pnl_usd < grant.limits.max_session_loss_usd,
+        "pilot execution blocked: session loss ceiling reached"
+    );
+    ensure!(
+        grant
+            .limits
+            .allowed_instruments
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(symbol)),
+        "pilot execution blocked: symbol '{symbol}' not authorized"
+    );
+    ensure!(
+        strategy_id == grant.limits.qualified_strategy_id,
+        "pilot execution blocked: strategy '{strategy_id}' does not match qualified '{}'",
+        grant.limits.qualified_strategy_id
+    );
+    ensure!(
+        requested_notional_usd > rust_decimal::Decimal::ZERO
+            && requested_notional_usd <= grant.limits.max_order_notional_usd,
+        "pilot execution blocked: requested notional {requested_notional_usd} exceeds cap {}",
+        grant.limits.max_order_notional_usd
+    );
+    ensure!(
+        current_exposure_usd + requested_notional_usd <= grant.limits.max_aggregate_exposure_usd,
+        "pilot execution blocked: aggregate exposure exceeds cap {}",
+        grant.limits.max_aggregate_exposure_usd
+    );
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -737,11 +951,13 @@ pub fn authorize_monitored_pilot_session(
     let lease_ms = (limits.operator_supervision_lease_secs as i64).saturating_mul(1_000);
 
     Ok(MonitoredPilotGrant {
+        session_id: uuid::Uuid::new_v4().to_string(),
         limits,
         owner_consent_statement: owner_consent_statement.trim().to_string(),
         granted_at_ms: now_ms,
         session_expires_at_ms: now_ms.saturating_add(session_ms),
         supervision_expires_at_ms: now_ms.saturating_add(lease_ms.min(session_ms)),
+        last_renewed_at_ms: now_ms,
         evidence_digest,
     })
 }
@@ -772,6 +988,22 @@ mod tests {
         assert!(!is_production_exchange_url("http://localhost:3000"));
         assert!(is_production_exchange_url("https://api.hyperliquid.xyz"));
         assert!(is_production_exchange_url("wss://api.hyperliquid.xyz/ws"));
+        assert!(!is_hyperliquid_testnet_url(
+            "https://api.hyperliquid-testnet.xyz.evil.com"
+        ));
+        assert!(is_production_exchange_url(
+            "https://api.hyperliquid-testnet.xyz.evil.com"
+        ));
+        assert!(!is_hyperliquid_testnet_url(
+            "https://api.hyperliquid-testnet.xyz@evil.com"
+        ));
+        assert!(is_production_exchange_url(
+            "https://api.hyperliquid-testnet.xyz@evil.com"
+        ));
+        assert!(is_production_exchange_url("http://localhost.evil.com:8080"));
+        assert!(is_hyperliquid_testnet_url(
+            "https://api.hyperliquid-testnet.xyz/info"
+        ));
         assert!(VenueTransportClass::ProductionMainnet.is_production());
         assert!(!VenueTransportClass::LoopbackTestFixture.is_production());
     }

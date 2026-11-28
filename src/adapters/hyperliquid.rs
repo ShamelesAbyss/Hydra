@@ -44,6 +44,9 @@ use super::{VenueAdapter, VenuePosition};
 use crate::config::{defaults, AppConfig};
 use crate::core::{Candle, MarketSnapshot, OrderIntent, OrderResult, VenueKind};
 
+type AssetMetaEntry = (u32, u8, Option<u32>);
+type AssetMetaCache = Arc<Mutex<std::collections::HashMap<String, AssetMetaEntry>>>;
+
 pub struct HyperliquidAdapter {
     http: reqwest::Client,
     live_authorized: bool,
@@ -51,13 +54,12 @@ pub struct HyperliquidAdapter {
     max_slippage_bps: f64,
     base_url: String,
     account_address: Option<String>,
-    wallet_key: Option<String>,
+    signer: Option<Arc<crate::treasury::EngineSignerAuthority>>,
     identity_verified_at: Arc<Mutex<Option<std::time::Instant>>>,
-    /// v1.4.0: per-asset size decimals fetched once at startup from the
-    /// `/info {"type":"meta"}` endpoint. Hyperliquid rejects any size with
-    /// more decimals than the asset allows (e.g. HYPE = 2, ETH = 4, BTC = 5).
-    /// Without this, HYPE orders silently bounce all day.
-    sz_decimals: Arc<Mutex<std::collections::HashMap<String, (u32, u8)>>>,
+    /// v1.4.0: per-asset `(asset_index, sz_decimals, max_leverage)` fetched from
+    /// `/info {"type":"meta"}`. Hyperliquid rejects sizes with extra decimals and
+    /// enforces per-asset leverage ceilings.
+    sz_decimals: AssetMetaCache,
     #[cfg(test)]
     test_submissions: Arc<std::sync::atomic::AtomicUsize>,
     #[cfg(test)]
@@ -158,9 +160,36 @@ impl HyperliquidAdapter {
     /// requires explicit `account_address` + disposable testnet key (never mainnet production keys).
     pub async fn new_testnet(cfg: &AppConfig) -> Result<Self> {
         let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
-        let account_address = crate::ownership::configured_account(cfg)?;
+        let mut account_address = crate::ownership::configured_account(cfg)?;
+        let signer = if let Some(raw_key) = cfg
+            .hl_private_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+        {
+            let auth = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(
+                account_address.as_deref(),
+                raw_key,
+            )?;
+            if let Ok(Some(prod_profile)) =
+                crate::treasury::TreasuryStore::default_store().and_then(|s| s.load_profile())
+            {
+                anyhow::ensure!(
+                    !auth.signer_address().eq_ignore_ascii_case(&prod_profile.derived_signer_address)
+                        && !auth.wallet_address().eq_ignore_ascii_case(&prod_profile.dedicated_wallet_address),
+                    "TestnetSandbox refused: disposable key must not match configured ProductionMainnet Treasury identity"
+                );
+            }
+            if account_address.is_none() {
+                account_address = Some(auth.wallet_address().to_string());
+            }
+            Some(Arc::new(auth))
+        } else {
+            None
+        };
         let adapter = Self {
             http,
             live_authorized: cfg.live_trading,
@@ -168,7 +197,7 @@ impl HyperliquidAdapter {
             max_slippage_bps: cfg.risk.max_slippage_bps,
             base_url: "https://api.hyperliquid-testnet.xyz".to_string(),
             account_address,
-            wallet_key: cfg.hl_private_key.clone(),
+            signer,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             #[cfg(test)]
@@ -181,18 +210,38 @@ impl HyperliquidAdapter {
     }
 
     pub async fn new(cfg: &AppConfig) -> Result<Self> {
-        if cfg.live_trading {
+        let signer = if cfg.live_trading {
             let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
                 crate::live_gate::ExecutionChannel::VenueAdapterDirect,
                 cfg.live_trading,
                 true,
             );
             crate::live_gate::require_certified_live_execution(&req)?;
-        }
+            let store = crate::treasury::TreasuryStore::default_store()?;
+            let auth = store
+                .open_engine_signer(crate::treasury::SigningAccessScope::EngineExclusive, true)?;
+            Some(Arc::new(auth))
+        } else {
+            crate::treasury::TreasuryStore::default_store()
+                .ok()
+                .and_then(|store| {
+                    store
+                        .open_engine_signer(
+                            crate::treasury::SigningAccessScope::EngineExclusive,
+                            false,
+                        )
+                        .ok()
+                })
+                .map(Arc::new)
+        };
         let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
-        let account_address = crate::ownership::configured_account(cfg)?;
+        let mut account_address = crate::ownership::configured_account(cfg)?;
+        if account_address.is_none() {
+            account_address = signer.as_ref().map(|s| s.wallet_address().to_string());
+        }
         tracing::info!(network="mainnet", account=?account_address, "hyperliquid adapter init");
         let adapter = Self {
             http,
@@ -201,7 +250,7 @@ impl HyperliquidAdapter {
             max_slippage_bps: cfg.risk.max_slippage_bps,
             base_url: defaults::HYPERLIQUID_API.to_string(),
             account_address,
-            wallet_key: cfg.hl_private_key.clone(),
+            signer,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             #[cfg(test)]
@@ -214,7 +263,7 @@ impl HyperliquidAdapter {
         Ok(adapter)
     }
 
-    /// Fetch the venue meta (universe → szDecimals per asset) and cache it.
+    /// Fetch the venue meta (universe → szDecimals + maxLeverage per asset) and cache it.
     /// Idempotent: subsequent calls refresh the cache without disrupting open
     /// trades. Logged at INFO so the operator can confirm HYPE precision in
     /// the cockpit feed.
@@ -224,6 +273,8 @@ impl HyperliquidAdapter {
             name: String,
             #[serde(rename = "szDecimals")]
             sz_decimals: u8,
+            #[serde(default, rename = "maxLeverage")]
+            max_leverage: Option<u32>,
         }
         #[derive(Deserialize)]
         struct Universe {
@@ -234,7 +285,10 @@ impl HyperliquidAdapter {
                 let mut guard = self.sz_decimals.lock().await;
                 guard.clear();
                 for (index, a) in meta.universe.iter().enumerate() {
-                    guard.insert(a.name.clone(), (index as u32, a.sz_decimals));
+                    guard.insert(
+                        a.name.clone(),
+                        (index as u32, a.sz_decimals, a.max_leverage),
+                    );
                 }
                 let count = guard.len();
                 let hype = guard.get("HYPE").map(|value| value.1);
@@ -367,22 +421,25 @@ impl HyperliquidAdapter {
                 .ok_or_else(|| anyhow!("native wire account missing"))?;
             journal.record(account, &action, dp)?;
         }
-        let key = self
-            .wallet_key
+        let signer_auth = self
+            .signer
             .as_deref()
-            .ok_or_else(|| anyhow!("signing key missing"))?;
+            .ok_or_else(|| anyhow!("EngineSignerAuthority missing"))?;
         #[cfg(not(test))]
         let resp = match journal {
             Some(journal) => {
-                crate::hyperliquid_wire::submit_ioc_journaled(key, &action, journal).await?
+                crate::hyperliquid_wire::submit_ioc_journaled_with_signer(
+                    signer_auth,
+                    &action,
+                    journal,
+                )
+                .await?
             }
-            None => crate::hyperliquid_wire::submit_ioc(key, &action).await?,
+            None => crate::hyperliquid_wire::submit_ioc_with_signer(signer_auth, &action).await?,
         };
         #[cfg(test)]
         let resp = {
-            // Native adapter unit tests cannot send signed mutations. Fixtures
-            // also use an invalid signing key as an independent safety barrier.
-            let _ = key;
+            let _ = signer_auth;
             let root = self
                 .test_nonce_root
                 .as_ref()
@@ -417,19 +474,18 @@ impl HyperliquidAdapter {
         if verified.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30)) {
             return Ok(());
         }
-        let key = self
-            .wallet_key
-            .as_ref()
-            .ok_or_else(|| anyhow!("signing key missing"))?;
-        let signer =
-            derive_eth_address(key).map_err(|_| anyhow!("invalid signing key; details omitted"))?;
+        let signer_auth = self
+            .signer
+            .as_deref()
+            .ok_or_else(|| anyhow!("EngineSignerAuthority missing"))?;
+        let signer = signer_auth.signer_address();
         let account = self
             .account_address
             .as_ref()
             .ok_or_else(|| anyhow!("account identity missing"))?;
         let signer_role = self.info(json!({"type":"userRole","user":signer})).await?;
         let account_role = self.info(json!({"type":"userRole","user":account})).await?;
-        crate::account::verify_signer(&signer, account, &signer_role, &account_role)?;
+        crate::account::verify_signer(signer, account, &signer_role, &account_role)?;
         *verified = Some(std::time::Instant::now());
         Ok(())
     }
@@ -441,6 +497,38 @@ impl HyperliquidAdapter {
             .get(symbol)
             .map(|value| value.0)
             .ok_or_else(|| anyhow!("metadata unavailable for {symbol}"))
+    }
+
+    async fn fetch_symbol_funding_bps_1h(&self, symbol: &str) -> Result<Option<f64>> {
+        #[derive(Deserialize)]
+        struct MetaAsset {
+            name: String,
+        }
+        #[derive(Deserialize)]
+        struct MetaUniverse {
+            universe: Vec<MetaAsset>,
+        }
+        #[derive(Deserialize)]
+        struct AssetCtx {
+            #[serde(default, deserialize_with = "flex_string_opt::deserialize")]
+            funding: Option<String>,
+        }
+        let pair: (MetaUniverse, Vec<AssetCtx>) =
+            self.info(json!({"type":"metaAndAssetCtxs"})).await?;
+        let Some(idx) = pair.0.universe.iter().position(|a| a.name == symbol) else {
+            return Ok(None);
+        };
+        let Some(ctx) = pair.1.get(idx) else {
+            return Ok(None);
+        };
+        let Some(raw) = ctx.funding.as_deref() else {
+            return Ok(None);
+        };
+        let rate: f64 = raw.parse()?;
+        if !rate.is_finite() {
+            return Ok(None);
+        }
+        Ok(Some(rate * 10_000.0))
     }
 }
 
@@ -482,10 +570,6 @@ async fn read_info_response_limited(
         bytes.extend_from_slice(&chunk);
     }
     String::from_utf8(bytes).map_err(|_| anyhow!("info response is not valid UTF-8"))
-}
-
-fn derive_eth_address(priv_hex: &str) -> Result<String> {
-    crate::hyperliquid_wire::derive_address(priv_hex)
 }
 
 /// Round a perp price to Hyperliquid's tick rule: max 5 significant figures,
@@ -641,11 +725,11 @@ impl VenueAdapter for HyperliquidAdapter {
         let candles: Vec<Candle> = raw.into_iter().filter_map(|c| c.to_candle()).collect();
 
         let book: Result<BookResp> = self.info(json!({"type":"l2Book","coin":symbol})).await;
-        let (bid, ask, spread_bps) = match book {
+        let (bid, ask, spread_bps, l2_depth_usd) = match book {
             Ok(b) => {
                 let bid = b
                     .levels
-                    .get(0)
+                    .first()
                     .and_then(|lv| lv.first())
                     .and_then(|l| l.px.parse::<f64>().ok());
                 let ask = b
@@ -657,10 +741,30 @@ impl VenueAdapter for HyperliquidAdapter {
                     (Some(b), Some(a)) if a > 0.0 => Some((a - b) / a * 10_000.0),
                     _ => None,
                 };
-                (bid, ask, sp)
+                let mut depth_sum = 0.0f64;
+                let mut valid_levels = 0usize;
+                for side in b.levels.iter().take(2) {
+                    for lv in side.iter().take(10) {
+                        if let (Ok(px), Ok(sz)) = (lv.px.parse::<f64>(), lv.sz.parse::<f64>()) {
+                            if px.is_finite() && px > 0.0 && sz.is_finite() && sz > 0.0 {
+                                depth_sum += px * sz;
+                                valid_levels += 1;
+                            }
+                        }
+                    }
+                }
+                let depth = (valid_levels > 0 && depth_sum.is_finite() && depth_sum > 0.0)
+                    .then_some(depth_sum);
+                (bid, ask, sp, depth)
             }
-            Err(_) => (None, None, None),
+            Err(_) => (None, None, None, None),
         };
+        let funding_bps_1h = self
+            .fetch_symbol_funding_bps_1h(symbol)
+            .await
+            .ok()
+            .flatten();
+        let observed_exchange_ts_ms = candles.last().map(|c| c.ts.timestamp_millis());
         Ok(MarketSnapshot {
             venue: "hyperliquid".into(),
             symbol: symbol.to_string(),
@@ -668,9 +772,41 @@ impl VenueAdapter for HyperliquidAdapter {
             bid,
             ask,
             spread_bps,
+            l2_depth_usd,
+            funding_bps_1h,
             last_update: Utc::now(),
+            observed_exchange_ts_ms,
             candles,
+            microstructure: None,
         })
+    }
+
+    async fn instrument_constraints(
+        &self,
+    ) -> Result<
+        std::collections::BTreeMap<String, crate::execution_recovery::InstrumentOrderConstraints>,
+    > {
+        if self.sz_decimals.lock().await.is_empty() {
+            self.warm_meta().await;
+        }
+        let guard = self.sz_decimals.lock().await;
+        let mut out = std::collections::BTreeMap::new();
+        for (sym, &(_idx, dp, max_lev)) in guard.iter() {
+            if let Some(lev) = max_lev.filter(|&v| v > 0) {
+                let tick_decimals = 6u32.saturating_sub(dp as u32);
+                out.insert(
+                    sym.clone(),
+                    crate::execution_recovery::InstrumentOrderConstraints {
+                        symbol: sym.clone(),
+                        tick_size: rust_decimal::Decimal::new(1, tick_decimals),
+                        lot_size: rust_decimal::Decimal::new(1, dp as u32),
+                        min_notional_usd: rust_decimal::Decimal::from(10),
+                        max_leverage: rust_decimal::Decimal::from(lev),
+                    },
+                );
+            }
+        }
+        Ok(out)
     }
 
     async fn open_positions(&self) -> Result<Vec<VenuePosition>> {
@@ -1007,12 +1143,14 @@ impl VenueAdapter for HyperliquidAdapter {
             qty_f,
             &spec.cloid,
         )?;
-        let key = self
-            .wallet_key
+        let signer_auth = self
+            .signer
             .as_deref()
-            .ok_or_else(|| anyhow!("signing key missing for protective stop"))?;
+            .ok_or_else(|| anyhow!("EngineSignerAuthority missing for protective stop"))?;
         let mainnet = self.transport_class.is_production();
-        let resp = crate::hyperliquid_wire::submit_trigger_stop(key, &action, mainnet).await?;
+        let resp =
+            crate::hyperliquid_wire::submit_trigger_stop_with_signer(signer_auth, &action, mainnet)
+                .await?;
         let parsed = parse_order_response(resp, &spec.cloid)?;
         anyhow::ensure!(
             parsed.accepted,
@@ -1042,13 +1180,13 @@ impl VenueAdapter for HyperliquidAdapter {
             crate::live_gate::require_certified_live_execution(&req)?;
         }
         let asset = self.asset_id_for(symbol).await?;
-        let key = self
-            .wallet_key
+        let signer_auth = self
+            .signer
             .as_deref()
-            .ok_or_else(|| anyhow!("signing key missing for protective cancel"))?;
+            .ok_or_else(|| anyhow!("EngineSignerAuthority missing for protective cancel"))?;
         let cancel = crate::hyperliquid_wire::CancelAction::by_oid(asset, oid)?;
-        let resp = crate::hyperliquid_wire::submit_cancel_by_oid(
-            key,
+        let resp = crate::hyperliquid_wire::submit_cancel_by_oid_with_signer(
+            signer_auth,
             &cancel,
             self.transport_class.is_production(),
         )
@@ -1274,7 +1412,7 @@ mod tests {
             max_slippage_bps: 30.0,
             base_url: "http://127.0.0.1:1".into(),
             account_address: None,
-            wallet_key: None,
+            signer: None,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             #[cfg(test)]
@@ -1538,11 +1676,17 @@ mod tests {
             max_slippage_bps: 30.0,
             base_url: "http://127.0.0.1:1".into(),
             account_address: Some("0x1111111111111111111111111111111111111111".into()),
-            wallet_key: Some("invalid-no-signing-key".into()),
+            signer: Some(Arc::new(
+                crate::treasury::EngineSignerAuthority::from_test_fixture(
+                    "0x1111111111111111111111111111111111111111",
+                    &format!("{:064x}", 1),
+                )
+                .unwrap(),
+            )),
             identity_verified_at: Arc::new(Mutex::new(Some(std::time::Instant::now()))),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::from([(
                 "ETH".into(),
-                (4, 4),
+                (4, 4, Some(20)),
             )]))),
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(test)]

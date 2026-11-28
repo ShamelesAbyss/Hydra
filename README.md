@@ -16,8 +16,8 @@ Obsidian-glass command center · Dedicated OS-protected Treasury · Verified nat
 </div>
 
 > [!IMPORTANT]
-> **Public Release `v1.18.0 | PROJECT AWAKENING — RESTRICTED MONITORED PILOT CANDIDATE`. Live-trading safety certification remains held on external evidence gates.**
-> Public distribution does **not** constitute certification of live-trading safety. **Project Awakening (`v1.18.0`)** completes the Section 15/16 Restricted Monitored Live-Pilot authorization & engine enforcement architecture (`MonitoredPilotLimits`, `MonitoredPilotGrant`, `LiveExecutionTier::RestrictedMonitoredPilot`, operator supervision lease & IPC renewal, `hydra pilot-readiness --json`, and `tests/monitored_pilot_suite.rs`), while **`v2.0.0`** remains **HELD in [`READINESS_V2.md`](READINESS_V2.md)** (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`, `PendingCertification`) until external strategy acceptance, owner-run Testnet functional order/stop proof, and explicit owner monitored-pilot consent complete. All historical `v1.17.0`–`v1.7.0-alpha.*` releases remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
+> **Public Release `v1.19.0 | PROJECT EQUILIBRIUM — AUTHORITATIVE RUNTIME, LABORATORY & OPERATIONAL VALIDATION`. Live-trading safety certification remains held on external evidence gates.**
+> Public distribution does **not** constitute certification of live-trading safety. **Project Equilibrium (`v1.19.0`)** eliminates synthetic/fallback runtime inputs across `src/core/engine.rs` & `HyperliquidAdapter`, moves live wire signing cleanly into zero-plaintext `EngineSignerAuthority`, enforces non-forgeable `MonitoredPilotGrant` / session-scoped supervision / producer-attested `EvidenceRecord` expiry & revocation, embeds self-contained `--watchdog-supervisor` recovery + live Cockpit IPC controls + interactive ORACLE/GENESIS Laboratory & read-only `TESTNET SANDBOX` panels, and verifies `tests/equilibrium_e2e.rs` plus live Watchdog worker crash-recovery. **`v2.0.0`** remains **HELD in [`READINESS_V2.md`](READINESS_V2.md)** (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`, `PendingCertification`) until external strategy acceptance, owner-run Testnet functional order/stop proof, and explicit owner monitored-pilot consent complete. All historical `v1.18.0`–`v1.7.0-alpha.*` releases remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
 >
 > **Financial Risk Disclosure:** Cryptocurrency perpetual futures involve substantial risk of total capital loss. Entrust Leviathan only with a separate dedicated wallet funded solely with capital you are fully prepared to lose. No strategy, adaptive model, or backtest guarantees profit.
 
@@ -38,7 +38,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Track | Current Status | Contents in GitHub Releases |
 | :--- | :--- | :--- |
-| **Latest Public Release** | **`v1.18.0 \| PROJECT AWAKENING — RESTRICTED MONITORED PILOT CANDIDATE`** | Self-contained **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Sanctuary + embedded `--paper-service-worker` + Section 15/16 Restricted Monitored Live-Pilot gate (`MonitoredPilotLimits`, `MonitoredPilotGrant`, `Engine::step_once_at` ceiling & supervision-lease enforcement, IPC `RenewPilotSupervision`, `hydra pilot-readiness --json`) + `Project Sentinel` live-worker watchdog & resource profiler + `Project Convergence` unified Engine + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
+| **Latest Public Release** | **`v1.19.0 \| PROJECT EQUILIBRIUM — AUTHORITATIVE RUNTIME, LABORATORY & OPERATIONAL VALIDATION`** | Self-contained **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Sanctuary + embedded `--paper-service-worker` & `--watchdog-supervisor` recovery + authoritative `Engine` L2/funding/COGNITION/AEGIS/SettlementStore wiring + zero-plaintext `EngineSignerAuthority` + live Cockpit `EngineIpcClient` controls + interactive ORACLE/GENESIS Laboratory & read-only `TESTNET SANDBOX` + non-forgeable `MonitoredPilotGrant` + `tests/equilibrium_e2e.rs` + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
 | **Road to HYDRA 2.0** | Active `v1.x` progression | Iterative public releases advancing toward the generational [`v2.0.0` milestone](ROADMAP_V2.md) |
 | **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous engineering directly on `main` (internal test prereleases never replace Latest) |
 
@@ -206,7 +206,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 ### Windows Native Application (`HYDRA-Leviathan-Windows-x64.exe`)
 
-1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.16.0 | PROJECT CONVERGENCE — UNIFIED EXECUTION & FINANCIAL TRUTH`**).
+1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.19.0 | PROJECT EQUILIBRIUM — AUTHORITATIVE RUNTIME, LABORATORY & OPERATIONAL VALIDATION`**).
 2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and the release's **`SHA256SUMS.txt`** manifest.
 3. Verify the executable integrity before launching:
    ```powershell
@@ -221,12 +221,13 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 Obtain the Linux package and checksum manifest from [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases), verify, and extract:
 
 ```sh
-sha256sum --check hydra-1.16.0-linux-SHA256SUMS.txt
-mkdir hydra-1.16.0 && tar -xzf hydra-1.16.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.16.0
-cd hydra-1.16.0
+sha256sum --check hydra-1.19.0-linux-SHA256SUMS.txt
+mkdir hydra-1.19.0 && tar -xzf hydra-1.19.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.19.0
+cd hydra-1.19.0
 ./hydra --version
 ./hydra --no-banner qualify-campaign
 ./hydra --no-banner watchdog-check
+./hydra --no-banner pilot-readiness --json
 ./hydra --no-banner certification-status
 ./hydra --no-banner config-check
 ./hydra paper-service list
@@ -266,7 +267,7 @@ Environment templates live in [`.env.example`](.env.example) and strategy parame
 
 | Verification Gate | Current Verified State |
 | :--- | :--- |
-| **Offline Regression Suite** | **535 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`, 38 suites) + **489 passing headless tests** (`cargo test --locked --all-targets`, 37 suites), covering converged `Engine` end-to-end execution (`convergence_e2e`, actual-engine `fang_parity`), Windows IPC socket/authority hardening (`engine_ipc`), durable SQLite `SettlementStore` + pending funding (`settlement`), `EngineSignerAuthority` (`treasury`), native trigger/cancel stops & `TestnetSandbox` (`hyperliquid_wire`, `hyperliquid`), Project Sovereignty watchdog & 10-scenario fault injection (`sovereignty_suite`), 6-pillar `PendingCertification` (`live_gate`), Project Omniscience (`hunter_microstructure`, `cognition_stats`, `oracle_research`, `genesis_nsga2`), 96-bone 3D PBR WGPU renderer, and Leviathan Evolution |
+| **Offline Regression Suite** | **545 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`, 41 suites) + **499 passing headless tests** (`cargo test --locked --all-targets`, 40 suites), covering `Project Equilibrium` (`equilibrium_e2e` watchdog/IPC/fail-closed AEGIS/settlement, `FieldFreshness` clock validation, `EngineSignerAuthority` zero-plaintext signing, `PendingPaperFundingObligation`, strict URL/evidence expiry/opaque `MonitoredPilotGrant`), `monitored_pilot_suite`, `sentinel_faults`, `convergence_e2e`, `fang_parity`, `sovereignty_suite`, `immortality_suite`, `live_gate_adversarial`, 96-bone 3D PBR WGPU renderer, and Leviathan Evolution |
 | **Renderer & Fallback** | Verified native Windows 11 RTX 4070 `WGPU 3D PBR` Spatial & Classic rendering (`--features desktop-wgpu`, `0.14–0.53 ms` GPU pass) plus Glow compatibility build (`--features desktop`, 0 warnings, runtime check passed) and `catch_unwind` fallback |
 | **Formatting, Clippy & Policy** | `cargo fmt --check`, `cargo clippy --locked --all-targets`, memorial verification, and automated GitHub compliance check pass |
 | **Dependency Audit** | `cargo audit` passes with **0 vulnerability entries** and 1 known Chrono maintenance warning (zero advisory ignores) |

@@ -173,8 +173,12 @@ impl VenueAdapter for EthereumAdapter {
             venue: "ethereum".into(),
             symbol: symbol.to_string(),
             mid, bid: None, ask: None, spread_bps: None,
+            l2_depth_usd: None,
+            funding_bps_1h: None,
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles,
+            microstructure: None,
         })
     }
 

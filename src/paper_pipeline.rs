@@ -293,6 +293,16 @@ pub struct CycleSummary {
     pub unattributed_funding_hours: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingPaperFundingObligation {
+    pub symbol: String,
+    pub hour_ms: i64,
+    pub side: Side,
+    pub qty: Decimal,
+    pub reference_mark: Decimal,
+    pub position_closed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineRecoveryCheckpoint {
     pub next_event_id: u64,
@@ -300,6 +310,8 @@ pub struct PipelineRecoveryCheckpoint {
     pub simulated_samples: Vec<ShadowSample>,
     pub last_funding_applied_ms: BTreeMap<String, i64>,
     pub demo_candles: BTreeMap<String, Vec<Candle>>,
+    #[serde(default)]
+    pub pending_funding_obligations: Vec<PendingPaperFundingObligation>,
 }
 
 #[derive(Debug, Clone)]
@@ -311,6 +323,7 @@ pub struct SynapsePipeline {
     pub simulated_samples: Vec<ShadowSample>,
     pub cycle_count: u64,
     pub last_funding_applied_ms: BTreeMap<String, i64>,
+    pub pending_funding_obligations: Vec<PendingPaperFundingObligation>,
     demo_candles: BTreeMap<String, Vec<Candle>>,
 }
 
@@ -325,6 +338,7 @@ impl SynapsePipeline {
             simulated_samples: Vec::new(),
             cycle_count: 0,
             last_funding_applied_ms: BTreeMap::new(),
+            pending_funding_obligations: Vec::new(),
             demo_candles: BTreeMap::new(),
         })
     }
@@ -336,6 +350,7 @@ impl SynapsePipeline {
             simulated_samples: self.simulated_samples.clone(),
             last_funding_applied_ms: self.last_funding_applied_ms.clone(),
             demo_candles: self.demo_candles.clone(),
+            pending_funding_obligations: self.pending_funding_obligations.clone(),
         }
     }
 
@@ -347,6 +362,7 @@ impl SynapsePipeline {
         self.simulated_samples = checkpoint.simulated_samples;
         self.last_funding_applied_ms = checkpoint.last_funding_applied_ms;
         self.demo_candles = checkpoint.demo_candles;
+        self.pending_funding_obligations = checkpoint.pending_funding_obligations;
         self.bus
             .restore_checkpoint(checkpoint.next_event_id, checkpoint.dropped_events, history);
     }
@@ -908,10 +924,13 @@ impl SynapsePipeline {
             .collect();
         unavailable_mark_symbols.sort();
         let equity_complete = unavailable_mark_symbols.is_empty()
+            && self.pending_funding_obligations.is_empty()
             && self
                 .ledger
                 .update_drawdown_checked(&effective_marks, self.config.max_drawdown_ratio)
                 .is_ok();
+        let unattributed_funding_hours =
+            unattributed_funding_hours.max(self.pending_funding_obligations.len() as u64);
 
         Ok(CycleSummary {
             cycle: self.cycle_count,
@@ -995,13 +1014,83 @@ impl SynapsePipeline {
                             .apply_simulated_funding(&sym, rate, 1.0, mark_px);
                     } else {
                         unattributed_hours = unattributed_hours.saturating_add(1);
+                        if let Some(pos) = self.ledger.open_positions.get(&sym) {
+                            let already = self
+                                .pending_funding_obligations
+                                .iter()
+                                .any(|o| o.symbol == sym && o.hour_ms == hour_ms);
+                            if !already {
+                                self.pending_funding_obligations.push(
+                                    PendingPaperFundingObligation {
+                                        symbol: sym.clone(),
+                                        hour_ms,
+                                        side: pos.side,
+                                        qty: pos.qty,
+                                        reference_mark: mark_px,
+                                        position_closed: false,
+                                    },
+                                );
+                            }
+                        }
                     }
                 }
                 self.last_funding_applied_ms
                     .insert(sym, curr_hour.saturating_mul(3_600_000));
             }
         }
-        unattributed_hours
+        self.pending_funding_obligations
+            .len()
+            .max(unattributed_hours as usize) as u64
+    }
+
+    /// Backfills previously missing hourly funding obligations (including for closed positions)
+    /// once authoritative hourly funding rates become available.
+    pub fn backfill_pending_funding(
+        &mut self,
+        historical_hourly_rates: &BTreeMap<String, BTreeMap<i64, f64>>,
+    ) -> usize {
+        let mut resolved = 0usize;
+        let mut remaining = Vec::with_capacity(self.pending_funding_obligations.len());
+        for ob in std::mem::take(&mut self.pending_funding_obligations) {
+            let rate_opt = historical_hourly_rates
+                .get(&ob.symbol)
+                .and_then(|hrs| hrs.get(&ob.hour_ms).copied())
+                .filter(|f| f.is_finite());
+            let Some(rate) = rate_opt else {
+                remaining.push(ob);
+                continue;
+            };
+            let Some(rate_dec) = Decimal::try_from(rate / 10_000.0)
+                .ok()
+                .map(|r| r.round_dp(8))
+            else {
+                remaining.push(ob);
+                continue;
+            };
+            let base_ntl = (ob.qty * ob.reference_mark).round_dp(4);
+            let cash_delta = match ob.side {
+                Side::Long => -(base_ntl * rate_dec).round_dp(6),
+                Side::Short => (base_ntl * rate_dec).round_dp(6),
+            };
+            if let Some(pos) = self.ledger.open_positions.get_mut(&ob.symbol) {
+                pos.accumulated_funding_usd += cash_delta;
+            } else if let Some(ct) = self
+                .ledger
+                .closed_trades
+                .iter_mut()
+                .rev()
+                .find(|t| t.symbol == ob.symbol)
+            {
+                ct.funding_usd += cash_delta;
+                ct.realized_net_pnl_usd += cash_delta;
+            }
+            self.ledger.cash_equity += cash_delta;
+            self.ledger.total_funding_usd += cash_delta;
+            self.ledger.realized_net_pnl_usd += cash_delta;
+            resolved += 1;
+        }
+        self.pending_funding_obligations = remaining;
+        resolved
     }
 
     fn evaluate_exits(
@@ -1047,6 +1136,11 @@ impl SynapsePipeline {
         for (sym, raw_mark, reason) in to_close {
             if let Some(pos) = self.ledger.open_positions.remove(&sym) {
                 self.last_funding_applied_ms.remove(&sym);
+                for ob in &mut self.pending_funding_obligations {
+                    if ob.symbol == sym {
+                        ob.position_closed = true;
+                    }
+                }
                 let exit_px = match pos.side {
                     Side::Long => (raw_mark * (Decimal::ONE - slip_frac)).round_dp(6),
                     Side::Short => (raw_mark * (Decimal::ONE + slip_frac)).round_dp(6),
@@ -1596,5 +1690,65 @@ mod tests {
         );
         assert_eq!(pipe.simulated_samples.len(), 1);
         assert!(pipe.simulated_samples[0].normalized_r > 0.0);
+    }
+
+    #[test]
+    fn missing_funding_obligation_persists_across_close_and_backfills_accurately() {
+        let mut pipe = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+        let opened_ms = 472_223_i64 * 3_600_000 + 600_000;
+        let h1_ms = 472_224_i64 * 3_600_000;
+        pipe.ledger.open_positions.insert(
+            "BTC".into(),
+            PaperPosition {
+                symbol: "BTC".into(),
+                owner_strategy: "momentum".into(),
+                side: Side::Long,
+                entry_price: Decimal::from(50_000u32),
+                qty: Decimal::ONE,
+                notional: Decimal::from(50_000u32),
+                stop_price: Decimal::from(48_000u32),
+                take_profit_price: Decimal::from(52_000u32),
+                entry_fee_usd: Decimal::ZERO,
+                opened_at_ms: opened_ms,
+                correlation_id: "pending-fund".into(),
+                accumulated_funding_usd: Decimal::ZERO,
+            },
+        );
+        let marks = BTreeMap::from([("BTC".into(), Decimal::from(50_000u32))]);
+        let sum_gap = pipe
+            .step_cycle(h1_ms + 5_000, &[], &BTreeMap::new(), &marks)
+            .unwrap();
+        assert!(!sum_gap.equity_complete);
+        assert_eq!(pipe.pending_funding_obligations.len(), 1);
+
+        // Close position while obligation is still unresolved, then round-trip checkpoint.
+        let tp_marks = BTreeMap::from([("BTC".into(), Decimal::from(52_500u32))]);
+        let sum_close = pipe
+            .step_cycle(h1_ms + 10_000, &[], &BTreeMap::new(), &tp_marks)
+            .unwrap();
+        assert_eq!(sum_close.closed_trades, 1);
+        assert!(!sum_close.equity_complete);
+        assert!(pipe.pending_funding_obligations[0].position_closed);
+
+        let cp_json = serde_json::to_string(&pipe.export_checkpoint()).unwrap();
+        let restored_cp: PipelineRecoveryCheckpoint = serde_json::from_str(&cp_json).unwrap();
+        let mut recovered = SynapsePipeline::new(SynapsePipelineConfig::default()).unwrap();
+        recovered.ledger = pipe.ledger.clone();
+        recovered.restore_checkpoint(restored_cp, pipe.bus.all_chronological().cloned().collect());
+        assert_eq!(recovered.pending_funding_obligations.len(), 1);
+
+        let cash_before = recovered.ledger.cash_equity;
+        let rates = BTreeMap::from([("BTC".into(), BTreeMap::from([(h1_ms, 2.0)]))]);
+        assert_eq!(recovered.backfill_pending_funding(&rates), 1);
+        assert!(recovered.pending_funding_obligations.is_empty());
+        assert_eq!(recovered.ledger.total_funding_usd, Decimal::new(-1000, 2));
+        assert_eq!(
+            recovered.ledger.cash_equity,
+            cash_before + Decimal::new(-1000, 2)
+        );
+        let final_sum = recovered
+            .step_cycle(h1_ms + 20_000, &[], &BTreeMap::new(), &BTreeMap::new())
+            .unwrap();
+        assert!(final_sum.equity_complete);
     }
 }

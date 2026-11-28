@@ -525,6 +525,10 @@ impl WatchdogSupervisor {
                 .spawn()
                 .with_context(|| format!("spawn supervised live worker {}", program.display()))?;
             let pid = child.id();
+            let spawn_time = Instant::now();
+            let startup_grace =
+                Duration::from_millis((self.policy.heartbeat_timeout_ms.max(0) as u64).min(5_000));
+            let mut ever_healthy = false;
             let mut last_hb_instant = Instant::now();
             let mut last_heartbeat_ms = Utc::now().timestamp_millis();
             let mut last_progress = 0u64;
@@ -549,6 +553,7 @@ impl WatchdogSupervisor {
                 let p = probe(pid);
                 let now_ms = Utc::now().timestamp_millis();
                 if p.healthy {
+                    ever_healthy = true;
                     let advanced = p
                         .alive_heartbeat_ms
                         .is_some_and(|hb| hb > last_heartbeat_ms)
@@ -562,8 +567,33 @@ impl WatchdogSupervisor {
                     }
                 }
 
+                let startup_grace_elapsed = ever_healthy || spawn_time.elapsed() >= startup_grace;
                 let stalled_ms = last_hb_instant.elapsed().as_millis() as i64;
-                if !p.healthy || stalled_ms > self.policy.heartbeat_timeout_ms {
+                if (!p.healthy && startup_grace_elapsed)
+                    || stalled_ms > self.policy.heartbeat_timeout_ms
+                {
+                    let _ = request_graceful_stop(pid);
+                    let stop_deadline = Instant::now() + graceful_stop_timeout;
+                    let mut exited = false;
+                    let mut exited_clean = false;
+                    while Instant::now() < stop_deadline {
+                        if let Some(status) = child.try_wait().unwrap_or(None) {
+                            last_code = status.code();
+                            exited = true;
+                            exited_clean = status.success();
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    if exited_clean {
+                        return Ok(WatchdogSupervisionSummary {
+                            launches,
+                            restarts: self.tracker.total_restarts,
+                            escalated: false,
+                            last_exit_code: last_code,
+                            detail: "Live worker exited cleanly (code 0)".into(),
+                        });
+                    }
                     let _ = self.emit_notification(&WatchdogNotification {
                         timestamp_ms: now_ms,
                         severity: WatchdogAlertSeverity::Warning,
@@ -575,17 +605,6 @@ impl WatchdogSupervisor {
                         remediation: "Requesting bounded graceful stop before forced termination"
                             .into(),
                     });
-                    let _ = request_graceful_stop(pid);
-                    let stop_deadline = Instant::now() + graceful_stop_timeout;
-                    let mut exited = false;
-                    while Instant::now() < stop_deadline {
-                        if let Some(status) = child.try_wait().unwrap_or(None) {
-                            last_code = status.code();
-                            exited = true;
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
                     if !exited {
                         let _ = child.kill();
                         last_code = child.wait().ok().and_then(|s| s.code());

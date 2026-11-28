@@ -13,21 +13,29 @@ use crate::aegis_sovereign::{
     SovereignPositionInput, SovereignRiskDecision, SovereignRiskPolicy,
 };
 use crate::cli::Venue as CliVenue;
-use crate::cognition_shadow::{infer_regime, InferredRegime, RegimeInferenceConfig};
+use crate::cognition_shadow::{
+    infer_regime, InferredRegime, OutcomeSource, RegimeInferenceConfig, ShadowPolicy, ShadowSample,
+};
+use crate::cognition_stats::{rank_and_weight_ensemble, EnsembleRanking};
 use crate::config::AppConfig;
 use crate::core::{MarketSnapshot, OrderIntent, VenueKind};
-use crate::engine_ipc::EngineControlAuthority;
+use crate::engine_ipc::{EngineControlAuthority, EngineIpcServer};
 use crate::execution::ExecutionEngine;
 use crate::execution_recovery::{
-    reconcile_execution_state, ExchangeOpenPositionSnapshot, ExecutionJournalRecord,
-    InstrumentOrderConstraints, OrderLifecycleState, RecoveryAction, RecoveryReport,
+    reconcile_execution_state, ExchangeOpenPositionSnapshot, ExchangeOrderSnapshot,
+    ExecutionJournalRecord, InstrumentOrderConstraints, OrderLifecycleState, RecoveryAction,
+    RecoveryReport,
 };
 use crate::fang_engine::{FangMarketInput, FangUnifiedPlanner, UnifiedStrategyConfig};
 use crate::fang_planner::PlanningBudget;
+use crate::hunter_microstructure::{
+    compute_correlation_matrix, compute_microstructure_snapshot, MicrostructureSnapshot,
+};
 use crate::learning::{
     regime::{classify_view, RegimeView},
     strictness::DroughtState,
 };
+use crate::ledger::{ExchangeFill, FillSide, PnlConvention};
 use crate::monitoring::Heartbeat;
 use crate::portfolio::{EntryContext, PortfolioManager};
 use crate::protective_orders::{
@@ -35,13 +43,37 @@ use crate::protective_orders::{
     ProtectiveReconcileReport,
 };
 use crate::reporting::SessionReporter;
-use crate::settlement::SettlementStore;
+use crate::settlement::{SettlementStore, VerifiedLearningOutcome};
 use crate::state::StateManager;
 use crate::storage::Storage;
 use crate::tui::SharedDash;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
+
+fn shadow_sample_from_verified(
+    lo: &VerifiedLearningOutcome,
+    equity_usd: Decimal,
+) -> Option<ShadowSample> {
+    if equity_usd <= Decimal::ZERO {
+        return None;
+    }
+    let risk_unit = (equity_usd * Decimal::new(1, 2)).max(Decimal::ONE);
+    let r = (lo.verified_net_pnl_usdc / risk_unit).to_f64()?;
+    if !r.is_finite() {
+        return None;
+    }
+    Some(ShadowSample {
+        id: format!("settled-{}", lo.round_trip_id),
+        strategy: lo.owner_strategy.clone(),
+        symbol: lo.symbol.clone(),
+        regime: "*".into(),
+        decision_at_ms: lo.opened_at_ms,
+        outcome_at_ms: lo.closed_at_ms.max(lo.opened_at_ms + 1),
+        normalized_r: r,
+        source: OutcomeSource::CallerSuppliedNormalizedR,
+    })
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct EngineStepSummary {
@@ -83,9 +115,21 @@ pub struct Engine {
     halted_unprotected: bool,
     daily_pnl_usd: Decimal,
     weekly_pnl_usd: Decimal,
+    session_pnl_usd: Decimal,
     high_water_equity_usd: Decimal,
     active_pilot: Option<crate::live_gate::MonitoredPilotGrant>,
     last_ipc_supervision_ms: i64,
+    ws_order_evidence: Vec<ExchangeOrderSnapshot>,
+    learning_samples: Vec<ShadowSample>,
+    ipc_server: Option<EngineIpcServer>,
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        if let Some(mut srv) = self.ipc_server.take() {
+            srv.stop();
+        }
+    }
 }
 
 impl Engine {
@@ -121,21 +165,43 @@ impl Engine {
         if venues.is_empty() {
             anyhow::bail!("no venue adapters could be initialised");
         }
-        Self::new_with_venues(
-            cfg,
+        let account_scope =
+            crate::ownership::configured_account(&cfg)?.unwrap_or_else(|| "local-engine".into());
+        let settlement_store = SettlementStore::open(storage.clone(), account_scope)?;
+        let mut instrument_constraints = BTreeMap::new();
+        for v in &venues {
+            if let Ok(map) = v.instrument_constraints().await {
+                instrument_constraints.extend(map);
+            }
+        }
+        let authority = EngineControlAuthority::new(
+            "main-engine",
+            Arc::new(AtomicBool::new(false)),
+            Some(storage.clone()),
+        );
+        let mut engine = Self::new_with_venues(
+            cfg.clone(),
             storage,
             venues,
             symbols,
             live_override,
             dash,
+            Some(authority.clone()),
             None,
             None,
-            None,
-            None,
-            BTreeMap::new(),
+            Some(settlement_store),
+            instrument_constraints,
             true,
         )
-        .await
+        .await?;
+        match EngineIpcServer::start_with_authority(&cfg.data_dir, authority) {
+            Ok(srv) => engine.ipc_server = Some(srv),
+            Err(e) => {
+                anyhow::ensure!(!cfg.live_trading, "live Engine IPC startup failed: {e}");
+                tracing::warn!(error=%e, "engine IPC server unavailable in non-live mode");
+            }
+        }
+        Ok(engine)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -339,6 +405,39 @@ impl Engine {
             }
         }
 
+        let mut persisted_daily = Decimal::ZERO;
+        let mut persisted_weekly = Decimal::ZERO;
+        if let Ok(d) = storage.sum_realized_since(Utc::now() - chrono::Duration::hours(24)) {
+            if let Ok(dec) = Decimal::try_from(d) {
+                persisted_daily = dec;
+            }
+        }
+        if let Ok(w) = storage.sum_realized_since(Utc::now() - chrono::Duration::days(7)) {
+            if let Ok(dec) = Decimal::try_from(w) {
+                persisted_weekly = dec;
+            }
+        }
+
+        let mut resolved_constraints = instrument_constraints;
+        if resolved_constraints.is_empty() {
+            for v in &venues {
+                if let Ok(map) = v.instrument_constraints().await {
+                    resolved_constraints.extend(map);
+                }
+            }
+        }
+
+        let mut learning_samples = Vec::new();
+        if let Some(ref store) = settlement_store {
+            if let Ok(outcomes) = store.emitted_learning_outcomes() {
+                for lo in &outcomes {
+                    if let Some(s) = shadow_sample_from_verified(lo, init_equity) {
+                        learning_samples.push(s);
+                    }
+                }
+            }
+        }
+
         Ok(Self {
             _account_ownership: ownership,
             cfg,
@@ -360,15 +459,19 @@ impl Engine {
             sovereign_policy: policy,
             unified_cfg: u_cfg,
             settlement_store,
-            instrument_constraints,
+            instrument_constraints: resolved_constraints,
             order_journal: restored_journal,
             halted_unresolved: false,
             halted_unprotected: false,
-            daily_pnl_usd: Decimal::ZERO,
-            weekly_pnl_usd: Decimal::ZERO,
+            daily_pnl_usd: persisted_daily,
+            weekly_pnl_usd: persisted_weekly,
+            session_pnl_usd: Decimal::ZERO,
             high_water_equity_usd: init_equity,
             active_pilot: None,
             last_ipc_supervision_ms: 0,
+            ws_order_evidence: Vec::new(),
+            learning_samples,
+            ipc_server: None,
         })
     }
 
@@ -396,7 +499,9 @@ impl Engine {
             grant.is_active_at(now_ms),
             "monitored pilot grant is expired or inactive at timestamp {now_ms}"
         );
-        grant.limits.validate()?;
+        grant.limits().validate()?;
+        self.control_authority
+            .set_active_pilot_session_id(Some(grant.session_id().to_string()));
         self.active_pilot = Some(grant);
         Ok(())
     }
@@ -415,6 +520,7 @@ impl Engine {
 
     pub fn revoke_monitored_pilot(&mut self) {
         self.active_pilot = None;
+        self.control_authority.set_active_pilot_session_id(None);
     }
 
     pub fn control_authority(&self) -> &EngineControlAuthority {
@@ -444,6 +550,15 @@ impl Engine {
     pub fn record_realized_pnl(&mut self, pnl_usd: Decimal) {
         self.daily_pnl_usd += pnl_usd;
         self.weekly_pnl_usd += pnl_usd;
+        self.session_pnl_usd += pnl_usd;
+    }
+
+    pub fn push_ws_order_evidence(&mut self, snap: ExchangeOrderSnapshot) {
+        self.ws_order_evidence.push(snap);
+        if self.ws_order_evidence.len() > 256 {
+            let drain = self.ws_order_evidence.len() - 256;
+            self.ws_order_evidence.drain(0..drain);
+        }
     }
 
     pub fn stop_flag(&self) -> Arc<AtomicBool> {
@@ -461,32 +576,52 @@ impl Engine {
     pub async fn reconcile_startup_and_recovery(&mut self) -> Result<RecoveryReport> {
         let mut ex_orders = Vec::new();
         let mut ex_positions = Vec::new();
+        let mut venue_query_failed = false;
         for v in &self.venues {
             match v.open_exchange_orders().await {
                 Ok(orders) => ex_orders.extend(orders),
                 Err(e) => {
-                    tracing::debug!(venue=v.kind().as_str(), error=%e, "open_exchange_orders unavailable");
-                }
-            }
-            if let Ok(pos) = v.open_positions().await {
-                for p in pos {
-                    if let Ok(qty) = Decimal::try_from(p.size.abs()) {
-                        if qty > Decimal::ZERO {
-                            ex_positions.push(ExchangeOpenPositionSnapshot {
-                                symbol: p.symbol,
-                                side: if p.size >= 0.0 {
-                                    crate::core::Side::Long
-                                } else {
-                                    crate::core::Side::Short
-                                },
-                                qty,
-                            });
-                        }
+                    let msg = e.to_string();
+                    if v.is_production_venue()
+                        || !msg.contains("does not supply authoritative open order snapshots")
+                    {
+                        venue_query_failed = true;
+                        tracing::warn!(venue=v.kind().as_str(), error=%e, "open_exchange_orders failed; blocking new entries");
+                    } else {
+                        tracing::debug!(venue=v.kind().as_str(), error=%e, "open_exchange_orders unavailable");
                     }
                 }
             }
+            match v.open_positions().await {
+                Ok(pos) => {
+                    for p in pos {
+                        if let Ok(qty) = Decimal::try_from(p.size.abs()) {
+                            if qty > Decimal::ZERO {
+                                ex_positions.push(ExchangeOpenPositionSnapshot {
+                                    symbol: p.symbol,
+                                    side: if p.size >= 0.0 {
+                                        crate::core::Side::Long
+                                    } else {
+                                        crate::core::Side::Short
+                                    },
+                                    qty,
+                                });
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    venue_query_failed = true;
+                    tracing::warn!(venue=v.kind().as_str(), error=%e, "open_positions recovery query failed; blocking new entries");
+                }
+            }
         }
-        let rep = reconcile_execution_state(&self.order_journal, &ex_orders, &[], &ex_positions)?;
+        let rep = reconcile_execution_state(
+            &self.order_journal,
+            &ex_orders,
+            &self.ws_order_evidence,
+            &ex_positions,
+        )?;
         for act in &rep.actions {
             match act {
                 RecoveryAction::MarkAcknowledged {
@@ -546,9 +681,9 @@ impl Engine {
                 RecoveryAction::ReconcileOwnership { .. } => {}
             }
         }
-        let db_unresolved = self.storage.count_unresolved_intents().unwrap_or(0);
+        let db_unresolved = self.storage.count_unresolved_intents()?;
         let holds = rep.unresolved_holds.max(db_unresolved);
-        self.halted_unresolved = holds > 0;
+        self.halted_unresolved = holds > 0 || venue_query_failed || !rep.consistency.consistent;
         let open_cnt = self
             .storage
             .list_open_positions()
@@ -643,14 +778,37 @@ impl Engine {
         )?;
         let mut mutated = false;
         let mut failed_syms = std::collections::BTreeSet::new();
+        let venue_idx_for = |symbol: &str| -> Option<usize> {
+            if let Some(pos_venue) = open
+                .iter()
+                .find(|p| p.symbol == symbol)
+                .map(|p| p.venue.as_str())
+            {
+                if let Some(idx) = self
+                    .venues
+                    .iter()
+                    .position(|v| v.kind().as_str() == pos_venue)
+                {
+                    return Some(idx);
+                }
+                return None;
+            }
+            if self.venues.len() == 1 {
+                Some(0)
+            } else {
+                None
+            }
+        };
         for act in &initial_rep.actions {
             match act {
                 ProtectiveReconcileAction::PlaceReduceOnlyStop(spec) => {
                     mutated = true;
-                    if let Some(v) = self.venues.first() {
-                        if v.place_protective_stop(spec).await.is_err() {
+                    if let Some(idx) = venue_idx_for(&spec.symbol) {
+                        if self.venues[idx].place_protective_stop(spec).await.is_err() {
                             failed_syms.insert(spec.symbol.clone());
                         }
+                    } else {
+                        failed_syms.insert(spec.symbol.clone());
                     }
                 }
                 ProtectiveReconcileAction::ReplaceReduceOnlyStop {
@@ -659,22 +817,28 @@ impl Engine {
                     new_spec,
                 } => {
                     mutated = true;
-                    if let Some(v) = self.venues.first() {
+                    if let Some(idx) = venue_idx_for(&new_spec.symbol) {
                         // Safe ordering: place & verify new stop BEFORE canceling old stop.
-                        match v.place_protective_stop(new_spec).await {
+                        match self.venues[idx].place_protective_stop(new_spec).await {
                             Ok(_) => {
-                                let _ = v
+                                if self.venues[idx]
                                     .cancel_protective_stop(
                                         &new_spec.symbol,
                                         *replace_exchange_oid,
                                         old_cloid,
                                     )
-                                    .await;
+                                    .await
+                                    .is_err()
+                                {
+                                    failed_syms.insert(new_spec.symbol.clone());
+                                }
                             }
                             Err(_) => {
                                 failed_syms.insert(new_spec.symbol.clone());
                             }
                         }
+                    } else {
+                        failed_syms.insert(new_spec.symbol.clone());
                     }
                 }
                 ProtectiveReconcileAction::CancelOrphanStop {
@@ -683,19 +847,36 @@ impl Engine {
                     cloid,
                 } => {
                     mutated = true;
-                    if let Some(v) = self.venues.first() {
-                        let _ = v.cancel_protective_stop(symbol, *exchange_oid, cloid).await;
+                    if let Some(idx) = venue_idx_for(symbol) {
+                        if self.venues[idx]
+                            .cancel_protective_stop(symbol, *exchange_oid, cloid)
+                            .await
+                            .is_err()
+                        {
+                            failed_syms.insert(symbol.clone());
+                        }
+                    } else {
+                        failed_syms.insert(symbol.clone());
                     }
                 }
                 _ => {}
             }
         }
 
+        let mut post_read_failed = false;
         let final_rep = if mutated {
             let mut latest_stops = Vec::new();
             for v in &self.venues {
-                if let Ok(s) = v.list_protective_stops().await {
-                    latest_stops.extend(s);
+                match v.list_protective_stops().await {
+                    Ok(s) => latest_stops.extend(s),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if v.is_production_venue()
+                            || !msg.contains("does not supply native protective stop inspection")
+                        {
+                            post_read_failed = true;
+                        }
+                    }
                 }
             }
             ProtectiveOrderManager::reconcile_positions_and_stops(
@@ -708,7 +889,8 @@ impl Engine {
             initial_rep
         };
 
-        self.halted_unprotected = !final_rep.protection_verified || final_rep.halt_new_entries;
+        self.halted_unprotected =
+            !final_rep.protection_verified || final_rep.halt_new_entries || post_read_failed;
         self.control_authority.update_runtime_status(
             open.len(),
             self.storage.count_unresolved_intents().unwrap_or(0),
@@ -735,7 +917,12 @@ impl Engine {
         let mut sym_exposure: BTreeMap<String, Decimal> = BTreeMap::new();
         let mut total_exposure = Decimal::ZERO;
         for p in &open {
-            let ntl = Decimal::try_from(p.size.abs() * p.entry_price).unwrap_or(Decimal::ZERO);
+            let mark_px = snapshots
+                .iter()
+                .find(|s| s.symbol == p.symbol && s.mid.is_finite() && s.mid > 0.0)
+                .map(|s| s.mid)
+                .unwrap_or(p.entry_price);
+            let ntl = Decimal::try_from(p.size.abs() * mark_px).unwrap_or(Decimal::ZERO);
             total_exposure += ntl;
             *sym_exposure
                 .entry(p.symbol.clone())
@@ -750,6 +937,7 @@ impl Engine {
         let mut candles_map = BTreeMap::new();
         let mut marks = BTreeMap::new();
         let mut regimes = BTreeMap::new();
+        let mut microstructure_map: BTreeMap<String, MicrostructureSnapshot> = BTreeMap::new();
         let mut per_sym_rem = BTreeMap::new();
         let mut max_as_of_ms = 0i64;
         for snap in snapshots {
@@ -770,10 +958,24 @@ impl Engine {
             let mark = Decimal::try_from(snap.mid)
                 .unwrap_or(Decimal::ZERO)
                 .round_dp(6);
+            let micro = snap.microstructure.clone().unwrap_or_else(|| {
+                compute_microstructure_snapshot(
+                    &snap.symbol,
+                    sym_ts,
+                    None,
+                    None,
+                    &[],
+                    &snap.candles,
+                    snap.funding_bps_1h,
+                    None,
+                    1_000.0,
+                )
+            });
             watchlist.push(snap.symbol.clone());
             candles_map.insert(snap.symbol.clone(), snap.candles.clone());
             marks.insert(snap.symbol.clone(), mark);
             regimes.insert(snap.symbol.clone(), reg);
+            microstructure_map.insert(snap.symbol.clone(), micro);
             let used = sym_exposure
                 .get(&snap.symbol)
                 .copied()
@@ -784,18 +986,43 @@ impl Engine {
             );
         }
 
+        let as_of_ms = if max_as_of_ms > 0 {
+            max_as_of_ms
+        } else {
+            Utc::now().timestamp_millis()
+        };
+        let ensemble: Option<EnsembleRanking> = if self.learning_samples.is_empty() {
+            None
+        } else {
+            let candidate_strategies = vec![
+                "adaptive_ema_anchor".to_string(),
+                "momentum_breakout".to_string(),
+                "mean_reversion_bb".to_string(),
+                "rsi_divergence".to_string(),
+                "trend_continuation".to_string(),
+                "volatility_breakout".to_string(),
+            ];
+            rank_and_weight_ensemble(
+                as_of_ms,
+                "*",
+                OutcomeSource::CallerSuppliedNormalizedR,
+                &candidate_strategies,
+                &self.learning_samples,
+                &ShadowPolicy::default(),
+                150.0,
+                self.unified_cfg.round_trip_cost_bps,
+            )
+            .ok()
+        };
+
         let input = FangMarketInput {
-            as_of_ms: if max_as_of_ms > 0 {
-                max_as_of_ms
-            } else {
-                Utc::now().timestamp_millis()
-            },
+            as_of_ms,
             correlation_id: format!("engine-t{tick}"),
             watchlist: watchlist.clone(),
             candles: candles_map,
             marks,
             regimes,
-            microstructure: BTreeMap::new(),
+            microstructure: microstructure_map,
             portfolio_equity_usd: eq_dec,
         };
         let budget = PlanningBudget {
@@ -806,7 +1033,7 @@ impl Engine {
             occupied_symbols: occupied,
             confidence_floor: 0.45,
         };
-        FangUnifiedPlanner::evaluate_and_plan(&input, &budget, &self.unified_cfg, None)
+        FangUnifiedPlanner::evaluate_and_plan(&input, &budget, &self.unified_cfg, ensemble.as_ref())
     }
 
     /// Executes one authoritative converged engine tick (snapshots -> recovery -> native stops
@@ -878,14 +1105,26 @@ impl Engine {
         }
 
         // === 2. Execution recovery & Native Protective Orders (always active) ===
-        if let Ok(rec) = self.reconcile_startup_and_recovery().await {
-            summary.recovery_holds = rec.unresolved_holds;
+        match self.reconcile_startup_and_recovery().await {
+            Ok(rec) => summary.recovery_holds = rec.unresolved_holds,
+            Err(e) => {
+                self.halted_unresolved = true;
+                tracing::warn!(error=%e, "execution recovery failed; blocking new entries");
+            }
         }
-        if let Ok(prot) = self.reconcile_protective_orders().await {
-            summary.protective_actions = prot.actions.len();
+        match self.reconcile_protective_orders().await {
+            Ok(prot) => summary.protective_actions = prot.actions.len(),
+            Err(e) => {
+                self.halted_unprotected = true;
+                tracing::warn!(error=%e, "protective stop reconciliation failed; blocking new entries");
+            }
         }
 
         // === 3. Position trailing / TP / time-stop management ===
+        let realized_before = self
+            .storage
+            .sum_realized_in_session(self.session_id)
+            .unwrap_or(0.0);
         {
             let Engine {
                 portfolio,
@@ -898,16 +1137,29 @@ impl Engine {
                 .manage_open_positions(&snapshots, cfg, execution, venues)
                 .await
             {
-                tracing::warn!(error=%e, "position management error");
+                self.halted_unresolved = true;
+                tracing::warn!(error=%e, "position management error; halting new entries until resolved");
+                let _ = self
+                    .storage
+                    .record_error(self.session_id, "exit", &e.to_string());
+            }
+        }
+        let realized_after = self
+            .storage
+            .sum_realized_in_session(self.session_id)
+            .unwrap_or(realized_before);
+        let realized_delta = realized_after - realized_before;
+        if realized_delta.abs() > 1e-9 {
+            if let Ok(d) = Decimal::try_from(realized_delta) {
+                self.record_realized_pnl(d);
             }
         }
 
         // === 4. Fail-closed admission gate on suspension, unresolved intents, missing protection, or pilot expiry/loss ===
         let pilot_blocked = if let Some(ref grant) = self.active_pilot {
-            grant.supervision_expired(now_ms)
-                || grant.session_expired(now_ms)
-                || (-self.daily_pnl_usd >= grant.limits.max_daily_loss_usd)
-                || (-self.daily_pnl_usd >= grant.limits.max_session_loss_usd)
+            !grant.is_active_at(now_ms)
+                || (-self.daily_pnl_usd >= grant.limits().max_daily_loss_usd)
+                || (-self.session_pnl_usd >= grant.limits().max_session_loss_usd)
         } else {
             false
         };
@@ -929,7 +1181,31 @@ impl Engine {
         // === 5. Shared FANG unified plan + AEGIS sovereign admission + durable execution ===
         let plan_out = self.unified_planning_step(tick, &snapshots)?;
         summary.planned_candidates = plan_out.report.selected.len();
+        let candles_by_sym: BTreeMap<String, Vec<crate::core::Candle>> = snapshots
+            .iter()
+            .filter(|s| !s.candles.is_empty())
+            .map(|s| (s.symbol.to_ascii_uppercase(), s.candles.clone()))
+            .collect();
+        let corr_matrix = compute_correlation_matrix(&candles_by_sym, 24).ok();
+
         for cand in plan_out.report.selected {
+            // Revalidate suspension, halts, and monitored pilot state immediately before every candidate!
+            let mid_batch_pilot_blocked = if let Some(ref grant) = self.active_pilot {
+                !grant.is_active_at(now_ms)
+                    || (-self.daily_pnl_usd >= grant.limits().max_daily_loss_usd)
+                    || (-self.session_pnl_usd >= grant.limits().max_session_loss_usd)
+            } else {
+                false
+            };
+            if self.control_authority.is_emergency_suspended()
+                || self.halted_unresolved
+                || self.halted_unprotected
+                || mid_batch_pilot_blocked
+            {
+                summary.halts_blocked_entries = true;
+                break;
+            }
+
             let sig = &cand.signal;
             let key = (sig.strategy.clone(), sig.symbol.clone());
             let now = std::time::Instant::now();
@@ -958,11 +1234,20 @@ impl Engine {
                 .verified_equity(std::time::Duration::from_secs(60))
                 .ok()
                 .and_then(|e| Decimal::try_from(e).ok());
-            let open_pos = self.storage.list_open_positions().unwrap_or_default();
+            let open_pos = self.storage.list_open_positions()?;
             let sov_positions: Vec<SovereignPositionInput> = open_pos
                 .iter()
                 .filter_map(|p| {
-                    let ntl = Decimal::try_from(p.size.abs() * p.entry_price).ok()?;
+                    let pos_snap = snapshots.iter().find(|s| s.symbol == p.symbol);
+                    let mark_px = pos_snap
+                        .map(|s| s.mid)
+                        .filter(|m| m.is_finite() && *m > 0.0)
+                        .unwrap_or(p.entry_price);
+                    let ntl = Decimal::try_from(p.size.abs() * mark_px).ok()?;
+                    let fund = pos_snap
+                        .and_then(|s| s.funding_bps_1h)
+                        .filter(|f| f.is_finite())
+                        .and_then(|f| Decimal::try_from(f).ok());
                     Some(SovereignPositionInput {
                         symbol: p.symbol.clone(),
                         owner_strategy: p
@@ -975,28 +1260,67 @@ impl Engine {
                             crate::core::Side::Short
                         },
                         notional_usd: ntl,
-                        liquidation_distance_pct: Some(Decimal::from(50u32)),
-                        funding_bps_1h: Some(Decimal::ZERO),
+                        liquidation_distance_pct: None,
+                        funding_bps_1h: fund,
                     })
                 })
                 .collect();
             let used_ntl: Decimal = sov_positions.iter().map(|p| p.notional_usd).sum();
+            let reserved_ntl: Decimal = self
+                .order_journal
+                .iter()
+                .filter(|r| {
+                    matches!(
+                        r.state,
+                        OrderLifecycleState::Submitted
+                            | OrderLifecycleState::Acknowledged
+                            | OrderLifecycleState::PartiallyFilled
+                    )
+                })
+                .map(|r| {
+                    (r.requested_qty - r.filled_qty).max(Decimal::ZERO)
+                        * r.limit_price.unwrap_or(Decimal::ZERO)
+                })
+                .sum();
+            let mut pairwise_correlations = BTreeMap::new();
+            let cand_upper = sig.symbol.trim().to_ascii_uppercase();
+            if let Some(ref cm) = corr_matrix {
+                for pos in &sov_positions {
+                    let ps = pos.symbol.trim().to_ascii_uppercase();
+                    if ps == cand_upper {
+                        continue;
+                    }
+                    let idx_a = cm.symbols.iter().position(|s| *s == cand_upper);
+                    let idx_b = cm.symbols.iter().position(|s| *s == ps);
+                    let rho = match (idx_a, idx_b) {
+                        (Some(ia), Some(ib)) => cm.correlations[ia][ib].unwrap_or(1.0),
+                        _ => 1.0,
+                    };
+                    pairwise_correlations.insert((cand_upper.clone(), ps), rho);
+                }
+            } else {
+                for pos in &sov_positions {
+                    let ps = pos.symbol.trim().to_ascii_uppercase();
+                    if ps != cand_upper {
+                        pairwise_correlations.insert((cand_upper.clone(), ps), 1.0);
+                    }
+                }
+            }
+
             if let Some(ref grant) = self.active_pilot {
-                let allowed_sym = grant
-                    .limits
-                    .allowed_instruments
-                    .iter()
-                    .any(|s| s.eq_ignore_ascii_case(&sig.symbol));
-                let allowed_strat = sig.strategy == grant.limits.qualified_strategy_id;
-                let within_order = cand.requested_notional <= grant.limits.max_order_notional_usd;
-                let within_agg =
-                    used_ntl + cand.requested_notional <= grant.limits.max_aggregate_exposure_usd;
-                if !allowed_sym || !allowed_strat || !within_order || !within_agg {
+                if let Err(err) = crate::live_gate::require_authorized_pilot_execution(
+                    grant,
+                    now_ms,
+                    self.control_authority.is_emergency_suspended(),
+                    self.daily_pnl_usd,
+                    self.session_pnl_usd,
+                    &sig.symbol,
+                    &sig.strategy,
+                    cand.requested_notional,
+                    used_ntl + reserved_ntl,
+                ) {
                     summary.risk_rejected += 1;
-                    let msg = format!(
-                        "Monitored pilot ceiling block on {}: sym_ok={allowed_sym} strat_ok={allowed_strat} order_ok={within_order} agg_ok={within_agg}",
-                        sig.symbol
-                    );
+                    let msg = err.to_string();
                     let _ = self.storage.record_error(self.session_id, "pilot", &msg);
                     self.push_signal_row(sig, "blocked: pilot ceiling");
                     continue;
@@ -1004,14 +1328,15 @@ impl Engine {
             }
             let sov_state = SovereignPortfolioState {
                 account_equity_usd: eq_dec,
-                available_collateral_usd: eq_dec.map(|e| (e - used_ntl).max(Decimal::ZERO)),
-                reserved_notional_usd: Decimal::ZERO,
+                available_collateral_usd: eq_dec
+                    .map(|e| (e - used_ntl - reserved_ntl).max(Decimal::ZERO)),
+                reserved_notional_usd: reserved_ntl,
                 open_positions: sov_positions,
                 daily_pnl_usd: Some(self.daily_pnl_usd),
                 weekly_pnl_usd: Some(self.weekly_pnl_usd),
                 high_water_equity_usd: (self.high_water_equity_usd > Decimal::ZERO)
                     .then_some(self.high_water_equity_usd),
-                pairwise_correlations: BTreeMap::new(),
+                pairwise_correlations,
                 emergency_suspended: self.control_authority.is_emergency_suspended(),
                 breaker_reason: self
                     .control_authority
@@ -1022,23 +1347,33 @@ impl Engine {
             let inst_c = self.instrument_constraints.get(&sig.symbol);
             let req_lev = Decimal::ONE;
             let est_fee = (cand.requested_notional * Decimal::new(5, 4)).round_dp(6);
+            let est_liq_dist_pct = eq_dec
+                .filter(|_| cand.reference_price.is_finite() && cand.reference_price > 0.0)
+                .map(|_| {
+                    ((Decimal::ONE / req_lev - Decimal::new(5, 2)).max(Decimal::ZERO)
+                        * Decimal::from(100u32))
+                    .round_dp(4)
+                });
+            let market_depth_usd = snap
+                .l2_depth_usd
+                .filter(|d| d.is_finite() && *d > 0.0)
+                .and_then(|d| Decimal::try_from(d).ok());
+            let funding_bps_1h = snap
+                .funding_bps_1h
+                .filter(|f| f.is_finite())
+                .and_then(|f| Decimal::try_from(f).ok());
             let sov_prop = SovereignAdmissionProposal {
                 symbol: sig.symbol.clone(),
                 owner_strategy: sig.strategy.clone(),
                 side: sig.side,
                 requested_notional_usd: cand.requested_notional,
                 estimated_fee_usd: est_fee,
-                estimated_liquidation_distance_pct: eq_dec.map(|_| Decimal::from(50u32)),
-                market_depth_usd: snap
-                    .spread_bps
-                    .filter(|s| s.is_finite() && *s >= 0.0)
-                    .map(|_| Decimal::from(500_000u32)),
+                estimated_liquidation_distance_pct: est_liq_dist_pct,
+                market_depth_usd,
                 market_volatility_pct: (atr_pct_now > 0.0)
                     .then(|| Decimal::try_from(atr_pct_now).unwrap_or(Decimal::ONE)),
-                funding_bps_1h: Some(Decimal::ZERO),
-                instrument_max_leverage: inst_c
-                    .map(|c| c.max_leverage)
-                    .or(Some(Decimal::from(20u32))),
+                funding_bps_1h,
+                instrument_max_leverage: inst_c.map(|c| c.max_leverage),
                 requested_leverage: req_lev,
                 rearm_authorization: None,
             };
@@ -1151,6 +1486,54 @@ impl Engine {
                             self.push_fill_row(&intent, &res, "open", None);
                             self.push_signal_row(sig, "filled");
                             self.drought.clear_for(&sig.symbol);
+
+                            if let Some(ref store) = self.settlement_store {
+                                let fill_qty = Decimal::try_from(res.filled_size)
+                                    .unwrap_or(final_qty_dec)
+                                    .round_dp(8);
+                                let fill_px =
+                                    Decimal::try_from(res.avg_fill_price.unwrap_or(final_px))
+                                        .unwrap_or(final_px_dec)
+                                        .round_dp(8);
+                                if fill_qty > Decimal::ZERO && fill_px > Decimal::ZERO {
+                                    let oid = res
+                                        .venue_order_id
+                                        .as_deref()
+                                        .and_then(|s| s.parse::<u64>().ok())
+                                        .unwrap_or(0);
+                                    let ex_fill = ExchangeFill {
+                                        fill_id: format!("engine-fill-{}", res.intent_id),
+                                        order_id: oid,
+                                        client_order_id: Some(intent.id.clone()),
+                                        symbol: sig.symbol.clone(),
+                                        side: match sig.side {
+                                            crate::core::Side::Long => FillSide::Buy,
+                                            crate::core::Side::Short => FillSide::Sell,
+                                        },
+                                        quantity: fill_qty,
+                                        price: fill_px,
+                                        closed_pnl_usdc: None,
+                                        pnl_convention: PnlConvention::Unverified,
+                                        fee: None,
+                                        timestamp_ms: now_ms.max(1),
+                                    };
+                                    if store.record_fill(&ex_fill, Some(&sig.strategy)).is_ok() {
+                                        if let Ok((_, newly_emitted)) = store.recompute_and_commit()
+                                        {
+                                            let eq_ref = eq_dec
+                                                .filter(|e| *e > Decimal::ZERO)
+                                                .unwrap_or(self.high_water_equity_usd);
+                                            for lo in &newly_emitted {
+                                                if let Some(sample) =
+                                                    shadow_sample_from_verified(lo, eq_ref)
+                                                {
+                                                    self.learning_samples.push(sample);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             // Immediately reconcile native reduce-only protective stop for the new position.
                             if let Ok(prot) = self.reconcile_protective_orders().await {

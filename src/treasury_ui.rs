@@ -31,6 +31,7 @@ enum TreasurySection {
     Offering,
     Portfolio,
     Awakening,
+    Testnet,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -64,6 +65,9 @@ pub struct TreasuryWorkspace {
     verify_rx: Option<Receiver<Result<HyperliquidVerification, String>>>,
     verification: Option<HyperliquidVerification>,
     integrity_verified: bool,
+    testnet_probe_rx: Option<Receiver<Result<String, String>>>,
+    testnet_probe_summary: Option<String>,
+    testnet_probe_error: Option<String>,
 }
 
 impl Default for TreasuryWorkspace {
@@ -115,6 +119,9 @@ impl Default for TreasuryWorkspace {
             verify_rx: None,
             verification: None,
             integrity_verified: false,
+            testnet_probe_rx: None,
+            testnet_probe_summary: None,
+            testnet_probe_error: None,
         }
     }
 }
@@ -250,6 +257,29 @@ impl TreasuryWorkspace {
             }
             ctx.request_repaint();
         }
+        let tn_recv = self
+            .testnet_probe_rx
+            .as_ref()
+            .and_then(|rx| match rx.try_recv() {
+                Ok(res) => Some(res),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("Testnet probe worker ended unexpectedly.".into()))
+                }
+            });
+        if let Some(res) = tn_recv {
+            self.testnet_probe_rx = None;
+            match res {
+                Ok(summary) => {
+                    self.testnet_probe_summary = Some(summary);
+                    self.testnet_probe_error = None;
+                }
+                Err(err) => {
+                    self.testnet_probe_error = Some(err);
+                }
+            }
+            ctx.request_repaint();
+        }
         events
     }
 
@@ -310,6 +340,15 @@ impl TreasuryWorkspace {
             {
                 self.section = TreasurySection::Awakening;
             }
+            if ui
+                .selectable_label(
+                    self.section == TreasurySection::Testnet,
+                    RichText::new("TESTNET SANDBOX").monospace().color(CYAN),
+                )
+                .clicked()
+            {
+                self.section = TreasurySection::Testnet;
+            }
         });
         ui.add_space(6.0);
 
@@ -322,6 +361,9 @@ impl TreasuryWorkspace {
             }
             TreasurySection::Awakening => {
                 self.show_awakening(ui, &readiness, &mut events);
+            }
+            TreasurySection::Testnet => {
+                self.show_testnet_sandbox(ui);
             }
         }
         events
@@ -964,6 +1006,121 @@ impl TreasuryWorkspace {
                     ui.end_row();
                 }
             });
+    }
+
+    fn show_testnet_sandbox(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::new()
+            .fill(Color32::from_rgb(10, 22, 32))
+            .stroke(Stroke::new(1.0, CYAN.gamma_multiply(0.65)))
+            .corner_radius(6)
+            .inner_margin(10)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new("HYPERLIQUID TESTNET SANDBOX ONLY — ISOLATED TEST IDENTITY")
+                        .monospace()
+                        .strong()
+                        .color(CYAN),
+                );
+                ui.label(
+                    RichText::new(
+                        "Structurally isolated from ProductionMainnet (`source = \"b\"`, https://api.hyperliquid-testnet.xyz). Mainnet Treasury keys and production databases are NEVER read or accepted here.",
+                    )
+                    .small()
+                    .color(TEXT),
+                );
+                ui.add_space(6.0);
+                let busy = self.testnet_probe_rx.is_some();
+                ui.add_enabled_ui(!busy, |ui| {
+                    if ui
+                        .button("Probe Testnet Capabilities (Read-Only)")
+                        .clicked()
+                    {
+                        self.start_testnet_probe(ui.ctx());
+                    }
+                });
+                if busy {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Querying official Hyperliquid Testnet /info metadata & allMids...");
+                    });
+                }
+                if let Some(ref s) = self.testnet_probe_summary {
+                    ui.colored_label(EMERALD, s);
+                }
+                if let Some(ref e) = self.testnet_probe_error {
+                    ui.colored_label(CRIMSON, e);
+                }
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(
+                        "Bounded Testnet Functional Proof (owner-confirmed disposable wallet + faucet funds only):",
+                    )
+                    .small()
+                    .strong()
+                    .color(GOLD),
+                );
+                ui.monospace(
+                    "hydra testnet-qualify --execute-confirmed --wallet 0xYOUR_DISPOSABLE_TESTNET --key-env HYDRA_TESTNET_KEY --out testnet_evidence.json",
+                );
+            });
+    }
+
+    fn start_testnet_probe(&mut self, ctx: &egui::Context) {
+        let ctx = ctx.clone();
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.testnet_probe_rx = Some(rx);
+        self.testnet_probe_error = None;
+        std::thread::Builder::new()
+            .name("hydra-testnet-probe".into())
+            .spawn(move || {
+                let res = (|| -> anyhow::Result<String> {
+                    anyhow::ensure!(
+                        crate::live_gate::is_hyperliquid_testnet_url(
+                            crate::hyperliquid_wire::TESTNET_INFO
+                        ),
+                        "Testnet URL verification failed"
+                    );
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?;
+                    rt.block_on(async {
+                        let http = reqwest::Client::builder()
+                            .redirect(reqwest::redirect::Policy::none())
+                            .timeout(std::time::Duration::from_secs(12))
+                            .build()?;
+                        let meta: serde_json::Value = http
+                            .post(crate::hyperliquid_wire::TESTNET_INFO)
+                            .json(&serde_json::json!({ "type": "meta" }))
+                            .send()
+                            .await?
+                            .error_for_status()?
+                            .json()
+                            .await?;
+                        let mids: serde_json::Value = http
+                            .post(crate::hyperliquid_wire::TESTNET_INFO)
+                            .json(&serde_json::json!({ "type": "allMids" }))
+                            .send()
+                            .await?
+                            .error_for_status()?
+                            .json()
+                            .await?;
+                        let count = meta
+                            .get("universe")
+                            .and_then(|u| u.as_array())
+                            .map_or(0, Vec::len);
+                        let btc = mids.get("BTC").and_then(|v| v.as_str()).unwrap_or("n/a");
+                        let eth = mids.get("ETH").and_then(|v| v.as_str()).unwrap_or("n/a");
+                        Ok(format!(
+                            "Hyperliquid Testnet reachable (read-only): {count} perp instruments · BTC mid={btc} · ETH mid={eth}"
+                        ))
+                    })
+                })()
+                .map_err(|e| telemetry::redact_diagnostic(&format!("{e:#}")));
+                let _ = tx.send(res);
+                ctx.request_repaint();
+            })
+            .ok();
     }
 
     fn start_hyperliquid_verification(&mut self, profile: &TreasuryProfile, ctx: &egui::Context) {

@@ -96,8 +96,12 @@ impl VenueAdapter for FaultMockVenue {
             bid: g.spread_bps.map(|_| g.mid * 0.9999),
             ask: g.spread_bps.map(|_| g.mid * 1.0001),
             spread_bps: g.spread_bps,
+            l2_depth_usd: g.spread_bps.map(|_| 500_000.0),
+            funding_bps_1h: g.spread_bps.map(|_| 0.0),
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: slice,
+            microstructure: None,
         })
     }
 
@@ -224,6 +228,33 @@ impl VenueAdapter for FaultMockVenue {
                 && (exchange_oid.is_some() && s.exchange_oid == exchange_oid || s.cloid == cloid))
         });
         Ok(())
+    }
+
+    async fn instrument_constraints(
+        &self,
+    ) -> anyhow::Result<BTreeMap<String, InstrumentOrderConstraints>> {
+        Ok(BTreeMap::from([
+            (
+                "BTC".into(),
+                InstrumentOrderConstraints {
+                    symbol: "BTC".into(),
+                    tick_size: Decimal::new(1, 1),
+                    lot_size: Decimal::new(1, 4),
+                    min_notional_usd: Decimal::from(10u32),
+                    max_leverage: Decimal::from(20u32),
+                },
+            ),
+            (
+                "ETH".into(),
+                InstrumentOrderConstraints {
+                    symbol: "ETH".into(),
+                    tick_size: Decimal::new(1, 1),
+                    lot_size: Decimal::new(1, 4),
+                    min_notional_usd: Decimal::from(10u32),
+                    max_leverage: Decimal::from(20u32),
+                },
+            ),
+        ]))
     }
 }
 
@@ -595,7 +626,29 @@ fn sentinel_research_contention_and_evidence_registry_fail_closed() {
         .iter()
         .all(|p| p.status == PillarStatus::PendingExternalValidation));
 
-    let valid_rec = EvidenceRecord::signed_new(
+    let valid_rec = EvidenceRecord::produce_attested(
+        hydra::live_gate::EvidenceProducer::LocalVerificationSuite,
+        1,
+        VerificationTier::IntegratedVerified,
+        "risk-v1",
+        EvidenceEnvironment::OfflineMock,
+        "disabled",
+        "fp-123",
+        "sha256-artifact-1",
+        "sha3-config-1",
+        None,
+        1_700_000_000_000,
+        "settlement store verified",
+    )
+    .unwrap();
+    assert!(EvidenceRegistry::verify_record(
+        &valid_rec,
+        Some(EvidenceEnvironment::OfflineMock),
+        "risk-v1"
+    ));
+
+    // ManualUnattested or revoked or empty artifact_sha256 fail closed
+    let unattested = EvidenceRecord::signed_new(
         1,
         VerificationTier::IntegratedVerified,
         "risk-v1",
@@ -603,11 +656,19 @@ fn sentinel_research_contention_and_evidence_registry_fail_closed() {
         "disabled",
         "fp-123",
         1_700_000_000_000,
-        "settlement store verified",
+        "unattested claim",
     );
-    assert!(EvidenceRegistry::verify_record(
-        &valid_rec,
-        Some(EvidenceEnvironment::OfflineMock),
+    assert!(!EvidenceRegistry::verify_record(
+        &unattested,
+        None,
+        "risk-v1"
+    ));
+
+    let mut revoked_rec = valid_rec.clone();
+    revoked_rec.revoked = true;
+    assert!(!EvidenceRegistry::verify_record(
+        &revoked_rec,
+        None,
         "risk-v1"
     ));
 

@@ -416,16 +416,16 @@ struct GenericExchangePayload<'a, T: Serialize> {
     vault_address: Option<String>,
 }
 
-async fn post_signed_action<T: Serialize>(
-    key: &str,
+async fn post_signed_action_with_signer<T: Serialize>(
+    signer_auth: &crate::treasury::EngineSignerAuthority,
     packed: &[u8],
     action: &T,
     mainnet: bool,
 ) -> Result<ExchangeResponseStatus> {
-    let signer = derive_address(key)?;
+    let signer = signer_auth.signer_address();
     let nonce = reserve_nonce_at(
         crate::signer_nonce::NonceCoordinator::operator_default()?,
-        &signer,
+        signer,
     )
     .await?;
     let endpoint = if mainnet {
@@ -438,10 +438,10 @@ async fn post_signed_action<T: Serialize>(
         .retry(reqwest::retry::never())
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
-    let signature = sign_digest(
-        key,
-        agent_digest(action_hash(packed, nonce, None, None), mainnet),
-    )?;
+    let signature = signer_auth.sign_digest(agent_digest(
+        action_hash(packed, nonce, None, None),
+        mainnet,
+    ))?;
     let mut response = http
         .post(endpoint)
         .json(&GenericExchangePayload {
@@ -482,8 +482,8 @@ async fn post_signed_action<T: Serialize>(
         .map_err(|_| anyhow::anyhow!("invalid exchange response; acknowledgment unresolved"))
 }
 
-pub async fn submit_trigger_stop(
-    key: &str,
+pub async fn submit_trigger_stop_with_signer(
+    signer: &crate::treasury::EngineSignerAuthority,
     action: &TriggerOrderAction,
     mainnet: bool,
 ) -> Result<ExchangeResponseStatus> {
@@ -491,7 +491,24 @@ pub async fn submit_trigger_stop(
         action.is_reduce_only(),
         "protective stop MUST be reduce_only"
     );
-    post_signed_action(key, &action.packed()?, action, mainnet).await
+    post_signed_action_with_signer(signer, &action.packed()?, action, mainnet).await
+}
+
+pub async fn submit_cancel_by_oid_with_signer(
+    signer: &crate::treasury::EngineSignerAuthority,
+    action: &CancelAction,
+    mainnet: bool,
+) -> Result<ExchangeResponseStatus> {
+    post_signed_action_with_signer(signer, &action.packed()?, action, mainnet).await
+}
+
+pub async fn submit_trigger_stop(
+    key: &str,
+    action: &TriggerOrderAction,
+    mainnet: bool,
+) -> Result<ExchangeResponseStatus> {
+    let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(None, key)?;
+    submit_trigger_stop_with_signer(&signer, action, mainnet).await
 }
 
 pub async fn submit_cancel_by_oid(
@@ -499,7 +516,8 @@ pub async fn submit_cancel_by_oid(
     action: &CancelAction,
     mainnet: bool,
 ) -> Result<ExchangeResponseStatus> {
-    post_signed_action(key, &action.packed()?, action, mainnet).await
+    let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(None, key)?;
+    submit_cancel_by_oid_with_signer(&signer, action, mainnet).await
 }
 
 #[derive(Serialize)]
@@ -523,32 +541,40 @@ pub(crate) async fn reserve_nonce_at(
 
 /// Submit exactly once, to the fixed mainnet endpoint, with no body/signature logs.
 /// Transport/HTTP/decoding failures stay errors for the durable unresolved gate.
-pub async fn submit_ioc(key: &str, action: &OrderAction) -> Result<ExchangeResponseStatus> {
-    submit_ioc_impl(key, action, None).await
+pub async fn submit_ioc_with_signer(
+    signer: &crate::treasury::EngineSignerAuthority,
+    action: &OrderAction,
+) -> Result<ExchangeResponseStatus> {
+    submit_ioc_with_signer_impl(signer, action, None).await
 }
 
 #[cfg(not(test))]
-pub(crate) async fn submit_ioc_journaled(
-    key: &str,
+pub(crate) async fn submit_ioc_journaled_with_signer(
+    signer: &crate::treasury::EngineSignerAuthority,
     action: &OrderAction,
     journal: &crate::submission_wire::SubmissionJournal<'_>,
 ) -> Result<ExchangeResponseStatus> {
-    submit_ioc_impl(key, action, Some(journal)).await
+    submit_ioc_with_signer_impl(signer, action, Some(journal)).await
 }
 
-async fn submit_ioc_impl(
-    key: &str,
+pub async fn submit_ioc(key: &str, action: &OrderAction) -> Result<ExchangeResponseStatus> {
+    let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(None, key)?;
+    submit_ioc_with_signer_impl(&signer, action, None).await
+}
+
+async fn submit_ioc_with_signer_impl(
+    signer_auth: &crate::treasury::EngineSignerAuthority,
     action: &OrderAction,
     journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
 ) -> Result<ExchangeResponseStatus> {
-    let signer = derive_address(key)?;
+    let signer = signer_auth.signer_address();
     let nonce = reserve_nonce_at(
         crate::signer_nonce::NonceCoordinator::operator_default()?,
-        &signer,
+        signer,
     )
     .await?;
     if let Some(journal) = journal {
-        journal.record_signing_preparation(&signer, nonce, action)?;
+        journal.record_signing_preparation(signer, nonce, action)?;
     }
 
     // The signed boundary owns transport policy. Callers cannot inject a client
@@ -558,10 +584,10 @@ async fn submit_ioc_impl(
         .retry(reqwest::retry::never())
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
-    let signature = sign_digest(
-        key,
-        agent_digest(action_hash(&action.packed()?, nonce, None, None), true),
-    )?;
+    let signature = signer_auth.sign_digest(agent_digest(
+        action_hash(&action.packed()?, nonce, None, None),
+        true,
+    ))?;
     let mut response = http
         .post(MAINNET_EXCHANGE)
         .json(&ExchangePayload {

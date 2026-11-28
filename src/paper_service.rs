@@ -344,6 +344,58 @@ impl PaperServiceClient {
         let child = cmd.spawn().context("spawn detached paper engine service")?;
         Ok(child.id())
     }
+
+    /// Launches a detached self-contained `WatchdogSupervisor` that owns, monitors, and restarts
+    /// the headless paper worker across hangs/crashes with persisted restart budgets.
+    pub fn spawn_watchdog_supervised(
+        root: &Path,
+        db_path: &Path,
+        session_id: &str,
+        interval_s: u64,
+        max_launches: usize,
+    ) -> Result<u32> {
+        let exe = std::env::current_exe().context("locate executable")?;
+        let is_cli_binary = exe
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("hydra"));
+
+        let mut cmd = std::process::Command::new(&exe);
+        if is_cli_binary {
+            cmd.arg("--no-banner").arg("watchdog-supervise");
+        } else {
+            cmd.arg("--watchdog-supervisor");
+        }
+        cmd.arg("--root")
+            .arg(root)
+            .arg("--db")
+            .arg(db_path)
+            .arg("--session")
+            .arg(session_id)
+            .arg("--interval-s")
+            .arg(interval_s.clamp(2, 60).to_string());
+        if is_cli_binary {
+            cmd.arg("--max-launches")
+                .arg(max_launches.max(1).to_string());
+        } else {
+            cmd.arg("--watchdog-max-launches")
+                .arg(max_launches.max(1).to_string());
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        }
+        let child = cmd
+            .spawn()
+            .context("spawn detached watchdog-supervised paper service")?;
+        Ok(child.id())
+    }
 }
 
 pub struct PaperServiceConfig {

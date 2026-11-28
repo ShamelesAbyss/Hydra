@@ -47,8 +47,12 @@ impl VenueAdapter for Fake {
             bid: Some(99.0),
             ask: Some(101.0),
             spread_bps: Some(1.0),
+            l2_depth_usd: None,
+            funding_bps_1h: None,
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: vec![],
+            microstructure: None,
         })
     }
     async fn open_positions(&self) -> Result<Vec<VenuePosition>> {
@@ -187,8 +191,12 @@ async fn failed_exit_on_one_instrument_does_not_starve_other_protective_exits() 
             bid: None,
             ask: None,
             spread_bps: None,
+            l2_depth_usd: None,
+            funding_bps_1h: None,
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: vec![],
+            microstructure: None,
         })
         .collect();
     assert!(portfolio

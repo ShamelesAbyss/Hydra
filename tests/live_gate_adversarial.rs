@@ -42,8 +42,12 @@ impl VenueAdapter for ProductionEndpointStub {
             bid: Some(64_995.0),
             ask: Some(65_005.0),
             spread_bps: Some(1.5),
+            l2_depth_usd: None,
+            funding_bps_1h: None,
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: vec![],
+            microstructure: None,
         })
     }
 

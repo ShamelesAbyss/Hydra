@@ -63,7 +63,9 @@ pub enum EngineControlCommand {
     },
     GetPositionProtection,
     MaintenanceReadiness,
-    RenewPilotSupervision,
+    RenewPilotSupervision {
+        session_id: String,
+    },
     GracefulShutdown,
 }
 
@@ -102,6 +104,7 @@ pub struct EngineAuthoritativeState {
     pub protective_stops_verified: bool,
     pub shutdown_requested: bool,
     pub last_supervision_renewed_ms: i64,
+    pub active_pilot_session_id: Option<String>,
 }
 
 impl EngineAuthoritativeState {
@@ -116,6 +119,7 @@ impl EngineAuthoritativeState {
             protective_stops_verified: true,
             shutdown_requested: false,
             last_supervision_renewed_ms: 0,
+            active_pilot_session_id: None,
         }
     }
 
@@ -186,6 +190,10 @@ impl EngineControlAuthority {
 
     pub fn is_emergency_suspended(&self) -> bool {
         self.state.lock().unwrap().emergency_suspended
+    }
+
+    pub fn set_active_pilot_session_id(&self, session_id: Option<String>) {
+        self.state.lock().unwrap().active_pilot_session_id = session_id;
     }
 
     pub fn update_runtime_status(
@@ -491,11 +499,20 @@ pub fn handle_authenticated_request(
             format!("maintenance_ready={}", state.is_maintenance_ready()),
             state,
         ),
-        EngineControlCommand::RenewPilotSupervision => {
+        EngineControlCommand::RenewPilotSupervision { session_id } => {
             if state.emergency_suspended {
                 mk_resp(
                     false,
                     "Cannot renew operator supervision lease during emergency suspension".into(),
+                    state,
+                )
+            } else if session_id.trim().is_empty()
+                || state.active_pilot_session_id.as_deref() != Some(session_id.as_str())
+            {
+                mk_resp(
+                    false,
+                    "Pilot supervision renewal rejected: session_id mismatch or no active pilot session"
+                        .into(),
                     state,
                 )
             } else {

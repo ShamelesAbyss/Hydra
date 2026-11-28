@@ -305,6 +305,27 @@ impl EngineSignerAuthority {
         })
     }
 
+    /// Wrap a disposable Testnet sandbox signing key without ever touching disk or exposing key bytes.
+    pub fn from_disposable_sandbox_key(
+        wallet_address: Option<&str>,
+        private_key: &str,
+    ) -> Result<Self> {
+        let derived = derive_address(private_key.trim())
+            .map_err(|_| anyhow!("invalid disposable sandbox key; key material omitted"))?;
+        let target_wallet = wallet_address
+            .map(str::trim)
+            .filter(|w| !w.is_empty())
+            .unwrap_or(&derived);
+        let validated = validate_wallet_inputs(target_wallet, private_key)?;
+        Ok(Self {
+            dedicated_wallet_address: validated.dedicated_wallet_address,
+            derived_signer_address: validated.derived_signer_address,
+            signer_relationship: validated.signer_relationship,
+            protection_backend: ProtectionBackend::current(),
+            signing_key: SecretString::new(private_key.trim().to_string()),
+        })
+    }
+
     pub fn wallet_address(&self) -> &str {
         &self.dedicated_wallet_address
     }

@@ -85,8 +85,12 @@ impl VenueAdapter for PilotMockVenue {
             bid: Some(mid * 0.9999),
             ask: Some(mid * 1.0001),
             spread_bps: Some(2.0),
+            l2_depth_usd: Some(500_000.0),
+            funding_bps_1h: Some(0.0),
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: slice,
+            microstructure: None,
         })
     }
 
@@ -254,87 +258,81 @@ fn valid_pilot_limits() -> MonitoredPilotLimits {
 }
 
 fn complete_pilot_registry(risk_sha: &str) -> EvidenceRegistry {
+    use hydra::live_gate::EvidenceProducer;
     let ts = 1_700_200_000_000_i64;
+    let mk = |p: u8, tier, env, fp: &str, msg: &str| {
+        EvidenceRecord::produce_attested(
+            EvidenceProducer::LocalVerificationSuite,
+            p,
+            tier,
+            risk_sha,
+            env,
+            "standard",
+            fp,
+            format!("sha256-{fp}"),
+            "sha3-fang-config-v1",
+            None,
+            ts,
+            msg,
+        )
+        .unwrap()
+    };
     EvidenceRegistry {
         records: vec![
-            EvidenceRecord::signed_new(
+            mk(
                 1,
                 VerificationTier::IntegratedVerified,
-                risk_sha,
                 EvidenceEnvironment::OfflineMock,
-                "standard",
                 "fp-p1",
-                ts,
                 "SettlementStore verified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 2,
                 VerificationTier::IntegratedVerified,
-                risk_sha,
                 EvidenceEnvironment::OfflineMock,
-                "standard",
                 "fp-p2",
-                ts,
                 "Recovery verified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 3,
                 VerificationTier::IntegratedVerified,
-                risk_sha,
                 EvidenceEnvironment::OfflineMock,
-                "standard",
                 "fp-p3",
-                ts,
                 "Protective stops + sovereign risk verified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 4,
                 VerificationTier::IntegratedVerified,
-                risk_sha,
                 EvidenceEnvironment::OfflineMock,
-                "standard",
                 "fp-p4",
-                ts,
                 "IPC + EngineSignerAuthority verified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 5,
                 VerificationTier::IntegratedVerified,
-                risk_sha,
                 EvidenceEnvironment::OfflineMock,
-                "standard",
                 "fp-p5",
-                ts,
                 "Watchdog + sentinel_faults verified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 6,
                 VerificationTier::QualifiedStrategyVerified,
-                risk_sha,
                 EvidenceEnvironment::OfflineMock,
-                "standard",
                 "fp-hist",
-                ts,
                 "Historical OOS strategy qualified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 6,
                 VerificationTier::RealExchangeTestVerified,
-                risk_sha,
                 EvidenceEnvironment::HyperliquidTestnet,
-                "standard",
                 "fp-testnet",
-                ts,
                 "Hyperliquid Testnet reduce_only stop & cancel verified",
             ),
-            EvidenceRecord::signed_new(
+            mk(
                 6,
                 VerificationTier::IntegratedVerified,
-                risk_sha,
                 EvidenceEnvironment::PublicPaper,
-                "standard",
                 "fp-paper",
-                ts,
                 "Live public_paper WS/L2 lifecycle verified",
             ),
         ],
@@ -586,12 +584,26 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
         assert!(g.stops.iter().any(|s| s.symbol == "BTC" && s.reduce_only));
     }
 
-    // Authenticated IPC supervision lease renewal succeeds while not suspended
-    let renew = EngineIpcClient::send_command(
+    // Wrong session_id is rejected even while not suspended
+    let wrong_renew = EngineIpcClient::send_command(
         tmp.path(),
         "pilot-eng",
         1,
-        EngineControlCommand::RenewPilotSupervision,
+        EngineControlCommand::RenewPilotSupervision {
+            session_id: "forged-session".into(),
+        },
+    )
+    .unwrap();
+    assert!(!wrong_renew.ok);
+
+    // Authenticated IPC supervision lease renewal succeeds with real session_id
+    let renew = EngineIpcClient::send_command(
+        tmp.path(),
+        "pilot-eng",
+        2,
+        EngineControlCommand::RenewPilotSupervision {
+            session_id: engine.active_pilot().unwrap().session_id().to_string(),
+        },
     )
     .unwrap();
     assert!(renew.ok);
@@ -600,7 +612,7 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
     let susp = EngineIpcClient::send_command(
         tmp.path(),
         "pilot-eng",
-        2,
+        3,
         EngineControlCommand::EmergencySuspend {
             reason: "pilot drill suspend".into(),
         },
@@ -610,17 +622,20 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
     let renew_after_susp = EngineIpcClient::send_command(
         tmp.path(),
         "pilot-eng",
-        3,
-        EngineControlCommand::RenewPilotSupervision,
+        4,
+        EngineControlCommand::RenewPilotSupervision {
+            session_id: engine.active_pilot().unwrap().session_id().to_string(),
+        },
     )
     .unwrap();
     assert!(!renew_after_susp.ok);
 
     ipc_srv.stop();
 
-    // Simulated restart: newly initialized Engine NEVER auto-resumes monitored pilot grant
+    // Simulated restart: newly initialized Engine NEVER auto-resumes monitored pilot grant,
+    // and remains blocked while emergency suspension is persisted.
     let restarted = Engine::new_with_venues(
-        cfg,
+        cfg.clone(),
         storage,
         vec![Box::new(venue)],
         vec!["BTC".into()],
@@ -630,10 +645,65 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
         None,
         Some(UnifiedStrategyConfig::default()),
         Some(s_store),
-        constraints,
+        constraints.clone(),
         false,
     )
     .await
     .unwrap();
     assert!(restarted.active_pilot().is_none());
+
+    // Separate session_pnl_usd ($50 ceiling) vs daily_pnl_usd ($100 ceiling) on a fresh active pilot engine
+    let tmp2 = tempfile::tempdir().unwrap();
+    let mut cfg2 = cfg;
+    cfg2.data_dir = tmp2.path().to_path_buf();
+    let st2 = Arc::new(Mutex::new(PilotVenueState {
+        bars: BTreeMap::from([("BTC".into(), trending_series(60_000.0, 220.0))]),
+        mids: BTreeMap::from([("BTC".into(), 63_740.0)]),
+        equity_usd: 10_000.0,
+        next_oid: 2_000,
+        ..Default::default()
+    }));
+    let db2 = Storage::open(tmp2.path().join("pilot_loss.db")).unwrap();
+    db2.with_conn(hydra::storage::schema::run_migrations)
+        .unwrap();
+    db2.bind_trading_account("0x3333333333333333333333333333333333333333", false)
+        .unwrap();
+    let mut loss_eng = Engine::new_with_venues(
+        cfg2,
+        db2,
+        vec![Box::new(PilotMockVenue { st: st2 })],
+        vec!["BTC".into()],
+        false,
+        None,
+        Some(EngineControlAuthority::new(
+            "pilot-loss-eng",
+            Arc::new(AtomicBool::new(false)),
+            None,
+        )),
+        None,
+        Some(UnifiedStrategyConfig::default()),
+        None,
+        constraints,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let t1 = t0 + 10_000;
+    let grant2 = authorize_monitored_pilot_session(
+        &reg,
+        "risk-v1",
+        valid_pilot_limits(),
+        "Owner explicitly authorizes BTC pilot under strict limits",
+        true,
+        false,
+        t1,
+    )
+    .unwrap();
+    loss_eng.attach_monitored_pilot_at(grant2, t1).unwrap();
+    // Session loss ceiling is $50 while daily ceiling is $100: -$50 blocks session immediately!
+    loss_eng.record_realized_pnl(Decimal::from(-50));
+    let s_sess = loss_eng.step_once_at(10, t1 + 1_000).await.unwrap();
+    assert!(s_sess.halts_blocked_entries);
+    assert_eq!(s_sess.accepted_entries, 0);
 }

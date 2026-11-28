@@ -515,8 +515,12 @@ impl hydra::adapters::VenueAdapter for EntryVenue {
             bid: Some(99.0),
             ask: Some(101.0),
             spread_bps: Some(1.0),
+            l2_depth_usd: None,
+            funding_bps_1h: None,
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: vec![],
+            microstructure: None,
         })
     }
     async fn open_positions(&self) -> anyhow::Result<Vec<hydra::adapters::VenuePosition>> {

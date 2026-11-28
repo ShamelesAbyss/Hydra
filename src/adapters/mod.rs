@@ -110,6 +110,15 @@ pub trait VenueAdapter: Send + Sync {
         anyhow::bail!("venue does not supply native protective stop inspection")
     }
 
+    /// Per-symbol exchange precision & leverage constraints derived from venue metadata.
+    async fn instrument_constraints(
+        &self,
+    ) -> Result<
+        std::collections::BTreeMap<String, crate::execution_recovery::InstrumentOrderConstraints>,
+    > {
+        Ok(std::collections::BTreeMap::new())
+    }
+
     /// Place a verified native `reduce_only: true` exchange protective stop order.
     async fn place_protective_stop(
         &self,

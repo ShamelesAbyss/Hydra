@@ -68,6 +68,181 @@ struct Options {
     /// Optional HTTP /info endpoint override for `--paper-service-worker`.
     #[arg(long, hide = true)]
     info_url: Option<String>,
+    /// Internal headless external WatchdogSupervisor mode for self-contained supervision.
+    #[arg(long, hide = true)]
+    watchdog_supervisor: bool,
+    /// Supervised target (`paper` or `engine`) when invoking `--watchdog-supervisor`.
+    #[arg(long, hide = true, default_value = "paper")]
+    watchdog_target: String,
+    /// Engine ID when invoking `--watchdog-supervisor --watchdog-target engine`.
+    #[arg(long, hide = true, default_value = "main-engine")]
+    engine_id: String,
+    /// Maximum supervised worker launches for `--watchdog-supervisor`.
+    #[arg(long, hide = true, default_value_t = 4)]
+    watchdog_max_launches: usize,
+    /// Watchdog heartbeat stall timeout in milliseconds.
+    #[arg(long, hide = true, default_value_t = 30_000)]
+    watchdog_heartbeat_ms: i64,
+}
+
+fn run_headless_watchdog_supervisor(options: &Options) -> anyhow::Result<()> {
+    let root = match options.root.as_ref() {
+        Some(r) => r.clone(),
+        None => hydra::paper_store::PaperStore::default_root()?,
+    };
+    let exe = std::env::current_exe()?;
+    let policy = hydra::watchdog::WatchdogPolicy {
+        heartbeat_timeout_ms: options.watchdog_heartbeat_ms.max(1_000),
+        ..Default::default()
+    };
+    let mut supervisor = hydra::watchdog::WatchdogSupervisor::acquire(&root, policy)?;
+    let poll_interval = std::time::Duration::from_millis(500);
+    let stop_grace = std::time::Duration::from_secs(4);
+    let max_launches = options.watchdog_max_launches.max(1);
+
+    let summary = if options.watchdog_target.eq_ignore_ascii_case("engine") {
+        let engine_id = options.engine_id.clone();
+        let db_str = options
+            .db
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "data/hydra.db".to_string());
+        let nonce = std::sync::atomic::AtomicU64::new(1);
+        let root_probe = root.clone();
+        let root_stop = root.clone();
+        let eid_probe = engine_id.clone();
+        let eid_stop = engine_id.clone();
+        supervisor.supervise_live_worker(
+            &exe,
+            &["--db", &db_str],
+            poll_interval,
+            stop_grace,
+            max_launches,
+            move |_pid| {
+                let n = nonce.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                match hydra::engine_ipc::EngineIpcClient::send_command(
+                    &root_probe,
+                    &eid_probe,
+                    n,
+                    hydra::engine_ipc::EngineControlCommand::Heartbeat,
+                ) {
+                    Ok(resp) => hydra::watchdog::WorkerHealthProbe {
+                        alive_heartbeat_ms: Some(resp.timestamp_ms),
+                        progress_counter: n,
+                        healthy: resp.ok && !resp.breaker_latched,
+                        detail: format!("mode={} msg={}", resp.mode, resp.message),
+                    },
+                    Err(e) => hydra::watchdog::WorkerHealthProbe {
+                        alive_heartbeat_ms: None,
+                        progress_counter: 0,
+                        healthy: false,
+                        detail: format!("engine IPC heartbeat unreachable: {e}"),
+                    },
+                }
+            },
+            move |_pid| {
+                let ts_nonce = chrono::Utc::now().timestamp_millis().max(1) as u64;
+                let _ = hydra::engine_ipc::EngineIpcClient::send_command(
+                    &root_stop,
+                    &eid_stop,
+                    ts_nonce,
+                    hydra::engine_ipc::EngineControlCommand::GracefulShutdown,
+                );
+                Ok(())
+            },
+        )?
+    } else {
+        let session_id = options
+            .session
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--session is required with --watchdog-supervisor"))?
+            .to_string();
+        let root_str = root.display().to_string();
+        let interval_str = options.interval_s.clamp(2, 60).to_string();
+        let db_str = options.db.as_ref().map(|p| p.display().to_string());
+        let max_ticks_str = options.max_ticks.map(|m| m.to_string());
+        let mut owned_args: Vec<String> = vec![
+            "--paper-service-worker".into(),
+            "--session".into(),
+            session_id.clone(),
+            "--root".into(),
+            root_str,
+            "--interval-s".into(),
+            interval_str,
+        ];
+        if let Some(ref d) = db_str {
+            owned_args.push("--db".into());
+            owned_args.push(d.clone());
+        }
+        if let Some(ref m) = max_ticks_str {
+            owned_args.push("--max-ticks".into());
+            owned_args.push(m.clone());
+        }
+        if let Some(ref ws) = options.ws_url {
+            owned_args.push("--ws-url".into());
+            owned_args.push(ws.clone());
+        }
+        if let Some(ref info) = options.info_url {
+            owned_args.push("--info-url".into());
+            owned_args.push(info.clone());
+        }
+        let arg_refs: Vec<&str> = owned_args.iter().map(String::as_str).collect();
+        let root_probe = root.clone();
+        let root_stop = root.clone();
+        let sid_probe = session_id.clone();
+        let sid_stop = session_id;
+        supervisor.supervise_live_worker(
+            &exe,
+            &arg_refs,
+            poll_interval,
+            stop_grace,
+            max_launches,
+            move |pid| match hydra::paper_service::PaperServiceClient::send_command(
+                &root_probe,
+                &sid_probe,
+                hydra::paper_service::PaperControlCommand::Status,
+            ) {
+                Ok(resp) => {
+                    let hb_ms = chrono::DateTime::parse_from_rfc3339(&resp.checked_at)
+                        .ok()
+                        .map(|dt| dt.timestamp_millis());
+                    let healthy = resp.ok
+                        && resp.pid == pid
+                        && resp.status != "faulted"
+                        && resp.fault_reason.is_none();
+                    hydra::watchdog::WorkerHealthProbe {
+                        alive_heartbeat_ms: hb_ms,
+                        progress_counter: resp.cycle_count,
+                        healthy,
+                        detail: format!(
+                            "status={} cycle={} fault={:?}",
+                            resp.status, resp.cycle_count, resp.fault_reason
+                        ),
+                    }
+                }
+                Err(e) => hydra::watchdog::WorkerHealthProbe {
+                    alive_heartbeat_ms: None,
+                    progress_counter: 0,
+                    healthy: false,
+                    detail: format!("paper IPC probe failed: {e}"),
+                },
+            },
+            move |_pid| {
+                let _ = hydra::paper_service::PaperServiceClient::send_command(
+                    &root_stop,
+                    &sid_stop,
+                    hydra::paper_service::PaperControlCommand::Stop,
+                );
+                Ok(())
+            },
+        )?
+    };
+
+    hydra::startup_diagnostics::log_startup(&format!(
+        "WATCHDOG SUPERVISOR FINISHED: launches={} restarts={} escalated={} detail={}",
+        summary.launches, summary.restarts, summary.escalated, summary.detail
+    ));
+    Ok(())
 }
 
 fn run_headless_paper_worker(options: &Options) -> anyhow::Result<()> {
@@ -113,6 +288,16 @@ fn run_headless_paper_worker(options: &Options) -> anyhow::Result<()> {
 fn main() {
     hydra::startup_diagnostics::install_panic_hook();
     let options = Options::parse();
+    if options.watchdog_supervisor {
+        if let Err(err) = run_headless_watchdog_supervisor(&options) {
+            hydra::startup_diagnostics::log_startup(&format!(
+                "WATCHDOG SUPERVISOR FAILED: {err:#}"
+            ));
+            eprintln!("watchdog supervisor failed: {err:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if options.paper_service_worker {
         if let Err(err) = run_headless_paper_worker(&options) {
             hydra::startup_diagnostics::log_startup(&format!(

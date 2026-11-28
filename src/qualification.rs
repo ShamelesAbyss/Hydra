@@ -210,6 +210,15 @@ pub fn evaluate_scientific_strategy_acceptance(
     criteria: &ScientificAcceptanceCriteria,
 ) -> StrategyAcceptanceVerdict {
     let mut reasons = Vec::new();
+    let metrics_finite = portfolio.metrics.net_return_pct.is_finite()
+        && portfolio.excess_over_buy_and_hold_pct.is_finite()
+        && portfolio.metrics.max_drawdown_pct.is_finite()
+        && walk_forward.mean_oos_return_pct.is_finite()
+        && walk_forward.worst_oos_drawdown_pct.is_finite()
+        && bootstrap.p05_mean_return_pct.is_finite();
+    if !metrics_finite {
+        reasons.push("Non-finite NaN/Inf metric observed in strategy acceptance report".into());
+    }
     if portfolio.metrics.trades_count < criteria.min_trades {
         reasons.push(format!(
             "Insufficient simulated trades ({} < min {})",
@@ -234,12 +243,21 @@ pub fn evaluate_scientific_strategy_acceptance(
             portfolio.metrics.max_drawdown_pct, criteria.max_drawdown_pct
         ));
     }
+    if walk_forward.worst_oos_drawdown_pct > criteria.max_drawdown_pct {
+        reasons.push(format!(
+            "Worst OOS fold drawdown {:.2}% exceeds {:.2}% cap",
+            walk_forward.worst_oos_drawdown_pct, criteria.max_drawdown_pct
+        ));
+    }
     if walk_forward.folds.len() < criteria.min_walk_forward_folds {
         reasons.push(format!(
             "Walk-forward fold count {} < minimum {}",
             walk_forward.folds.len(),
             criteria.min_walk_forward_folds
         ));
+    }
+    if walk_forward.folds.iter().any(|f| f.test_trades == 0) {
+        reasons.push("Walk-forward validation contains zero-trade OOS fold".into());
     }
     if walk_forward.mean_oos_return_pct < criteria.min_mean_oos_return_pct {
         reasons.push(format!(
@@ -685,6 +703,81 @@ mod tests {
         );
         assert!(matches!(
             verdict,
+            StrategyAcceptanceVerdict::RejectedKeepDisabled { .. }
+        ));
+
+        // Passing baseline report then test NaN / Inf / worst_oos_drawdown_pct / zero-trade fold rejections.
+        let mut good_p = p_rep.clone();
+        good_p.metrics.trades_count = 12;
+        good_p.metrics.net_return_pct = 5.0;
+        good_p.excess_over_buy_and_hold_pct = 2.0;
+        good_p.metrics.max_drawdown_pct = 4.0;
+        let mut good_wf = wf.clone();
+        good_wf.mean_oos_return_pct = 3.0;
+        good_wf.worst_oos_drawdown_pct = 5.0;
+        good_wf.folds = vec![
+            crate::oracle_research::PurgedFoldResult {
+                fold_index: 0,
+                train_range: (0, 20),
+                embargo_range: (20, 22),
+                test_range: (22, 37),
+                train_net_return_pct: 2.0,
+                test_net_return_pct: 3.0,
+                test_max_drawdown_pct: 4.0,
+                test_trades: 3,
+                excess_over_buy_hold_pct: 1.0,
+            },
+            crate::oracle_research::PurgedFoldResult {
+                fold_index: 1,
+                train_range: (10, 30),
+                embargo_range: (30, 32),
+                test_range: (32, 47),
+                train_net_return_pct: 2.0,
+                test_net_return_pct: 3.0,
+                test_max_drawdown_pct: 5.0,
+                test_trades: 4,
+                excess_over_buy_hold_pct: 1.0,
+            },
+        ];
+        let good_boot = BootstrapInterval {
+            samples: 10,
+            block_len: 3,
+            resamples: 50,
+            p05_mean_return_pct: 0.5,
+            median_mean_return_pct: 2.0,
+            p95_mean_return_pct: 4.0,
+        };
+        let criteria = ScientificAcceptanceCriteria::default();
+        assert!(matches!(
+            evaluate_scientific_strategy_acceptance(&good_p, &good_wf, &good_boot, &criteria),
+            StrategyAcceptanceVerdict::EligibleForMonitoredPilot { .. }
+        ));
+
+        let mut nan_p = good_p.clone();
+        nan_p.metrics.net_return_pct = f64::NAN;
+        assert!(matches!(
+            evaluate_scientific_strategy_acceptance(&nan_p, &good_wf, &good_boot, &criteria),
+            StrategyAcceptanceVerdict::RejectedKeepDisabled { .. }
+        ));
+
+        let mut inf_boot = good_boot.clone();
+        inf_boot.p05_mean_return_pct = f64::INFINITY;
+        assert!(matches!(
+            evaluate_scientific_strategy_acceptance(&good_p, &good_wf, &inf_boot, &criteria),
+            StrategyAcceptanceVerdict::RejectedKeepDisabled { .. }
+        ));
+
+        let mut dd_wf = good_wf.clone();
+        dd_wf.worst_oos_drawdown_pct = 25.0;
+        assert!(matches!(
+            evaluate_scientific_strategy_acceptance(&good_p, &dd_wf, &good_boot, &criteria),
+            StrategyAcceptanceVerdict::RejectedKeepDisabled { .. }
+        ));
+
+        let mut zero_wf = good_wf.clone();
+        zero_wf.folds[1].test_trades = 0;
+        assert!(matches!(
+            evaluate_scientific_strategy_acceptance(&good_p, &zero_wf, &good_boot, &criteria),
             StrategyAcceptanceVerdict::RejectedKeepDisabled { .. }
         ));
     }

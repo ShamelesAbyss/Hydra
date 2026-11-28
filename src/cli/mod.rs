@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use comfy_table::{presets::UTF8_BORDERS_ONLY, ContentArrangement, Table};
 use owo_colors::OwoColorize;
 
+use crate::adapters::VenueAdapter;
 use crate::config::AppConfig;
 use crate::core::engine::Engine;
 use crate::monitoring::HealthReport;
@@ -12,6 +13,7 @@ use crate::reporting::SessionReporter;
 use crate::state::StateManager;
 use crate::storage::Storage;
 use crate::utils::banner;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Venue {
@@ -298,6 +300,42 @@ pub enum Command {
     },
     /// Read-only public Hyperliquid Testnet capability probe (asset universe, precision & mids; no keys or orders).
     TestnetProbe {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run external `WatchdogSupervisor` supervising the detached paper worker with restart budget & backoff.
+    WatchdogSupervise {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        db: Option<PathBuf>,
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long, default_value_t = 5)]
+        interval_s: u64,
+        #[arg(long, default_value_t = 4)]
+        max_launches: usize,
+        #[arg(long)]
+        max_ticks: Option<u64>,
+        #[arg(long)]
+        ws_url: Option<String>,
+        #[arg(long)]
+        info_url: Option<String>,
+    },
+    /// Isolated owner-confirmed Hyperliquid Testnet functional qualification workflow (never mainnet keys).
+    TestnetQualify {
+        #[arg(long)]
+        execute_confirmed: bool,
+        #[arg(long)]
+        wallet: Option<String>,
+        #[arg(long)]
+        key_env: Option<String>,
+        #[arg(long, default_value = "BTC")]
+        symbol: String,
+        #[arg(long, default_value_t = 25.0)]
+        max_notional_usd: f64,
+        #[arg(long)]
+        out: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -884,6 +922,290 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         }
         return Ok(());
     }
+    if let Command::WatchdogSupervise {
+        session,
+        db,
+        root,
+        interval_s,
+        max_launches,
+        max_ticks,
+        ws_url,
+        info_url,
+    } = &cli.cmd
+    {
+        let wd_root = match root {
+            Some(r) => r.clone(),
+            None => crate::paper_store::PaperStore::default_root()?,
+        };
+        let exe = std::env::current_exe().context("locate hydra executable")?;
+        let mut owned: Vec<String> = vec![
+            "--no-banner".into(),
+            "paper-service".into(),
+            "run".into(),
+            "--session".into(),
+            session.clone(),
+            "--root".into(),
+            wd_root.display().to_string(),
+            "--interval-s".into(),
+            (*interval_s).clamp(2, 60).to_string(),
+        ];
+        if let Some(ref d) = db {
+            owned.push("--db".into());
+            owned.push(d.display().to_string());
+        }
+        if let Some(m) = max_ticks {
+            owned.push("--max-ticks".into());
+            owned.push(m.to_string());
+        }
+        if let Some(ref w) = ws_url {
+            owned.push("--ws-url".into());
+            owned.push(w.clone());
+        }
+        if let Some(ref i) = info_url {
+            owned.push("--info-url".into());
+            owned.push(i.clone());
+        }
+        let arg_refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let mut sup = crate::watchdog::WatchdogSupervisor::acquire(
+            &wd_root,
+            crate::watchdog::WatchdogPolicy::default(),
+        )?;
+        let root_probe = wd_root.clone();
+        let root_stop = wd_root.clone();
+        let sid_probe = session.clone();
+        let sid_stop = session.clone();
+        let summary = sup.supervise_live_worker(
+            &exe,
+            &arg_refs,
+            std::time::Duration::from_millis(500),
+            std::time::Duration::from_secs(4),
+            (*max_launches).max(1),
+            move |pid| match crate::paper_service::PaperServiceClient::send_command(
+                &root_probe,
+                &sid_probe,
+                crate::paper_service::PaperControlCommand::Status,
+            ) {
+                Ok(resp) => crate::watchdog::WorkerHealthProbe {
+                    alive_heartbeat_ms: chrono::DateTime::parse_from_rfc3339(&resp.checked_at)
+                        .ok()
+                        .map(|d| d.timestamp_millis()),
+                    progress_counter: resp.cycle_count,
+                    healthy: resp.ok
+                        && resp.pid == pid
+                        && resp.status != "faulted"
+                        && resp.fault_reason.is_none(),
+                    detail: format!("status={} cycle={}", resp.status, resp.cycle_count),
+                },
+                Err(e) => crate::watchdog::WorkerHealthProbe {
+                    alive_heartbeat_ms: None,
+                    progress_counter: 0,
+                    healthy: false,
+                    detail: format!("paper IPC probe failed: {e}"),
+                },
+            },
+            move |_pid| {
+                let _ = crate::paper_service::PaperServiceClient::send_command(
+                    &root_stop,
+                    &sid_stop,
+                    crate::paper_service::PaperControlCommand::Stop,
+                );
+                Ok(())
+            },
+        )?;
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+    if let Command::TestnetQualify {
+        execute_confirmed,
+        wallet,
+        key_env,
+        symbol,
+        max_notional_usd,
+        out,
+        json,
+    } = &cli.cmd
+    {
+        anyhow::ensure!(
+            crate::live_gate::is_hyperliquid_testnet_url(crate::hyperliquid_wire::TESTNET_INFO)
+                && crate::live_gate::is_hyperliquid_testnet_url(
+                    crate::hyperliquid_wire::TESTNET_EXCHANGE
+                ),
+            "Testnet URL check failed closed"
+        );
+        if let (Ok(Some(prod_profile)), Some(w)) = (
+            crate::treasury::TreasuryStore::default_store().and_then(|s| s.load_profile()),
+            wallet.as_deref(),
+        ) {
+            anyhow::ensure!(
+                !w.trim()
+                    .eq_ignore_ascii_case(&prod_profile.dedicated_wallet_address)
+                    && !w
+                        .trim()
+                        .eq_ignore_ascii_case(&prod_profile.derived_signer_address),
+                "Testnet workflow refused: wallet matches configured ProductionMainnet Treasury identity"
+            );
+        }
+
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(12))
+            .build()?;
+        let mids: serde_json::Value = client
+            .post(crate::hyperliquid_wire::TESTNET_INFO)
+            .json(&serde_json::json!({ "type": "allMids" }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let sym_mid: Option<f64> = mids
+            .get(symbol)
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .filter(|v: &f64| v.is_finite() && *v > 0.0);
+
+        let report = if !execute_confirmed {
+            serde_json::json!({
+                "environment": "HyperliquidTestnet",
+                "transport_class": "TestnetSandbox",
+                "endpoint": crate::hyperliquid_wire::TESTNET_INFO,
+                "executed_mutations": false,
+                "symbol": symbol,
+                "testnet_mid": sym_mid,
+                "wallet_supplied": wallet.is_some(),
+                "next_owner_action": "Provision a disposable Testnet wallet + valueless faucet funds, set key env var, and run: hydra testnet-qualify --execute-confirmed --wallet 0x... --key-env HYDRA_TESTNET_KEY --out testnet_evidence.json"
+            })
+        } else {
+            let wallet_addr = wallet
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("--wallet required with --execute-confirmed"))?;
+            let env_name = key_env
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("--key-env required with --execute-confirmed"))?;
+            let raw_key = std::env::var(env_name).with_context(|| {
+                format!("environment variable '{env_name}' not set for disposable Testnet key")
+            })?;
+            let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(
+                Some(wallet_addr),
+                &raw_key,
+            )?;
+            let mut t_cfg = AppConfig::load_research(&cli.config, None)?;
+            t_cfg.live_trading = true;
+            t_cfg.hl_account_address = Some(signer.wallet_address().to_string());
+            t_cfg.hl_private_key = Some(raw_key);
+            let adapter = crate::adapters::hyperliquid::HyperliquidAdapter::new_testnet(&t_cfg)
+                .await
+                .context("initialize HyperliquidAdapter TestnetSandbox")?;
+            let snap = adapter.snapshot(symbol, 16).await?;
+            let eq = adapter.account_equity_usd().await?;
+            let notional = (*max_notional_usd).clamp(11.0, 50.0);
+            let qty = (notional / snap.mid).max(0.0001);
+            let buy_intent = crate::core::OrderIntent {
+                id: uuid::Uuid::new_v4().to_string(),
+                venue: "hyperliquid".into(),
+                symbol: symbol.clone(),
+                side: crate::core::Side::Long,
+                size: qty,
+                limit_price: Some(snap.mid * 1.005),
+                reduce_only: false,
+                stop_price: Some(snap.mid * 0.98),
+                take_profit: Some(snap.mid * 1.03),
+                source_signal: Some("testnet_qualify".into()),
+                created_at: chrono::Utc::now(),
+            };
+            let buy_res = adapter.submit_order(&buy_intent).await?;
+            let mut stop_verified = false;
+            if buy_res.accepted && buy_res.filled_size > 0.0 {
+                let stop_spec = crate::protective_orders::ProtectiveOrderSpec {
+                    cloid: uuid::Uuid::new_v4().to_string(),
+                    exchange_oid: None,
+                    symbol: symbol.clone(),
+                    owner_strategy: "testnet_qualify".into(),
+                    position_side: crate::core::Side::Long,
+                    protective_side: crate::core::Side::Short,
+                    qty: rust_decimal::Decimal::try_from(buy_res.filled_size)
+                        .unwrap_or(rust_decimal::Decimal::ONE),
+                    trigger_price: rust_decimal::Decimal::try_from((snap.mid * 0.98).max(0.1))
+                        .unwrap_or(rust_decimal::Decimal::ONE),
+                    reduce_only: true,
+                };
+                if let Ok(placed_stop) = adapter.place_protective_stop(&stop_spec).await {
+                    let _ = adapter
+                        .cancel_protective_stop(
+                            symbol,
+                            placed_stop.exchange_oid,
+                            &placed_stop.cloid,
+                        )
+                        .await;
+                    stop_verified = true;
+                }
+                let _ = adapter
+                    .close_position(symbol, buy_res.filled_size, false)
+                    .await;
+            }
+            let payload_json = serde_json::json!({
+                "environment": "HyperliquidTestnet",
+                "executed_mutations": true,
+                "wallet": signer.wallet_address(),
+                "signer": signer.signer_address(),
+                "symbol": symbol,
+                "equity_usd": eq,
+                "order_accepted": buy_res.accepted,
+                "filled_size": buy_res.filled_size,
+                "stop_verified": stop_verified,
+            });
+            if let Some(ref out_path) = out {
+                use sha3::{Digest, Sha3_256};
+                let mut h = Sha3_256::new();
+                h.update(payload_json.to_string().as_bytes());
+                let art_sha = hex::encode(h.finalize());
+                let ev = crate::live_gate::EvidenceRecord::produce_attested(
+                    crate::live_gate::EvidenceProducer::HyperliquidTestnetProbe,
+                    6,
+                    if buy_res.accepted && stop_verified {
+                        crate::live_gate::VerificationTier::RealExchangeTestVerified
+                    } else {
+                        crate::live_gate::VerificationTier::IntegratedVerified
+                    },
+                    "testnet-sandbox",
+                    crate::live_gate::EvidenceEnvironment::HyperliquidTestnet,
+                    "testnet_sandbox",
+                    format!("hl-testnet-{}-{}", symbol, chrono::Utc::now().timestamp()),
+                    art_sha,
+                    crate::fang_engine::REGISTRY_VERSION,
+                    Some(7 * 86_400_000),
+                    chrono::Utc::now().timestamp_millis(),
+                    format!("Testnet IOC + reduce_only stop verification on {symbol}"),
+                )?;
+                std::fs::write(out_path, serde_json::to_string_pretty(&ev)?)?;
+            }
+            payload_json
+        };
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            let executed = report
+                .get("executed_mutations")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let sym = report
+                .get("symbol")
+                .and_then(|v| v.as_str())
+                .unwrap_or(symbol);
+            println!(
+                "Testnet Qualify [HyperliquidTestnet / {}]: executed_mutations={}",
+                sym, executed
+            );
+            if let Some(hint) = report.get("next_owner_action").and_then(|v| v.as_str()) {
+                println!("{hint}");
+            }
+        }
+        return Ok(());
+    }
     if let Command::PilotReadiness {
         policy,
         evidence,
@@ -1235,6 +1557,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::StrategyAccept { .. }
         | Command::ProfileHost { .. }
         | Command::TestnetProbe { .. }
+        | Command::WatchdogSupervise { .. }
+        | Command::TestnetQualify { .. }
         | Command::PilotReadiness { .. } => {
             unreachable!("handled above")
         }

@@ -82,8 +82,12 @@ impl VenueAdapter for StatefulMockVenue {
             bid: g.spread_bps.map(|_| g.mid * 0.9999),
             ask: g.spread_bps.map(|_| g.mid * 1.0001),
             spread_bps: g.spread_bps,
+            l2_depth_usd: g.spread_bps.map(|_| 500_000.0),
+            funding_bps_1h: g.spread_bps.map(|_| 0.0),
             last_update: Utc::now(),
+            observed_exchange_ts_ms: None,
             candles: slice,
+            microstructure: None,
         })
     }
 
@@ -207,6 +211,21 @@ impl VenueAdapter for StatefulMockVenue {
                 && (exchange_oid.is_some() && s.exchange_oid == exchange_oid || s.cloid == cloid))
         });
         Ok(())
+    }
+
+    async fn instrument_constraints(
+        &self,
+    ) -> anyhow::Result<BTreeMap<String, InstrumentOrderConstraints>> {
+        Ok(BTreeMap::from([(
+            "BTC".into(),
+            InstrumentOrderConstraints {
+                symbol: "BTC".into(),
+                tick_size: Decimal::new(1, 1),
+                lot_size: Decimal::new(1, 4),
+                min_notional_usd: Decimal::from(10u32),
+                max_leverage: Decimal::from(20u32),
+            },
+        )]))
     }
 }
 
@@ -573,4 +592,74 @@ async fn denial_paths_missing_sovereign_inputs_and_oracle_genesis_fingerprinting
         ..opts
     };
     assert!(run_nsga2_campaign(&ds, 40, 4, &bad_opts, Some(&gen_rep.checkpoint)).is_err());
+
+    // Missing `instrument_max_leverage` (no synthetic 20x fallback) MUST also fail closed in AEGIS!
+    let mock_no_lev = Arc::new(Mutex::new(MockVenueState {
+        candles: trending_btc_candles(),
+        mid: 64_000.0,
+        spread_bps: Some(2.0),
+        equity_usd: 10_000.0,
+        next_oid: 1,
+        ..Default::default()
+    }));
+    struct NoConstraintsVenue(Arc<Mutex<MockVenueState>>);
+    #[async_trait::async_trait]
+    impl VenueAdapter for NoConstraintsVenue {
+        fn kind(&self) -> hydra::core::VenueKind {
+            hydra::core::VenueKind::Hyperliquid
+        }
+        fn is_production_venue(&self) -> bool {
+            false
+        }
+        async fn ping(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn snapshot(&self, symbol: &str, lookback: usize) -> anyhow::Result<MarketSnapshot> {
+            StatefulMockVenue { st: self.0.clone() }
+                .snapshot(symbol, lookback)
+                .await
+        }
+        async fn open_positions(&self) -> anyhow::Result<Vec<VenuePosition>> {
+            Ok(vec![])
+        }
+        async fn submit_order(&self, intent: &OrderIntent) -> anyhow::Result<OrderResult> {
+            StatefulMockVenue { st: self.0.clone() }
+                .submit_order(intent)
+                .await
+        }
+        async fn close_position(&self, _: &str, _: f64, _: bool) -> anyhow::Result<OrderResult> {
+            anyhow::bail!("unused")
+        }
+        async fn account_equity_usd(&self) -> anyhow::Result<f64> {
+            Ok(10_000.0)
+        }
+    }
+    let tmp_nolev = tempfile::tempdir().unwrap();
+    let mut cfg_nl = AppConfig::load_research("config/strategies.toml", None).unwrap();
+    cfg_nl.data_dir = tmp_nolev.path().to_path_buf();
+    cfg_nl.live_trading = false;
+    let db_nl = Storage::open(tmp_nolev.path().join("nolev.db")).unwrap();
+    db_nl
+        .with_conn(hydra::storage::schema::run_migrations)
+        .unwrap();
+    let mut eng_nl = Engine::new_with_venues(
+        cfg_nl,
+        db_nl,
+        vec![Box::new(NoConstraintsVenue(mock_no_lev.clone()))],
+        vec!["BTC".into()],
+        false,
+        None,
+        None,
+        None,
+        None,
+        None,
+        BTreeMap::new(),
+        false,
+    )
+    .await
+    .unwrap();
+    let nl_step = eng_nl.step_once(1).await.unwrap();
+    assert_eq!(nl_step.accepted_entries, 0);
+    assert!(nl_step.risk_rejected >= 1);
+    assert!(mock_no_lev.lock().unwrap().filled_intents.is_empty());
 }

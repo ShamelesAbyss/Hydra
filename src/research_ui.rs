@@ -8,10 +8,22 @@ use crate::{
 };
 use eframe::egui::{self, Color32, Pos2, RichText, Sense, Stroke, Vec2};
 use std::{
-    path::Path,
-    sync::mpsc::{self, Receiver},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver},
+        Arc,
+    },
     time::Instant,
 };
+
+pub struct MultiMarketLabResult {
+    pub portfolio: crate::oracle_research::PortfolioResearchReport,
+    pub walk_forward: crate::oracle_research::PurgedWalkForwardReport,
+    pub bootstrap: crate::oracle_research::BootstrapInterval,
+    pub verdict: crate::qualification::StrategyAcceptanceVerdict,
+    pub fingerprint: String,
+}
 
 enum Completed {
     Oracle(ReplayReport),
@@ -22,8 +34,17 @@ enum Completed {
         progress: crate::genesis::SearchProgress,
         output: String,
     },
+    MultiMarket(Box<MultiMarketLabResult>),
+    Nsga2(Box<crate::genesis_nsga2::Nsga2CampaignReport>),
 }
 pub struct ResearchWorkspace {
+    db_path: Option<PathBuf>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+    multi_dataset_path: String,
+    multi_folds: usize,
+    multi_embargo: usize,
+    multi_result: Option<MultiMarketLabResult>,
+    nsga2_result: Option<crate::genesis_nsga2::Nsga2CampaignReport>,
     assessment_mode: bool,
     held_out_path: String,
     assessment_options_path: String,
@@ -54,6 +75,13 @@ pub struct ResearchWorkspace {
 impl Default for ResearchWorkspace {
     fn default() -> Self {
         Self {
+            db_path: None,
+            cancel_flag: None,
+            multi_dataset_path: String::new(),
+            multi_folds: 3,
+            multi_embargo: 4,
+            multi_result: None,
+            nsga2_result: None,
             assessment_mode: false,
             held_out_path: String::new(),
             assessment_options_path: String::new(),
@@ -84,6 +112,10 @@ impl Default for ResearchWorkspace {
     }
 }
 impl ResearchWorkspace {
+    pub fn set_db_path(&mut self, path: PathBuf) {
+        self.db_path = Some(path);
+    }
+
     pub fn running_head(&self) -> Option<usize> {
         self.running_head
     }
@@ -180,9 +212,19 @@ impl ResearchWorkspace {
             )),
         });
         let result = result?;
+        let was_cancelled = self
+            .cancel_flag
+            .as_ref()
+            .is_some_and(|f| f.load(Ordering::SeqCst));
         let head = self.running_head.take();
         self.receiver = None;
+        self.cancel_flag = None;
         self.started = None;
+        if was_cancelled {
+            self.error = Some("Research job cancelled before accepting results".into());
+            ctx.request_repaint();
+            return head;
+        }
         match result {
             Ok(Completed::Validation(report)) => {
                 self.validation = Some(report);
@@ -203,6 +245,34 @@ impl ResearchWorkspace {
             }
             Ok(Completed::Genesis(report)) => {
                 self.genesis = Some(report);
+                self.error = None;
+            }
+            Ok(Completed::MultiMarket(res)) => {
+                if let Some(ref db_p) = self.db_path {
+                    if let Ok(st) = crate::storage::Storage::open(db_p) {
+                        let _ = crate::oracle_research::persist_oracle_research_event(
+                            &st,
+                            &format!("lab-oracle-{}", chrono::Utc::now().timestamp()),
+                            "default",
+                            &res.fingerprint,
+                            &res.portfolio,
+                        );
+                    }
+                }
+                self.multi_result = Some(*res);
+                self.error = None;
+            }
+            Ok(Completed::Nsga2(rep)) => {
+                if let Some(ref db_p) = self.db_path {
+                    if let Ok(st) = crate::storage::Storage::open(db_p) {
+                        let _ = crate::genesis_nsga2::persist_genesis_research_event(
+                            &st,
+                            &format!("lab-nsga2-{}", chrono::Utc::now().timestamp()),
+                            &rep,
+                        );
+                    }
+                }
+                self.nsga2_result = Some(*rep);
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
@@ -371,6 +441,16 @@ impl ResearchWorkspace {
                     },
                     started.elapsed().as_secs_f32()
                 ));
+                if ui.button("Cancel Job").clicked() {
+                    if let Some(ref flag) = self.cancel_flag {
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                    self.receiver = None;
+                    self.cancel_flag = None;
+                    self.running_head = None;
+                    self.started = None;
+                    self.error = Some("Research job cancelled".into());
+                }
             });
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(250));
@@ -419,14 +499,196 @@ impl ResearchWorkspace {
         }
         ui.separator();
         ui.collapsing(
-            RichText::new("ORACLE Multi-Market & Purged Walk-Forward / GENESIS NSGA-II Engines")
+            RichText::new("ORACLE Multi-Market & Purged Walk-Forward / GENESIS NSGA-II Laboratory")
                 .strong()
                 .color(Color32::from_rgb(179, 116, 250)),
             |ui| {
-                ui.label("Multi-market synchronized portfolio simulation (`simulate_portfolio`) includes >=1-bar latency, bid/ask spread, sqrt depth slippage, hourly historical funding, outage windows, and buy-and-hold excess.");
-                ui.label("Purged + embargoed walk-forward cross-validation + circular block-bootstrap CI + deterministic multi-worker NSGA-II (`auto_deployment_authorized: false`) are exposed via `hydra oracle-portfolio` and `hydra genesis-nsga2`.");
+                ui.add_enabled_ui(self.receiver.is_none(), |ui| {
+                    path(ui, "MultiMarketDataset JSON", &mut self.multi_dataset_path);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Folds:");
+                        ui.add(egui::DragValue::new(&mut self.multi_folds).range(2..=8));
+                        ui.label("Embargo bars:");
+                        ui.add(egui::DragValue::new(&mut self.multi_embargo).range(1..=48));
+                        if ui
+                            .button("Run Multi-Market Evaluation + Scientific Gate")
+                            .clicked()
+                        {
+                            self.start_multi_market(false, ui.ctx());
+                        }
+                        if ui.button("Run Bounded NSGA-II Campaign").clicked() {
+                            self.start_multi_market(true, ui.ctx());
+                        }
+                    });
+                });
+                if let Some(ref res) = self.multi_result {
+                    ui.label(
+                        RichText::new(format!(
+                            "SIMULATED MULTI-MARKET · {} trades · net={:+.2}% · excess_vs_BH={:+.2}% · maxDD={:.2}% · worst_OOS_DD={:.2}% · boot_p05={:+.2}% · fp={}…",
+                            res.portfolio.metrics.trades_count,
+                            res.portfolio.metrics.net_return_pct,
+                            res.portfolio.excess_over_buy_and_hold_pct,
+                            res.portfolio.metrics.max_drawdown_pct,
+                            res.walk_forward.worst_oos_drawdown_pct,
+                            res.bootstrap.p05_mean_return_pct,
+                            &res.fingerprint[..16.min(res.fingerprint.len())]
+                        ))
+                        .monospace()
+                        .small(),
+                    );
+                    match &res.verdict {
+                        crate::qualification::StrategyAcceptanceVerdict::EligibleForMonitoredPilot { summary } => {
+                            ui.colored_label(Color32::from_rgb(58, 232, 165), summary);
+                        }
+                        crate::qualification::StrategyAcceptanceVerdict::RejectedKeepDisabled { reasons } => {
+                            ui.colored_label(
+                                Color32::from_rgb(246, 188, 83),
+                                format!("REJECTED (keep disabled): {}", reasons.join("; ")),
+                            );
+                        }
+                    }
+                }
+                if let Some(ref rep) = self.nsga2_result {
+                    ui.label(
+                        RichText::new(format!(
+                            "NSGA-II (workers={}, auto_deploy={}) · pareto={} · held_out={} · eval={}",
+                            rep.workers_used,
+                            rep.auto_deployment_authorized,
+                            rep.pareto_front.len(),
+                            rep.held_out_assessments.len(),
+                            rep.checkpoint.evaluated.len()
+                        ))
+                        .monospace()
+                        .small()
+                        .color(Color32::from_rgb(54, 205, 245)),
+                    );
+                }
             },
         );
+    }
+    fn start_multi_market(&mut self, nsga2: bool, ctx: &egui::Context) {
+        if self.receiver.is_some() {
+            return;
+        }
+        let ds_path = self.multi_dataset_path.trim().to_string();
+        if ds_path.is_empty() {
+            self.error = Some("Select a MultiMarketDataset JSON path".into());
+            return;
+        }
+        let folds = self.multi_folds.max(2);
+        let embargo = self.multi_embargo.max(1);
+        let flag = Arc::new(AtomicBool::new(false));
+        let flag_bg = flag.clone();
+        let (tx, rx) = mpsc::sync_channel(1);
+        let context = ctx.clone();
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .max(2);
+        let max_workers = cores.saturating_sub(1).clamp(1, 4);
+        let result = std::thread::Builder::new()
+            .name("hydra-lab-multi-market".into())
+            .spawn(move || {
+                let mut sched = crate::qualification::ResourceBudgetScheduler::new(cores, 1).ok();
+                let acquired = sched.as_mut().is_some_and(|s| {
+                    s.try_acquire(crate::qualification::WorkloadPriority::ResearchBackground)
+                });
+                let res = (|| -> anyhow::Result<Completed> {
+                    let ds: crate::oracle_research::MultiMarketDataset =
+                        research::read_json(Path::new(&ds_path))?;
+                    let (timeline, _) = ds.validate_and_fingerprint()?;
+                    let fang_cfg = crate::fang_engine::UnifiedStrategyConfig::default();
+                    let exec = crate::oracle_research::ExecutionModelConfig {
+                        warmup_bars: 12,
+                        latency_bars: 1,
+                        ..Default::default()
+                    };
+                    if flag_bg.load(Ordering::SeqCst) {
+                        anyhow::bail!("Cancelled before execution");
+                    }
+                    if nsga2 {
+                        let train_bars = (timeline.len() / 2)
+                            .max(24)
+                            .min(timeline.len().saturating_sub(embargo + 16));
+                        let opts = crate::genesis_nsga2::Nsga2Options {
+                            max_workers,
+                            ..Default::default()
+                        };
+                        let rep = crate::genesis_nsga2::run_nsga2_campaign(
+                            &ds, train_bars, embargo, &opts, None,
+                        )?;
+                        Ok(Completed::Nsga2(Box::new(rep)))
+                    } else {
+                        let fp = ds.experiment_fingerprint(&fang_cfg, &exec)?;
+                        let portfolio =
+                            crate::oracle_research::simulate_portfolio(&ds, &fang_cfg, &exec)?;
+                        let test_bars = (timeline.len() / (folds + 2)).max(exec.warmup_bars + 4);
+                        let train_bars = timeline
+                            .len()
+                            .saturating_sub(folds * test_bars + embargo)
+                            .max(exec.warmup_bars + 2);
+                        let wf = crate::oracle_research::walk_forward_purged_cv(
+                            &ds, train_bars, embargo, test_bars, test_bars, &fang_cfg, &exec,
+                        )?;
+                        let mut oos_bars = Vec::new();
+                        for f in &wf.folds {
+                            if flag_bg.load(Ordering::SeqCst) {
+                                anyhow::bail!("Cancelled by operator");
+                            }
+                            let fold_ds = ds.slice_range(f.test_range.0, f.test_range.1)?;
+                            let (_, bars) =
+                                crate::oracle_research::simulate_portfolio_with_bar_returns(
+                                    &fold_ds, &fang_cfg, &exec,
+                                )?;
+                            oos_bars.extend(bars);
+                        }
+                        let boot = if oos_bars.len() < 10 {
+                            crate::oracle_research::BootstrapInterval {
+                                samples: oos_bars.len(),
+                                block_len: 1,
+                                resamples: 100,
+                                p05_mean_return_pct: -100.0,
+                                median_mean_return_pct: 0.0,
+                                p95_mean_return_pct: 0.0,
+                            }
+                        } else {
+                            let bl = 6.min(oos_bars.len() / 2).max(1);
+                            crate::oracle_research::block_bootstrap_ci(&oos_bars, bl, 200, 7)?
+                        };
+                        let verdict = crate::qualification::evaluate_scientific_strategy_acceptance(
+                            &portfolio,
+                            &wf,
+                            &boot,
+                            &crate::qualification::ScientificAcceptanceCriteria::default(),
+                        );
+                        Ok(Completed::MultiMarket(Box::new(MultiMarketLabResult {
+                            portfolio,
+                            walk_forward: wf,
+                            bootstrap: boot,
+                            verdict,
+                            fingerprint: fp,
+                        })))
+                    }
+                })()
+                .map_err(|e| telemetry::redact_diagnostic(&format!("{e:#}")));
+                if acquired {
+                    if let Some(ref mut s) = sched {
+                        s.release(crate::qualification::WorkloadPriority::ResearchBackground);
+                    }
+                }
+                let _ = tx.send(res);
+                context.request_repaint();
+            });
+        match result {
+            Ok(_) => {
+                self.cancel_flag = Some(flag);
+                self.receiver = Some(rx);
+                self.running_head = Some(if nsga2 { 6 } else { 5 });
+                self.started = Some(Instant::now());
+                self.error = None;
+            }
+            Err(error) => self.error = Some(format!("Could not start laboratory worker: {error}")),
+        }
     }
     fn start(&mut self, optimizer: bool, ctx: &egui::Context) {
         if self.receiver.is_some() {
@@ -470,6 +732,7 @@ impl ResearchWorkspace {
         };
         let (tx, rx) = mpsc::sync_channel(1);
         let context = ctx.clone();
+        let flag = Arc::new(AtomicBool::new(false));
         let result = std::thread::Builder::new()
             .name("hydra-offline-research".into())
             .spawn(move || {
@@ -556,6 +819,7 @@ impl ResearchWorkspace {
             });
         match result {
             Ok(_) => {
+                self.cancel_flag = Some(flag);
                 self.receiver = Some(rx);
                 self.running_head = Some(if optimizer { 6 } else { 5 });
                 self.started = Some(Instant::now());
