@@ -63,6 +63,7 @@ pub enum EngineControlCommand {
     },
     GetPositionProtection,
     MaintenanceReadiness,
+    RenewPilotSupervision,
     GracefulShutdown,
 }
 
@@ -100,6 +101,7 @@ pub struct EngineAuthoritativeState {
     pub unresolved_intents: usize,
     pub protective_stops_verified: bool,
     pub shutdown_requested: bool,
+    pub last_supervision_renewed_ms: i64,
 }
 
 impl EngineAuthoritativeState {
@@ -113,6 +115,7 @@ impl EngineAuthoritativeState {
             unresolved_intents: 0,
             protective_stops_verified: true,
             shutdown_requested: false,
+            last_supervision_renewed_ms: 0,
         }
     }
 
@@ -488,6 +491,18 @@ pub fn handle_authenticated_request(
             format!("maintenance_ready={}", state.is_maintenance_ready()),
             state,
         ),
+        EngineControlCommand::RenewPilotSupervision => {
+            if state.emergency_suspended {
+                mk_resp(
+                    false,
+                    "Cannot renew operator supervision lease during emergency suspension".into(),
+                    state,
+                )
+            } else {
+                state.last_supervision_renewed_ms = now_ms;
+                mk_resp(true, "Operator supervision lease renewed".into(), state)
+            }
+        }
         EngineControlCommand::GracefulShutdown => {
             state.shutdown_requested = true;
             mk_resp(true, "Graceful shutdown acknowledged".into(), state)

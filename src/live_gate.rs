@@ -438,6 +438,314 @@ pub fn evaluate_certification_readiness_with_registry(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveExecutionTier {
+    Dormant,
+    RestrictedMonitoredPilot,
+    UnattendedAwakened,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum PilotOrderType {
+    LimitPostOnly,
+    LimitIoc,
+    NativeReduceOnlyStop,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MonitoredPilotLimits {
+    pub wallet_address: String,
+    pub allowed_instruments: std::collections::BTreeSet<String>,
+    pub qualified_strategy_id: String,
+    pub strategy_registry_version: String,
+    pub max_allocated_capital_usd: rust_decimal::Decimal,
+    pub max_order_notional_usd: rust_decimal::Decimal,
+    pub max_aggregate_exposure_usd: rust_decimal::Decimal,
+    pub max_leverage: rust_decimal::Decimal,
+    pub max_daily_loss_usd: rust_decimal::Decimal,
+    pub max_session_loss_usd: rust_decimal::Decimal,
+    pub max_drawdown_ratio: rust_decimal::Decimal,
+    pub permitted_order_types: std::collections::BTreeSet<PilotOrderType>,
+    pub pilot_session_duration_secs: u64,
+    pub operator_supervision_lease_secs: u64,
+}
+
+impl MonitoredPilotLimits {
+    pub fn validate(&self) -> Result<()> {
+        use rust_decimal::Decimal;
+        let w = self.wallet_address.trim();
+        let hex_part = w.strip_prefix("0x").unwrap_or("");
+        ensure!(
+            w.starts_with("0x")
+                && hex_part.len() == 40
+                && hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "monitored pilot requires valid dedicated EVM wallet address (0x + 40 hex chars)"
+        );
+        ensure!(
+            !self.allowed_instruments.is_empty()
+                && self
+                    .allowed_instruments
+                    .iter()
+                    .all(|s| !s.trim().is_empty()),
+            "allowed_instruments must be non-empty"
+        );
+        ensure!(
+            !self.qualified_strategy_id.trim().is_empty(),
+            "qualified_strategy_id must be specified"
+        );
+        ensure!(
+            self.strategy_registry_version == crate::fang_engine::REGISTRY_VERSION,
+            "strategy_registry_version mismatch: got '{}', expected '{}'",
+            self.strategy_registry_version,
+            crate::fang_engine::REGISTRY_VERSION
+        );
+        ensure!(
+            self.max_allocated_capital_usd > Decimal::ZERO,
+            "max_allocated_capital_usd must be > 0"
+        );
+        ensure!(
+            self.max_order_notional_usd > Decimal::ZERO
+                && self.max_order_notional_usd <= self.max_allocated_capital_usd,
+            "max_order_notional_usd must be in (0, max_allocated_capital_usd]"
+        );
+        ensure!(
+            self.max_leverage > Decimal::ZERO && self.max_leverage <= Decimal::from(5u32),
+            "monitored pilot max_leverage must be in (0, 5]"
+        );
+        let max_lev_notional = self.max_allocated_capital_usd * self.max_leverage;
+        ensure!(
+            self.max_aggregate_exposure_usd > Decimal::ZERO
+                && self.max_aggregate_exposure_usd <= max_lev_notional,
+            "max_aggregate_exposure_usd must be in (0, allocated * leverage]"
+        );
+        ensure!(
+            self.max_daily_loss_usd > Decimal::ZERO
+                && self.max_daily_loss_usd <= self.max_allocated_capital_usd,
+            "max_daily_loss_usd must be in (0, max_allocated_capital_usd]"
+        );
+        ensure!(
+            self.max_session_loss_usd > Decimal::ZERO
+                && self.max_session_loss_usd <= self.max_daily_loss_usd,
+            "max_session_loss_usd must be in (0, max_daily_loss_usd]"
+        );
+        ensure!(
+            self.max_drawdown_ratio > Decimal::ZERO
+                && self.max_drawdown_ratio <= Decimal::new(20, 2),
+            "monitored pilot max_drawdown_ratio must be in (0, 0.20]"
+        );
+        ensure!(
+            !self.permitted_order_types.is_empty()
+                && self
+                    .permitted_order_types
+                    .contains(&PilotOrderType::NativeReduceOnlyStop),
+            "permitted_order_types must include NativeReduceOnlyStop"
+        );
+        ensure!(
+            (1..=86_400).contains(&self.pilot_session_duration_secs),
+            "pilot_session_duration_secs must be in 1..=86400"
+        );
+        ensure!(
+            (30..=1_800).contains(&self.operator_supervision_lease_secs),
+            "operator_supervision_lease_secs must be in 30..=1800"
+        );
+        Ok(())
+    }
+}
+
+/// Ephemeral in-memory restricted monitored pilot authorization grant.
+/// Never auto-persisted for automatic restart resumption.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MonitoredPilotGrant {
+    pub limits: MonitoredPilotLimits,
+    pub owner_consent_statement: String,
+    pub granted_at_ms: i64,
+    pub session_expires_at_ms: i64,
+    pub supervision_expires_at_ms: i64,
+    pub evidence_digest: String,
+}
+
+impl MonitoredPilotGrant {
+    pub fn session_expired(&self, now_ms: i64) -> bool {
+        now_ms >= self.session_expires_at_ms
+    }
+
+    pub fn supervision_expired(&self, now_ms: i64) -> bool {
+        now_ms >= self.supervision_expires_at_ms
+    }
+
+    pub fn is_active_at(&self, now_ms: i64) -> bool {
+        !self.supervision_expired(now_ms) && !self.session_expired(now_ms)
+    }
+
+    pub fn renew_supervision(&mut self, now_ms: i64) -> Result<()> {
+        ensure!(
+            !self.session_expired(now_ms),
+            "pilot session duration expired; full re-authorization required"
+        );
+        let lease_ms = (self.limits.operator_supervision_lease_secs as i64).saturating_mul(1_000);
+        self.supervision_expires_at_ms = now_ms
+            .saturating_add(lease_ms)
+            .min(self.session_expires_at_ms);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MonitoredPilotEligibilityReport {
+    pub eligible: bool,
+    pub execution_tier: LiveExecutionTier,
+    pub unattended_awakened_eligible: bool,
+    pub blocking_reasons: Vec<String>,
+    pub verified_pillars: Vec<u8>,
+}
+
+pub fn evaluate_monitored_pilot_eligibility(
+    registry: &EvidenceRegistry,
+    expected_risk_sha3: &str,
+    limits: Option<&MonitoredPilotLimits>,
+    treasury_authorized: bool,
+    emergency_suspended: bool,
+) -> MonitoredPilotEligibilityReport {
+    let mut blocking_reasons = Vec::new();
+    let mut verified_pillars = Vec::new();
+
+    for p in 1..=5u8 {
+        match registry.latest_valid_for_pillar(p, None, expected_risk_sha3) {
+            Some(rec) if rec.tier >= VerificationTier::IntegratedVerified => {
+                verified_pillars.push(p);
+            }
+            Some(rec) => blocking_reasons.push(format!(
+                "Pillar {p} tier {:?} below IntegratedVerified",
+                rec.tier
+            )),
+            None => blocking_reasons.push(format!(
+                "Pillar {p} missing current version-bound EvidenceRecord"
+            )),
+        }
+    }
+
+    let valid_p6: Vec<&EvidenceRecord> = registry
+        .records
+        .iter()
+        .filter(|r| {
+            r.pillar_index == 6 && EvidenceRegistry::verify_record(r, None, expected_risk_sha3)
+        })
+        .collect();
+    let has_historical = valid_p6
+        .iter()
+        .any(|r| r.tier >= VerificationTier::QualifiedStrategyVerified);
+    let has_testnet = valid_p6.iter().any(|r| {
+        r.environment == EvidenceEnvironment::HyperliquidTestnet
+            && r.tier >= VerificationTier::RealExchangeTestVerified
+    });
+    let has_public_paper = valid_p6.iter().any(|r| {
+        r.environment == EvidenceEnvironment::PublicPaper
+            && r.tier >= VerificationTier::IntegratedVerified
+    });
+
+    if !has_historical {
+        blocking_reasons.push(
+            "Missing qualified historical OOS strategy evidence (`hydra strategy-accept` QualifiedStrategyVerified)"
+                .into(),
+        );
+    }
+    if !has_testnet {
+        blocking_reasons.push(
+            "Missing Hyperliquid Testnet functional exchange proof (RealExchangeTestVerified)"
+                .into(),
+        );
+    }
+    if !has_public_paper {
+        blocking_reasons.push(
+            "Missing live public-market paper lifecycle evidence (PublicPaper IntegratedVerified)"
+                .into(),
+        );
+    }
+    if has_historical && has_testnet && has_public_paper {
+        verified_pillars.push(6);
+    }
+
+    match limits {
+        Some(lim) => {
+            if let Err(err) = lim.validate() {
+                blocking_reasons.push(format!("Invalid MonitoredPilotLimits: {err}"));
+            }
+        }
+        None => blocking_reasons.push("Missing explicit owner MonitoredPilotLimits".into()),
+    }
+
+    if !treasury_authorized {
+        blocking_reasons.push("Treasury wallet not authorized with DPAPI-protected key".into());
+    }
+    if emergency_suspended {
+        blocking_reasons.push("Engine emergency suspension is active".into());
+    }
+
+    let eligible = blocking_reasons.is_empty();
+    MonitoredPilotEligibilityReport {
+        eligible,
+        execution_tier: if eligible {
+            LiveExecutionTier::RestrictedMonitoredPilot
+        } else {
+            LiveExecutionTier::Dormant
+        },
+        unattended_awakened_eligible: false,
+        blocking_reasons,
+        verified_pillars,
+    }
+}
+
+pub fn authorize_monitored_pilot_session(
+    registry: &EvidenceRegistry,
+    expected_risk_sha3: &str,
+    limits: MonitoredPilotLimits,
+    owner_consent_statement: &str,
+    treasury_authorized: bool,
+    emergency_suspended: bool,
+    now_ms: i64,
+) -> Result<MonitoredPilotGrant> {
+    let report = evaluate_monitored_pilot_eligibility(
+        registry,
+        expected_risk_sha3,
+        Some(&limits),
+        treasury_authorized,
+        emergency_suspended,
+    );
+    ensure!(
+        report.eligible,
+        "monitored pilot refused: {}",
+        report.blocking_reasons.join("; ")
+    );
+    ensure!(
+        owner_consent_statement.trim().len() >= 16,
+        "explicit owner consent statement (>= 16 chars) required for monitored pilot"
+    );
+
+    use sha3::{Digest, Sha3_256};
+    let mut hasher = Sha3_256::new();
+    for rec in &registry.records {
+        if EvidenceRegistry::verify_record(rec, None, expected_risk_sha3) {
+            hasher.update(rec.record_sha3.as_bytes());
+        }
+    }
+    let evidence_digest = hex::encode(hasher.finalize());
+    let session_ms = (limits.pilot_session_duration_secs as i64).saturating_mul(1_000);
+    let lease_ms = (limits.operator_supervision_lease_secs as i64).saturating_mul(1_000);
+
+    Ok(MonitoredPilotGrant {
+        limits,
+        owner_consent_statement: owner_consent_statement.trim().to_string(),
+        granted_at_ms: now_ms,
+        session_expires_at_ms: now_ms.saturating_add(session_ms),
+        supervision_expires_at_ms: now_ms.saturating_add(lease_ms.min(session_ms)),
+        evidence_digest,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

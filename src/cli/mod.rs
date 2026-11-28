@@ -301,6 +301,17 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Evaluate Section 15/16 Restricted Monitored Live-Pilot eligibility from EvidenceRegistry & pilot limits (always non-authorizing CLI check).
+    PilotReadiness {
+        #[arg(long)]
+        policy: Option<std::path::PathBuf>,
+        #[arg(long)]
+        evidence: Option<std::path::PathBuf>,
+        #[arg(long)]
+        risk_policy_sha3: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -873,6 +884,47 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         }
         return Ok(());
     }
+    if let Command::PilotReadiness {
+        policy,
+        evidence,
+        risk_policy_sha3,
+        json,
+    } = &cli.cmd
+    {
+        let limits = policy
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::live_gate::MonitoredPilotLimits>(p))
+            .transpose()?;
+        let registry = evidence
+            .as_ref()
+            .map(|p| crate::research::read_json::<crate::live_gate::EvidenceRegistry>(p))
+            .transpose()?
+            .unwrap_or_default();
+        let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+            crate::live_gate::ExecutionChannel::CliRun,
+            false,
+            false,
+        );
+        let report = crate::live_gate::evaluate_monitored_pilot_eligibility(
+            &registry,
+            risk_policy_sha3.as_deref().unwrap_or(""),
+            limits.as_ref(),
+            req.treasury_authorized,
+            req.emergency_suspended,
+        );
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            println!(
+                "MONITORED PILOT ELIGIBILITY: eligible={} tier={:?} unattended_awakened_eligible={}",
+                report.eligible, report.execution_tier, report.unattended_awakened_eligible
+            );
+            for reason in &report.blocking_reasons {
+                println!("  BLOCKER: {reason}");
+            }
+        }
+        return Ok(());
+    }
     if let Command::BindHistory {
         db,
         account,
@@ -1182,7 +1234,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::QualifyCampaign { .. }
         | Command::StrategyAccept { .. }
         | Command::ProfileHost { .. }
-        | Command::TestnetProbe { .. } => {
+        | Command::TestnetProbe { .. }
+        | Command::PilotReadiness { .. } => {
             unreachable!("handled above")
         }
     }

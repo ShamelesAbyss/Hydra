@@ -84,6 +84,8 @@ pub struct Engine {
     daily_pnl_usd: Decimal,
     weekly_pnl_usd: Decimal,
     high_water_equity_usd: Decimal,
+    active_pilot: Option<crate::live_gate::MonitoredPilotGrant>,
+    last_ipc_supervision_ms: i64,
 }
 
 impl Engine {
@@ -365,7 +367,54 @@ impl Engine {
             daily_pnl_usd: Decimal::ZERO,
             weekly_pnl_usd: Decimal::ZERO,
             high_water_equity_usd: init_equity,
+            active_pilot: None,
+            last_ipc_supervision_ms: 0,
         })
+    }
+
+    pub fn active_pilot(&self) -> Option<&crate::live_gate::MonitoredPilotGrant> {
+        self.active_pilot.as_ref()
+    }
+
+    pub fn attach_monitored_pilot(
+        &mut self,
+        grant: crate::live_gate::MonitoredPilotGrant,
+    ) -> Result<()> {
+        self.attach_monitored_pilot_at(grant, Utc::now().timestamp_millis())
+    }
+
+    pub fn attach_monitored_pilot_at(
+        &mut self,
+        grant: crate::live_gate::MonitoredPilotGrant,
+        now_ms: i64,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            !self.control_authority.is_emergency_suspended(),
+            "cannot attach monitored pilot while emergency suspension is active"
+        );
+        anyhow::ensure!(
+            grant.is_active_at(now_ms),
+            "monitored pilot grant is expired or inactive at timestamp {now_ms}"
+        );
+        grant.limits.validate()?;
+        self.active_pilot = Some(grant);
+        Ok(())
+    }
+
+    pub fn renew_pilot_supervision(&mut self, now_ms: i64) -> Result<()> {
+        anyhow::ensure!(
+            !self.control_authority.is_emergency_suspended(),
+            "cannot renew operator supervision while emergency suspension is active"
+        );
+        let grant = self
+            .active_pilot
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("no active monitored pilot attached"))?;
+        grant.renew_supervision(now_ms)
+    }
+
+    pub fn revoke_monitored_pilot(&mut self) {
+        self.active_pilot = None;
     }
 
     pub fn control_authority(&self) -> &EngineControlAuthority {
@@ -763,12 +812,28 @@ impl Engine {
     /// Executes one authoritative converged engine tick (snapshots -> recovery -> native stops
     /// -> shared FANG plan -> AEGIS sovereign risk -> precision rounding -> durable execution).
     pub async fn step_once(&mut self, tick: u64) -> Result<EngineStepSummary> {
+        self.step_once_at(tick, Utc::now().timestamp_millis()).await
+    }
+
+    /// Executes one authoritative converged engine tick at an explicit clock timestamp `now_ms`,
+    /// enabling deterministic verification of monitored-pilot supervision leases & session limits.
+    pub async fn step_once_at(&mut self, tick: u64, now_ms: i64) -> Result<EngineStepSummary> {
         let mut summary = EngineStepSummary {
             tick,
             ..Default::default()
         };
         let poll_ms = self.cfg.poll_interval_ms.max(250);
         self.heartbeat.beat("engine_tick");
+
+        let ipc_snap = self.control_authority.snapshot();
+        if ipc_snap.last_supervision_renewed_ms > self.last_ipc_supervision_ms
+            && !ipc_snap.emergency_suspended
+        {
+            self.last_ipc_supervision_ms = ipc_snap.last_supervision_renewed_ms;
+            if let Some(ref mut grant) = self.active_pilot {
+                let _ = grant.renew_supervision(now_ms.max(ipc_snap.last_supervision_renewed_ms));
+            }
+        }
 
         if tick == 1 || tick.is_multiple_of((10_000 / poll_ms).max(1)) {
             for venue in &self.venues {
@@ -837,10 +902,19 @@ impl Engine {
             }
         }
 
-        // === 4. Fail-closed admission gate on suspension, unresolved intents, or missing protection ===
+        // === 4. Fail-closed admission gate on suspension, unresolved intents, missing protection, or pilot expiry/loss ===
+        let pilot_blocked = if let Some(ref grant) = self.active_pilot {
+            grant.supervision_expired(now_ms)
+                || grant.session_expired(now_ms)
+                || (-self.daily_pnl_usd >= grant.limits.max_daily_loss_usd)
+                || (-self.daily_pnl_usd >= grant.limits.max_session_loss_usd)
+        } else {
+            false
+        };
         if self.control_authority.is_emergency_suspended()
             || self.halted_unresolved
             || self.halted_unprotected
+            || pilot_blocked
         {
             summary.halts_blocked_entries = true;
             if tick.is_multiple_of((10_000 / poll_ms.max(1)).max(1)) {
@@ -907,6 +981,27 @@ impl Engine {
                 })
                 .collect();
             let used_ntl: Decimal = sov_positions.iter().map(|p| p.notional_usd).sum();
+            if let Some(ref grant) = self.active_pilot {
+                let allowed_sym = grant
+                    .limits
+                    .allowed_instruments
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(&sig.symbol));
+                let allowed_strat = sig.strategy == grant.limits.qualified_strategy_id;
+                let within_order = cand.requested_notional <= grant.limits.max_order_notional_usd;
+                let within_agg =
+                    used_ntl + cand.requested_notional <= grant.limits.max_aggregate_exposure_usd;
+                if !allowed_sym || !allowed_strat || !within_order || !within_agg {
+                    summary.risk_rejected += 1;
+                    let msg = format!(
+                        "Monitored pilot ceiling block on {}: sym_ok={allowed_sym} strat_ok={allowed_strat} order_ok={within_order} agg_ok={within_agg}",
+                        sig.symbol
+                    );
+                    let _ = self.storage.record_error(self.session_id, "pilot", &msg);
+                    self.push_signal_row(sig, "blocked: pilot ceiling");
+                    continue;
+                }
+            }
             let sov_state = SovereignPortfolioState {
                 account_equity_usd: eq_dec,
                 available_collateral_usd: eq_dec.map(|e| (e - used_ntl).max(Decimal::ZERO)),

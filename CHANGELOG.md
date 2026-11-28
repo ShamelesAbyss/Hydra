@@ -1,3 +1,10 @@
+## 1.18.0 — v1.18.0 | PROJECT AWAKENING — RESTRICTED MONITORED PILOT CANDIDATE
+
+- **Restricted Monitored Live-Pilot Authorization & Fail-Closed Limits (`src/live_gate.rs`, `src/cli/mod.rs`):**
+  Added `LiveExecutionTier` (`Dormant`, `RestrictedMonitoredPilot`, `UnattendedAwakened`), `PilotOrderType`, `MonitoredPilotLimits::validate` (hard capital, notional, leverage <= 5, aggregate exposure, daily/session loss, drawdown <= 20%, mandatory `NativeReduceOnlyStop`, session duration <= 24h, operator supervision lease 30s..=1800s), ephemeral `MonitoredPilotGrant`, `evaluate_monitored_pilot_eligibility` (requiring all 6 accelerated evidence pillars while keeping `unattended_awakened_eligible: false`), `authorize_monitored_pilot_session`, and `hydra pilot-readiness --json`.
+- **Engine Pilot Enforcement, IPC Supervision Lease & Adversarial Suite (`src/core/engine.rs`, `src/engine_ipc.rs`, `tests/monitored_pilot_suite.rs`):**
+  Added `Engine::step_once_at`, `attach_monitored_pilot_at`, `renew_pilot_supervision`, `EngineControlCommand::RenewPilotSupervision` (refused under `EmergencySuspend`), runtime enforcement of allowed symbols, qualified strategy ID, notional/exposure ceilings, and supervision lease expiry (blocking entries without blind liquidation while keeping native `reduce_only` protective management active, with zero auto-resume on restart), plus `tests/monitored_pilot_suite.rs` (**541** desktop-wgpu / **495** headless tests, 0 `v1.18.0` clippy warnings).
+
 ## 1.17.0 — v1.17.0 | PROJECT SENTINEL — AUTONOMOUS RESILIENCE & OPERATIONAL PROOF
 
 - **Live External Watchdog, Persisted Budgets & Host Resource Profiler (`src/watchdog.rs`, `src/cli/mod.rs`):**

@@ -1,3 +1,11 @@
+# Release verification — 1.18.0
+
+All **541 offline desktop-wgpu all-target tests pass** (across 40 test suites) and all **495 offline headless all-target tests pass** (across 39 test suites, including `tests/monitored_pilot_suite.rs` 2/2 x 3 stress iterations, `tests/sentinel_faults.rs` 3/3, `tests/convergence_e2e.rs` 2/2, actual-engine `tests/fang_parity.rs` 1/1, `tests/sovereignty_suite.rs`, `tests/immortality_suite.rs`, `tests/live_gate_adversarial.rs`, and `tests/hyperliquid_conformance.rs`). `hydra --no-banner pilot-readiness --json` truthfully fails closed (`eligible: false`, `execution_tier: "dormant"`, `unattended_awakened_eligible: false`).
+
+`cargo fmt --check`, `cargo audit` (596 dependencies, 0 vulnerabilities, 1 allowed warning `RUSTSEC-2026-0543` for `chrono`), `cargo check --locked --features desktop --all-targets`, `cargo clippy --locked --all-targets`, `cargo clippy --locked --features desktop-wgpu --all-targets` (`0` warnings across all `v1.18.0` modified/added modules), `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass.
+
+- **Prior Release (`v1.17.0`):** Passed `Verify and package` (`46096037097` on `main`, commit `049580d5c16c305c5f50f8640456c515b05f5013`) and `Release Project Leviathan` (`46096040198` on tag `v1.17.0`), and independently verified standalone `HYDRA-Leviathan-Windows-x64.exe` SHA-256 `566f29d00786ea9f1dfd433cd64706d3d5cbfe71681d3562f43e5a4dfd51c3ea` (`SIBLING_HYDRA=False`, clean-profile GUI `hydra.db` `ok`, and a live `38.63s` public-market WS/L2 `public_paper-9370231f3128` lifecycle completing `5` cycles, `pause`/`resume`/`stop`, `stream_connected: true`, `mtm_equity_usd: "9996.73"`, `1,114,112 B` SQLite `quick_check: ok`).
+
 # Release verification — 1.17.0
 
 All **539 offline desktop-wgpu all-target tests pass** (across 39 test suites) and all **493 offline headless all-target tests pass** (across 38 test suites, including `tests/sentinel_faults.rs` 3/3 x 3 stress iterations, `tests/convergence_e2e.rs` 2/2, actual-engine `tests/fang_parity.rs` 1/1, `tests/sovereignty_suite.rs`, `tests/immortality_suite.rs`, `tests/live_gate_adversarial.rs`, and `tests/hyperliquid_conformance.rs`).
