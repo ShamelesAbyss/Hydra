@@ -175,6 +175,8 @@ impl VenueAdapter for StatefulMockVenue {
             },
             positions: Vec::new(),
             open_orders: Vec::new(),
+            withdrawable_collateral: None,
+            total_margin_used: None,
         })
     }
 

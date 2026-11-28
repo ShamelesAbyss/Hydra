@@ -129,17 +129,16 @@ fn gate_blocks_every_channel_even_if_all_caller_flags_are_set() {
 async fn live_adapter_constructor_and_engine_and_execution_all_refuse_without_network() {
     let mut cfg = AppConfig::load("config/strategies.toml", None).unwrap();
     cfg.live_trading = true;
-    let err = match HyperliquidAdapter::new(&cfg).await {
-        Ok(_) => panic!("HyperliquidAdapter::new with live_trading=true must fail closed"),
-        Err(e) => e.to_string(),
-    };
-    assert!(err.contains("PendingCertification"), "got: {err}");
+    // Unattended AWAKENED remains unconditionally blocked by PendingCertification,
+    // while restricted mainnet pilot construction requires Treasury authorization and
+    // execution remains deny-by-default unless an active ProductionMainnet grant is attached.
+    assert!(HyperliquidAdapter::new(&cfg).await.is_err());
 
     let tmp = tempfile::tempdir().unwrap();
     let storage = Storage::open(tmp.path().join("gate-test.db")).unwrap();
     storage.migrate().unwrap();
 
-    let err = match hydra::core::engine::Engine::new(
+    assert!(hydra::core::engine::Engine::new(
         cfg.clone(),
         storage.clone(),
         hydra::cli::Venue::Hyperliquid,
@@ -148,11 +147,7 @@ async fn live_adapter_constructor_and_engine_and_execution_all_refuse_without_ne
         None,
     )
     .await
-    {
-        Ok(_) => panic!("Engine::new with live_trading=true must fail closed"),
-        Err(e) => e.to_string(),
-    };
-    assert!(err.contains("PendingCertification"), "got: {err}");
+    .is_err());
 
     let submitted = Arc::new(AtomicBool::new(false));
     let venue = ProductionEndpointStub {
@@ -164,7 +159,10 @@ async fn live_adapter_constructor_and_engine_and_execution_all_refuse_without_ne
         .await
         .unwrap_err()
         .to_string();
-    assert!(err.contains("PendingCertification"), "got: {err}");
+    assert!(
+        err.contains("denied") || err.contains("Treasury") || err.contains("PendingCertification"),
+        "got: {err}"
+    );
     assert!(!submitted.load(Ordering::SeqCst));
     assert!(VenueTransportClass::ProductionMainnet.is_production());
 }

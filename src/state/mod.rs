@@ -84,12 +84,11 @@ impl StateManager {
             cfg.live_trading,
             "ENABLE_LIVE_TRADING=false; no orders or local position changes"
         );
-        let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+        // Explicit owner command (`emergency-flatten --confirm`): reduce-only risk reduction only.
+        crate::live_gate::require_risk_reduction_authority(
             crate::live_gate::ExecutionChannel::StateFlatten,
             cfg.live_trading,
-            false,
-        );
-        crate::live_gate::require_certified_live_execution(&req)?;
+        )?;
         let account = crate::ownership::configured_account(cfg)?
             .ok_or_else(|| anyhow::anyhow!("missing trading account"))?;
         self.storage.bind_trading_account(&account, false)?;

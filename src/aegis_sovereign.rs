@@ -30,6 +30,14 @@ pub struct SovereignRiskPolicy {
     pub max_drawdown_ratio: Decimal,
 }
 
+impl SovereignRiskPolicy {
+    pub fn policy_sha3(&self) -> Result<String, serde_json::Error> {
+        use sha3::{Digest, Sha3_256};
+        let bytes = serde_json::to_vec(self)?;
+        Ok(hex::encode(Sha3_256::digest(&bytes)))
+    }
+}
+
 impl Default for SovereignRiskPolicy {
     fn default() -> Self {
         Self {

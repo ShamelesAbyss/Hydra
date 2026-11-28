@@ -314,6 +314,49 @@ impl Default for UnifiedStrategyConfig {
     }
 }
 
+impl UnifiedStrategyConfig {
+    /// SHA3-256 over the canonical serde JSON encoding of the exact strategy configuration.
+    /// Research, paper and engine consumers must agree on this digest for a qualified policy.
+    pub fn config_sha3(&self) -> Result<String> {
+        use sha3::{Digest, Sha3_256};
+        let mut h = Sha3_256::new();
+        h.update(REGISTRY_VERSION.as_bytes());
+        h.update(b"|");
+        h.update(serde_json::to_vec(self)?);
+        Ok(hex::encode(h.finalize()))
+    }
+
+    /// Load an immutable persisted strategy configuration artifact (JSON), validating spans.
+    pub fn load_artifact(path: &std::path::Path) -> Result<Self> {
+        let raw = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("read strategy config {}: {e}", path.display()))?;
+        ensure!(raw.len() <= 64 * 1024, "strategy config artifact too large");
+        let cfg: Self = serde_json::from_slice(&raw)?;
+        ensure!(
+            cfg.fast_ema >= 1 && cfg.fast_ema < cfg.slow_ema && cfg.slow_ema <= 512,
+            "invalid FANG EMA spans in strategy config artifact"
+        );
+        ensure!(
+            cfg.base_stop_loss_pct > Decimal::ZERO && cfg.base_take_profit_pct > Decimal::ZERO,
+            "strategy config requires positive stop-loss and take-profit"
+        );
+        ensure!(
+            cfg.offset_bps.is_finite()
+                && cfg.max_quote_distance_bps.is_finite()
+                && cfg.round_trip_cost_bps.is_finite()
+                && cfg.default_prior_confidence.is_finite(),
+            "strategy config contains non-finite values"
+        );
+        ensure!(
+            !cfg.enabled_families
+                .iter()
+                .any(|f| matches!(f, StrategyFamily::BoundedGrid)),
+            "research-only BoundedGrid cannot be part of a deployable strategy artifact"
+        );
+        Ok(cfg)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FangMarketInput {
     pub as_of_ms: i64,

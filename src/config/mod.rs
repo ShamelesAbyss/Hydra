@@ -458,6 +458,46 @@ impl AppConfig {
         Self::load_internal(strategies_path, log_level_override, false)
     }
 
+    /// Standalone embedded fallback configuration for `--engine-worker` / Testnet workflows
+    /// running from an isolated directory without a `config/strategies.toml` file beside the binary.
+    pub fn from_embedded_defaults(data_dir: &std::path::Path) -> Result<Self> {
+        let strategies: StrategyConfig =
+            toml::from_str(include_str!("../../config/strategies.toml"))
+                .context("parsing embedded config/strategies.toml")?;
+        Ok(Self {
+            live_trading: false,
+            hl_private_key: None,
+            hl_account_address: None,
+            risk: RiskConfig {
+                default_risk_pct: 0.5,
+                max_daily_loss_pct: 3.0,
+                max_weekly_loss_pct: 8.0,
+                max_drawdown_pct: 15.0,
+                max_consecutive_losses: 4,
+                max_open_exposure_pct: 40.0,
+                max_notional_per_market_usd: 2500.0,
+                min_liquidity_usd: 50_000.0,
+                max_spread_bps: 25.0,
+                max_slippage_bps: 30.0,
+                consecutive_loss_window_hours: 4,
+            },
+            compound: CompoundConfig {
+                reinvest_pct: 50.0,
+                lock_pct: 25.0,
+                min_profit_usd: 25.0,
+                drawdown_reduce_pct: 40.0,
+            },
+            data_dir: data_dir.to_path_buf(),
+            log_dir: data_dir.join("logs"),
+            db_path: data_dir.join("hydra.db"),
+            log_level: "info".into(),
+            poll_interval_ms: 1500,
+            shutdown_mode: ShutdownMode::KeepOpen,
+            strategies_path: PathBuf::from("embedded:config/strategies.toml"),
+            strategies,
+        })
+    }
+
     fn load_internal(
         strategies_path: &str,
         log_level_override: Option<&str>,

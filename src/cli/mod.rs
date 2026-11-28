@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand, ValueEnum};
 use comfy_table::{presets::UTF8_BORDERS_ONLY, ContentArrangement, Table};
 use owo_colors::OwoColorize;
 
-use crate::adapters::VenueAdapter;
 use crate::config::AppConfig;
 use crate::core::engine::Engine;
 use crate::monitoring::HealthReport;
@@ -240,6 +239,17 @@ pub enum Command {
         folds: usize,
         #[arg(long, default_value_t = 4)]
         embargo_bars: usize,
+        /// Exact persisted strategy configuration artifact (defaults to built-in default config).
+        #[arg(long = "strategy-config")]
+        strategy_config: Option<std::path::PathBuf>,
+    },
+    /// Export an immutable, fingerprinted strategy configuration artifact from a GENESIS candidate id
+    /// (e.g. `nsga2-f7-s12-o11-sl295-tp596`) or the built-in default (`default`).
+    ExportStrategyConfig {
+        #[arg(long)]
+        candidate: String,
+        #[arg(long)]
+        out: std::path::PathBuf,
     },
     /// Run deterministic multi-worker GENESIS NSGA-II multi-objective campaign with embargoed OOS validation.
     GenesisNsga2 {
@@ -258,8 +268,10 @@ pub enum Command {
         #[arg(long, default_value_t = 7)]
         seed: u64,
     },
-    /// Inspect Project Immortality certification pillar readiness (always fails closed while PendingCertification).
+    /// Inspect Project Immortality & Awakening pilot/unattended certification readiness.
     CertificationStatus {
+        #[arg(long = "strategy-config")]
+        strategy_config: Option<std::path::PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -288,6 +300,9 @@ pub enum Command {
         folds: usize,
         #[arg(long, default_value_t = 4)]
         embargo_bars: usize,
+        /// Exact persisted strategy configuration artifact to evaluate (the same file the engine loads).
+        #[arg(long = "strategy-config")]
+        strategy_config: Option<std::path::PathBuf>,
     },
     /// Measure real local CPU, memory, disk, SQLite DB footprint, and optional GPU VRAM telemetry.
     ProfileHost {
@@ -303,10 +318,16 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Run external `WatchdogSupervisor` supervising the detached paper worker with restart budget & backoff.
+    /// Run external `WatchdogSupervisor` supervising the detached paper or engine worker with restart budget & backoff.
     WatchdogSupervise {
+        #[arg(long, default_value = "paper")]
+        target: String,
         #[arg(long)]
-        session: String,
+        session: Option<String>,
+        #[arg(long, default_value = "main-engine")]
+        engine_id: String,
+        #[arg(long, default_value = "BTC,ETH,SOL")]
+        symbols: String,
         #[arg(long)]
         db: Option<PathBuf>,
         #[arg(long)]
@@ -321,6 +342,28 @@ pub enum Command {
         ws_url: Option<String>,
         #[arg(long)]
         info_url: Option<String>,
+        #[arg(long, hide = true)]
+        engine_offline_fixture: bool,
+    },
+    /// Internal headless engine worker mode (for CLI `watchdog-supervise --target engine`).
+    #[command(hide = true)]
+    EngineWorker {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value = "main-engine")]
+        engine_id: String,
+        #[arg(long, default_value = "BTC,ETH,SOL")]
+        symbols: String,
+        #[arg(long, default_value_t = 1000)]
+        poll_ms: u64,
+        #[arg(long)]
+        max_ticks: Option<u64>,
+        #[arg(long = "strategy-config")]
+        strategy_config: Option<PathBuf>,
+        #[arg(long)]
+        offline_fixture: bool,
     },
     /// Isolated owner-confirmed Hyperliquid Testnet functional qualification workflow (never mainnet keys).
     TestnetQualify {
@@ -339,12 +382,14 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Evaluate Section 15/16 Restricted Monitored Live-Pilot eligibility from EvidenceRegistry & pilot limits (always non-authorizing CLI check).
+    /// Evaluate Restricted Monitored Live-Pilot eligibility from authenticated TrustStore, Treasury & owner limits.
     PilotReadiness {
         #[arg(long)]
         policy: Option<std::path::PathBuf>,
         #[arg(long)]
         evidence: Option<std::path::PathBuf>,
+        #[arg(long = "strategy-config")]
+        strategy_config: Option<std::path::PathBuf>,
         #[arg(long)]
         risk_policy_sha3: Option<String>,
         #[arg(long)]
@@ -630,15 +675,48 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         );
         return Ok(());
     }
+    if let Command::ExportStrategyConfig { candidate, out } = &cli.cmd {
+        let cfg = if candidate.trim().eq_ignore_ascii_case("default") {
+            crate::fang_engine::UnifiedStrategyConfig::default()
+        } else {
+            parse_nsga2_candidate_id(candidate)?.to_unified_config()
+        };
+        let digest = cfg.config_sha3()?;
+        anyhow::ensure!(
+            !out.exists(),
+            "refusing to overwrite immutable artifact {}",
+            out.display()
+        );
+        std::fs::write(out, serde_json::to_vec_pretty(&cfg)?)?;
+        let reloaded = crate::fang_engine::UnifiedStrategyConfig::load_artifact(out)?;
+        anyhow::ensure!(
+            reloaded.config_sha3()? == digest,
+            "artifact round-trip digest mismatch"
+        );
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "candidate": candidate,
+                "artifact": out.display().to_string(),
+                "registry_version": crate::fang_engine::REGISTRY_VERSION,
+                "config_sha3": digest,
+            }))?
+        );
+        return Ok(());
+    }
     if let Command::OraclePortfolio {
         dataset,
         folds,
         embargo_bars,
+        strategy_config,
     } = &cli.cmd
     {
         let ds = crate::research::read_json::<crate::oracle_research::MultiMarketDataset>(dataset)?;
         let (ts, _) = ds.validate_and_fingerprint()?;
-        let fang_cfg = crate::fang_engine::UnifiedStrategyConfig::default();
+        let fang_cfg = match strategy_config {
+            Some(p) => crate::fang_engine::UnifiedStrategyConfig::load_artifact(p)?,
+            None => crate::fang_engine::UnifiedStrategyConfig::default(),
+        };
         let exec = crate::oracle_research::ExecutionModelConfig::default();
         let portfolio = crate::oracle_research::simulate_portfolio(&ds, &fang_cfg, &exec)?;
         let fold_count = (*folds).max(1);
@@ -693,10 +771,30 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&rep)?);
         return Ok(());
     }
-    if let Command::CertificationStatus { json } = &cli.cmd {
+    if let Command::CertificationStatus {
+        strategy_config,
+        json,
+    } = &cli.cmd
+    {
         let checklist = crate::live_gate::evaluate_certification_readiness();
+        let fang_cfg = match strategy_config {
+            Some(p) => crate::fang_engine::UnifiedStrategyConfig::load_artifact(p)?,
+            None => crate::fang_engine::UnifiedStrategyConfig::default(),
+        };
+        let config_sha3 = fang_cfg.config_sha3()?;
+        let binding = crate::trusted_evidence::DeploymentBinding::current(&config_sha3);
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let trusted_readiness = crate::trusted_evidence::TrustStore::open_default()
+            .map(|s| s.readiness(&binding, now_ms))
+            .ok();
         if *json {
-            println!("{}", serde_json::to_string_pretty(&checklist)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "unattended_awakened": checklist,
+                    "trusted_evidence_readiness": trusted_readiness,
+                }))?
+            );
         } else {
             println!(
                 "HYDRA LIVE CERTIFICATION: {} (live_trading_authorized={})",
@@ -707,6 +805,18 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                     "  [Pillar {}] {:?} — {} ({})",
                     p.index, p.status, p.pillar, p.evidence
                 );
+            }
+            if let Some(tr) = &trusted_readiness {
+                println!(
+                    "TRUSTED EVIDENCE STORE (build={} config={}): all_satisfied={}",
+                    tr.build_identity, tr.strategy_config_sha3, tr.all_satisfied
+                );
+                for st in &tr.statuses {
+                    println!(
+                        "  [{:?}] satisfied={} — {}",
+                        st.kind, st.satisfied, st.reason
+                    );
+                }
             }
         }
         return Ok(());
@@ -758,65 +868,25 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         dataset,
         folds,
         embargo_bars,
+        strategy_config,
     } = &cli.cmd
     {
         let ds = crate::research::read_json::<crate::oracle_research::MultiMarketDataset>(dataset)?;
-        let (ts, _) = ds.validate_and_fingerprint()?;
-        let fang_cfg = crate::fang_engine::UnifiedStrategyConfig::default();
-        let exec = crate::oracle_research::ExecutionModelConfig::default();
-        let portfolio = crate::oracle_research::simulate_portfolio(&ds, &fang_cfg, &exec)?;
-        let fold_count = (*folds).max(2);
-        let min_test = exec.warmup_bars + exec.latency_bars + 2;
-        let test_bars = (ts.len() / (fold_count + 2)).max(min_test);
-        let train_bars = ts
-            .len()
-            .saturating_sub(fold_count * test_bars + *embargo_bars)
-            .max(exec.warmup_bars + 2);
-        let wf = crate::oracle_research::walk_forward_purged_cv(
-            &ds,
-            train_bars,
-            *embargo_bars,
-            test_bars,
-            test_bars,
-            &fang_cfg,
-            &exec,
-        )?;
-        let mut oos_bar_returns: Vec<f64> = Vec::new();
-        for f in &wf.folds {
-            let fold_ds = ds.slice_range(f.test_range.0, f.test_range.1)?;
-            let (_, fold_bars) = crate::oracle_research::simulate_portfolio_with_bar_returns(
-                &fold_ds, &fang_cfg, &exec,
-            )?;
-            oos_bar_returns.extend(fold_bars);
-        }
-        let boot = if oos_bar_returns.len() < 10 {
-            crate::oracle_research::BootstrapInterval {
-                samples: oos_bar_returns.len(),
-                block_len: 1,
-                resamples: 100,
-                p05_mean_return_pct: -100.0,
-                median_mean_return_pct: 0.0,
-                p95_mean_return_pct: 0.0,
-            }
-        } else {
-            let block_len = 6.min(oos_bar_returns.len() / 2).max(1);
-            crate::oracle_research::block_bootstrap_ci(&oos_bar_returns, block_len, 200, 7)?
+        let fang_cfg = match strategy_config {
+            Some(p) => crate::fang_engine::UnifiedStrategyConfig::load_artifact(p)?,
+            None => crate::fang_engine::UnifiedStrategyConfig::default(),
         };
-        let verdict = crate::qualification::evaluate_scientific_strategy_acceptance(
-            &portfolio,
-            &wf,
-            &boot,
-            &crate::qualification::ScientificAcceptanceCriteria::default(),
-        );
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "verdict": verdict,
-                "portfolio": portfolio,
-                "walk_forward": wf,
-                "bootstrap_ci": boot,
-            }))?
-        );
+        let tstore = crate::trusted_evidence::TrustStore::open_default().ok();
+        let (_verdict, mut payload) = crate::qualification::evaluate_and_record_historical_oos(
+            &ds,
+            &fang_cfg,
+            *folds,
+            *embargo_bars,
+            tstore.as_ref(),
+        )?;
+        payload["config_artifact"] =
+            serde_json::json!(strategy_config.as_ref().map(|p| p.display().to_string()));
+        println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(());
     }
     if let Command::ProfileHost { db, root, json } = &cli.cmd {
@@ -922,8 +992,45 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         }
         return Ok(());
     }
+    if let Command::EngineWorker {
+        root,
+        db,
+        engine_id,
+        symbols,
+        poll_ms,
+        max_ticks,
+        strategy_config,
+        offline_fixture,
+    } = &cli.cmd
+    {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_sig = stop.clone();
+        let _ = ctrlc::set_handler(move || {
+            stop_sig.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let syms: Vec<String> = symbols
+            .split(',')
+            .map(|s| s.trim().to_ascii_uppercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let cfg = crate::engine_worker::EngineWorkerConfig {
+            root: root.clone(),
+            db_path: db.clone(),
+            engine_id: engine_id.clone(),
+            symbols: syms,
+            poll_interval_ms: *poll_ms,
+            max_ticks: *max_ticks,
+            strategy_config: strategy_config.clone(),
+            offline_fixture: *offline_fixture,
+        };
+        crate::engine_worker::run_headless_engine_worker(cfg, stop).await?;
+        return Ok(());
+    }
     if let Command::WatchdogSupervise {
+        target,
         session,
+        engine_id,
+        symbols,
         db,
         root,
         interval_s,
@@ -931,6 +1038,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         max_ticks,
         ws_url,
         info_url,
+        engine_offline_fixture,
     } = &cli.cmd
     {
         let wd_root = match root {
@@ -938,80 +1046,163 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             None => crate::paper_store::PaperStore::default_root()?,
         };
         let exe = std::env::current_exe().context("locate hydra executable")?;
-        let mut owned: Vec<String> = vec![
-            "--no-banner".into(),
-            "paper-service".into(),
-            "run".into(),
-            "--session".into(),
-            session.clone(),
-            "--root".into(),
-            wd_root.display().to_string(),
-            "--interval-s".into(),
-            (*interval_s).clamp(2, 60).to_string(),
-        ];
-        if let Some(ref d) = db {
-            owned.push("--db".into());
-            owned.push(d.display().to_string());
-        }
-        if let Some(m) = max_ticks {
-            owned.push("--max-ticks".into());
-            owned.push(m.to_string());
-        }
-        if let Some(ref w) = ws_url {
-            owned.push("--ws-url".into());
-            owned.push(w.clone());
-        }
-        if let Some(ref i) = info_url {
-            owned.push("--info-url".into());
-            owned.push(i.clone());
-        }
-        let arg_refs: Vec<&str> = owned.iter().map(String::as_str).collect();
         let mut sup = crate::watchdog::WatchdogSupervisor::acquire(
             &wd_root,
             crate::watchdog::WatchdogPolicy::default(),
         )?;
-        let root_probe = wd_root.clone();
-        let root_stop = wd_root.clone();
-        let sid_probe = session.clone();
-        let sid_stop = session.clone();
-        let summary = sup.supervise_live_worker(
-            &exe,
-            &arg_refs,
-            std::time::Duration::from_millis(500),
-            std::time::Duration::from_secs(4),
-            (*max_launches).max(1),
-            move |pid| match crate::paper_service::PaperServiceClient::send_command(
-                &root_probe,
-                &sid_probe,
-                crate::paper_service::PaperControlCommand::Status,
-            ) {
-                Ok(resp) => crate::watchdog::WorkerHealthProbe {
-                    alive_heartbeat_ms: chrono::DateTime::parse_from_rfc3339(&resp.checked_at)
-                        .ok()
-                        .map(|d| d.timestamp_millis()),
-                    progress_counter: resp.cycle_count,
-                    healthy: resp.ok
-                        && resp.pid == pid
-                        && resp.status != "faulted"
-                        && resp.fault_reason.is_none(),
-                    detail: format!("status={} cycle={}", resp.status, resp.cycle_count),
+        let summary = if target.eq_ignore_ascii_case("engine") {
+            let db_path = db.clone().unwrap_or_else(|| wd_root.join("engine.db"));
+            let mut owned: Vec<String> = vec![
+                "--no-banner".into(),
+                "engine-worker".into(),
+                "--root".into(),
+                wd_root.display().to_string(),
+                "--db".into(),
+                db_path.display().to_string(),
+                "--engine-id".into(),
+                engine_id.clone(),
+                "--symbols".into(),
+                symbols.clone(),
+                "--poll-ms".into(),
+                ((*interval_s).clamp(1, 30) * 1000).to_string(),
+            ];
+            if let Some(m) = max_ticks {
+                owned.push("--max-ticks".into());
+                owned.push(m.to_string());
+            }
+            if *engine_offline_fixture {
+                owned.push("--offline-fixture".into());
+            }
+            let arg_refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+            let root_probe = wd_root.clone();
+            let root_stop = wd_root.clone();
+            let eid_probe = engine_id.clone();
+            let eid_stop = engine_id.clone();
+            sup.supervise_live_worker(
+                &exe,
+                &arg_refs,
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_secs(4),
+                (*max_launches).max(1),
+                move |pid| {
+                    let n = crate::engine_ipc::EngineIpcClient::next_nonce();
+                    match crate::engine_ipc::EngineIpcClient::send_command(
+                        &root_probe,
+                        &eid_probe,
+                        n,
+                        crate::engine_ipc::EngineControlCommand::Heartbeat,
+                    ) {
+                        Ok(resp) => crate::watchdog::WorkerHealthProbe {
+                            alive_heartbeat_ms: (resp.last_tick_ms > 0)
+                                .then_some(resp.last_tick_ms),
+                            progress_counter: resp.engine_ticks,
+                            healthy: resp.ok
+                                && resp.pid == pid
+                                && !resp.breaker_latched
+                                && !resp.emergency_suspended,
+                            detail: format!(
+                                "pid={} mode={} ticks={} pilot={} block={}",
+                                resp.pid,
+                                resp.mode,
+                                resp.engine_ticks,
+                                resp.pilot_active,
+                                resp.entry_block_reason
+                            ),
+                        },
+                        Err(e) => crate::watchdog::WorkerHealthProbe {
+                            alive_heartbeat_ms: None,
+                            progress_counter: 0,
+                            healthy: false,
+                            detail: format!("engine IPC heartbeat unreachable: {e}"),
+                        },
+                    }
                 },
-                Err(e) => crate::watchdog::WorkerHealthProbe {
-                    alive_heartbeat_ms: None,
-                    progress_counter: 0,
-                    healthy: false,
-                    detail: format!("paper IPC probe failed: {e}"),
+                move |_pid| {
+                    let _ = crate::engine_ipc::EngineIpcClient::send_command(
+                        &root_stop,
+                        &eid_stop,
+                        crate::engine_ipc::EngineIpcClient::next_nonce(),
+                        crate::engine_ipc::EngineControlCommand::GracefulShutdown,
+                    );
+                    Ok(())
                 },
-            },
-            move |_pid| {
-                let _ = crate::paper_service::PaperServiceClient::send_command(
-                    &root_stop,
-                    &sid_stop,
-                    crate::paper_service::PaperControlCommand::Stop,
-                );
-                Ok(())
-            },
-        )?;
+            )?
+        } else {
+            let sid = session
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("--session required for --target paper"))?
+                .to_string();
+            let mut owned: Vec<String> = vec![
+                "--no-banner".into(),
+                "paper-service".into(),
+                "run".into(),
+                "--session".into(),
+                sid.clone(),
+                "--root".into(),
+                wd_root.display().to_string(),
+                "--interval-s".into(),
+                (*interval_s).clamp(2, 60).to_string(),
+            ];
+            if let Some(ref d) = db {
+                owned.push("--db".into());
+                owned.push(d.display().to_string());
+            }
+            if let Some(m) = max_ticks {
+                owned.push("--max-ticks".into());
+                owned.push(m.to_string());
+            }
+            if let Some(ref w) = ws_url {
+                owned.push("--ws-url".into());
+                owned.push(w.clone());
+            }
+            if let Some(ref i) = info_url {
+                owned.push("--info-url".into());
+                owned.push(i.clone());
+            }
+            let arg_refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+            let root_probe = wd_root.clone();
+            let root_stop = wd_root.clone();
+            let sid_probe = sid.clone();
+            let sid_stop = sid;
+            sup.supervise_live_worker(
+                &exe,
+                &arg_refs,
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_secs(4),
+                (*max_launches).max(1),
+                move |pid| match crate::paper_service::PaperServiceClient::send_command(
+                    &root_probe,
+                    &sid_probe,
+                    crate::paper_service::PaperControlCommand::Status,
+                ) {
+                    Ok(resp) => crate::watchdog::WorkerHealthProbe {
+                        alive_heartbeat_ms: chrono::DateTime::parse_from_rfc3339(&resp.checked_at)
+                            .ok()
+                            .map(|d| d.timestamp_millis()),
+                        progress_counter: resp.cycle_count,
+                        healthy: resp.ok
+                            && resp.pid == pid
+                            && resp.status != "faulted"
+                            && resp.fault_reason.is_none(),
+                        detail: format!("status={} cycle={}", resp.status, resp.cycle_count),
+                    },
+                    Err(e) => crate::watchdog::WorkerHealthProbe {
+                        alive_heartbeat_ms: None,
+                        progress_counter: 0,
+                        healthy: false,
+                        detail: format!("paper IPC probe failed: {e}"),
+                    },
+                },
+                move |_pid| {
+                    let _ = crate::paper_service::PaperServiceClient::send_command(
+                        &root_stop,
+                        &sid_stop,
+                        crate::paper_service::PaperControlCommand::Stop,
+                    );
+                    Ok(())
+                },
+            )?
+        };
         println!("{}", serde_json::to_string_pretty(&summary)?);
         return Ok(());
     }
@@ -1097,93 +1288,34 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             t_cfg.live_trading = true;
             t_cfg.hl_account_address = Some(signer.wallet_address().to_string());
             t_cfg.hl_private_key = Some(raw_key);
-            let adapter = crate::adapters::hyperliquid::HyperliquidAdapter::new_testnet(&t_cfg)
-                .await
-                .context("initialize HyperliquidAdapter TestnetSandbox")?;
-            let snap = adapter.snapshot(symbol, 16).await?;
-            let eq = adapter.account_equity_usd().await?;
-            let notional = (*max_notional_usd).clamp(11.0, 50.0);
-            let qty = (notional / snap.mid).max(0.0001);
-            let buy_intent = crate::core::OrderIntent {
-                id: uuid::Uuid::new_v4().to_string(),
-                venue: "hyperliquid".into(),
-                symbol: symbol.clone(),
-                side: crate::core::Side::Long,
-                size: qty,
-                limit_price: Some(snap.mid * 1.005),
-                reduce_only: false,
-                stop_price: Some(snap.mid * 0.98),
-                take_profit: Some(snap.mid * 1.03),
-                source_signal: Some("testnet_qualify".into()),
-                created_at: chrono::Utc::now(),
-            };
-            let buy_res = adapter.submit_order(&buy_intent).await?;
-            let mut stop_verified = false;
-            if buy_res.accepted && buy_res.filled_size > 0.0 {
-                let stop_spec = crate::protective_orders::ProtectiveOrderSpec {
-                    cloid: uuid::Uuid::new_v4().to_string(),
-                    exchange_oid: None,
+            let adapter = std::sync::Arc::new(
+                crate::adapters::hyperliquid::HyperliquidAdapter::new_testnet(&t_cfg)
+                    .await
+                    .context("initialize HyperliquidAdapter TestnetSandbox")?,
+            );
+            let work_dir = std::env::temp_dir()
+                .join(format!("hydra-testnet-qualify-{}", uuid::Uuid::new_v4()));
+            let tstore = crate::trusted_evidence::TrustStore::open_default()?;
+            let scenario_rep = crate::testnet_qualify::run_testnet_scenario(
+                &crate::testnet_qualify::TestnetScenarioParams {
+                    account: signer.wallet_address().to_string(),
+                    signer: signer.signer_address().to_string(),
                     symbol: symbol.clone(),
-                    owner_strategy: "testnet_qualify".into(),
-                    position_side: crate::core::Side::Long,
-                    protective_side: crate::core::Side::Short,
-                    qty: rust_decimal::Decimal::try_from(buy_res.filled_size)
-                        .unwrap_or(rust_decimal::Decimal::ONE),
-                    trigger_price: rust_decimal::Decimal::try_from((snap.mid * 0.98).max(0.1))
-                        .unwrap_or(rust_decimal::Decimal::ONE),
-                    reduce_only: true,
-                };
-                if let Ok(placed_stop) = adapter.place_protective_stop(&stop_spec).await {
-                    let _ = adapter
-                        .cancel_protective_stop(
-                            symbol,
-                            placed_stop.exchange_oid,
-                            &placed_stop.cloid,
-                        )
-                        .await;
-                    stop_verified = true;
-                }
-                let _ = adapter
-                    .close_position(symbol, buy_res.filled_size, false)
-                    .await;
-            }
-            let payload_json = serde_json::json!({
-                "environment": "HyperliquidTestnet",
-                "executed_mutations": true,
-                "wallet": signer.wallet_address(),
-                "signer": signer.signer_address(),
-                "symbol": symbol,
-                "equity_usd": eq,
-                "order_accepted": buy_res.accepted,
-                "filled_size": buy_res.filled_size,
-                "stop_verified": stop_verified,
-            });
-            if let Some(ref out_path) = out {
-                use sha3::{Digest, Sha3_256};
-                let mut h = Sha3_256::new();
-                h.update(payload_json.to_string().as_bytes());
-                let art_sha = hex::encode(h.finalize());
-                let ev = crate::live_gate::EvidenceRecord::produce_attested(
-                    crate::live_gate::EvidenceProducer::HyperliquidTestnetProbe,
-                    6,
-                    if buy_res.accepted && stop_verified {
-                        crate::live_gate::VerificationTier::RealExchangeTestVerified
-                    } else {
-                        crate::live_gate::VerificationTier::IntegratedVerified
-                    },
-                    "testnet-sandbox",
-                    crate::live_gate::EvidenceEnvironment::HyperliquidTestnet,
-                    "testnet_sandbox",
-                    format!("hl-testnet-{}-{}", symbol, chrono::Utc::now().timestamp()),
-                    art_sha,
-                    crate::fang_engine::REGISTRY_VERSION,
-                    Some(7 * 86_400_000),
-                    chrono::Utc::now().timestamp_millis(),
-                    format!("Testnet IOC + reduce_only stop verification on {symbol}"),
-                )?;
-                std::fs::write(out_path, serde_json::to_string_pretty(&ev)?)?;
-            }
-            payload_json
+                    requested_max_notional_usd: *max_notional_usd,
+                    trust_fingerprint: format!(
+                        "hl-testnet-{}-{}",
+                        symbol,
+                        chrono::Utc::now().timestamp()
+                    ),
+                },
+                adapter,
+                &work_dir,
+                &tstore,
+                out.as_deref(),
+            )
+            .await;
+            let _ = std::fs::remove_dir_all(&work_dir);
+            serde_json::to_value(scenario_rep?)?
         };
         if *json {
             println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1208,7 +1340,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
     }
     if let Command::PilotReadiness {
         policy,
-        evidence,
+        evidence: _legacy_evidence,
+        strategy_config,
         risk_policy_sha3,
         json,
     } = &cli.cmd
@@ -1217,32 +1350,73 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             .as_ref()
             .map(|p| crate::research::read_json::<crate::live_gate::MonitoredPilotLimits>(p))
             .transpose()?;
-        let registry = evidence
-            .as_ref()
-            .map(|p| crate::research::read_json::<crate::live_gate::EvidenceRegistry>(p))
-            .transpose()?
-            .unwrap_or_default();
+        let fang_cfg = match strategy_config {
+            Some(p) => crate::fang_engine::UnifiedStrategyConfig::load_artifact(p)?,
+            None => crate::fang_engine::UnifiedStrategyConfig::default(),
+        };
+        let config_sha3 = fang_cfg.config_sha3()?;
+        let binding = crate::trusted_evidence::DeploymentBinding::current(&config_sha3);
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let trusted = crate::trusted_evidence::TrustStore::open_default()
+            .map(|s| s.readiness(&binding, now_ms))
+            .unwrap_or_else(|_e| crate::trusted_evidence::TrustedReadiness {
+                build_identity: binding.build_identity.clone(),
+                strategy_config_sha3: config_sha3.clone(),
+                statuses: Vec::new(),
+                all_satisfied: false,
+            });
         let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
             crate::live_gate::ExecutionChannel::CliRun,
             false,
             false,
         );
-        let report = crate::live_gate::evaluate_monitored_pilot_eligibility(
-            &registry,
-            risk_policy_sha3.as_deref().unwrap_or(""),
-            limits.as_ref(),
-            req.treasury_authorized,
-            req.emergency_suspended,
-        );
+        let default_risk_sha =
+            crate::aegis_sovereign::SovereignRiskPolicy::default().policy_sha3()?;
+        let expected_risk_sha = risk_policy_sha3.as_deref().unwrap_or(&default_risk_sha);
+        let mut blockers: Vec<String> = Vec::new();
+        for st in &trusted.statuses {
+            if !st.satisfied {
+                blockers.push(format!("{:?}: {}", st.kind, st.reason));
+            }
+        }
+        if trusted.statuses.is_empty() {
+            blockers.push("TrustStore unavailable or empty".into());
+        }
+        match &limits {
+            Some(lim) => {
+                if let Err(e) = lim.validate() {
+                    blockers.push(format!("Invalid MonitoredPilotLimits: {e}"));
+                }
+            }
+            None => blockers.push("Missing explicit owner MonitoredPilotLimits".into()),
+        }
+        if !req.treasury_authorized {
+            blockers.push("Treasury wallet not authorized with OS-protected key".into());
+        }
+        if req.emergency_suspended {
+            blockers.push("Engine emergency suspension is active".into());
+        }
+        let eligible = blockers.is_empty();
+        let payload = serde_json::json!({
+            "eligible": eligible,
+            "execution_tier": if eligible { "restricted_monitored_pilot" } else { "dormant" },
+            "unattended_awakened_eligible": false,
+            "build_identity": trusted.build_identity,
+            "strategy_config_sha3": config_sha3,
+            "risk_policy_sha3": expected_risk_sha,
+            "treasury_authorized": req.treasury_authorized,
+            "emergency_suspended": req.emergency_suspended,
+            "trusted_evidence": trusted,
+            "blocking_reasons": blockers,
+        });
         if *json {
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            println!("{}", serde_json::to_string_pretty(&payload)?);
         } else {
             println!(
-                "MONITORED PILOT ELIGIBILITY: eligible={} tier={:?} unattended_awakened_eligible={}",
-                report.eligible, report.execution_tier, report.unattended_awakened_eligible
+                "RESTRICTED PILOT ELIGIBILITY: eligible={eligible} unattended_awakened_eligible=false"
             );
-            for reason in &report.blocking_reasons {
-                println!("  BLOCKER: {reason}");
+            for b in blockers {
+                println!("  BLOCKER: {b}");
             }
         }
         return Ok(());
@@ -1549,6 +1723,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::FangRegistry { .. }
         | Command::CognitionStats { .. }
         | Command::OraclePortfolio { .. }
+        | Command::ExportStrategyConfig { .. }
         | Command::GenesisNsga2 { .. }
         | Command::CertificationStatus { .. }
         | Command::SettlementAudit { .. }
@@ -1558,6 +1733,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::ProfileHost { .. }
         | Command::TestnetProbe { .. }
         | Command::WatchdogSupervise { .. }
+        | Command::EngineWorker { .. }
         | Command::TestnetQualify { .. }
         | Command::PilotReadiness { .. } => {
             unreachable!("handled above")
@@ -1879,4 +2055,40 @@ mod commands {
         cfg.print_summary();
         cfg.validate()
     }
+}
+
+/// Parse a GENESIS candidate id `nsga2-f{fast}-s{slow}-o{offset}-sl{stop}-tp{take}` strictly.
+pub fn parse_nsga2_candidate_id(id: &str) -> Result<crate::genesis_nsga2::Nsga2Params> {
+    let rest = id
+        .trim()
+        .strip_prefix("nsga2-")
+        .ok_or_else(|| anyhow::anyhow!("candidate id must start with 'nsga2-'"))?;
+    let parts: Vec<&str> = rest.split('-').collect();
+    anyhow::ensure!(
+        parts.len() == 5,
+        "candidate id must have 5 parameter fields"
+    );
+    let num = |p: &str, pre: &str| -> Result<u64> {
+        p.strip_prefix(pre)
+            .ok_or_else(|| anyhow::anyhow!("expected '{pre}' field in candidate id"))?
+            .parse::<u64>()
+            .map_err(|e| anyhow::anyhow!("invalid '{pre}' value: {e}"))
+    };
+    let params = crate::genesis_nsga2::Nsga2Params {
+        fast_ema: num(parts[0], "f")? as usize,
+        slow_ema: num(parts[1], "s")? as usize,
+        offset_bps: u32::try_from(num(parts[2], "o")?)?,
+        stop_loss_bps: u32::try_from(num(parts[3], "sl")?)?,
+        take_profit_bps: u32::try_from(num(parts[4], "tp")?)?,
+    };
+    anyhow::ensure!(params.id() == id.trim(), "candidate id is not canonical");
+    anyhow::ensure!(
+        params.fast_ema >= 1 && params.fast_ema < params.slow_ema && params.slow_ema <= 512,
+        "invalid EMA spans in candidate id"
+    );
+    anyhow::ensure!(
+        params.stop_loss_bps > 0 && params.take_profit_bps > 0,
+        "candidate requires positive stop/take-profit"
+    );
+    Ok(params)
 }

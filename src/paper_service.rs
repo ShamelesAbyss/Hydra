@@ -244,6 +244,62 @@ impl Drop for ControlServerGuard {
     }
 }
 
+/// Verifies a cleanly stopped `PublicPaper` SQLite session directly against the store and
+/// database `PRAGMA quick_check(1)`, then records a `PublicPaperLifecycle` trusted evidence bundle.
+pub fn attest_stopped_public_paper_session(
+    store: &PaperStore,
+    session_id: &str,
+    stream_reconnects: u64,
+    trust_store: &crate::trusted_evidence::TrustStore,
+) -> Result<crate::trusted_evidence::TrustedEvidenceRecord> {
+    let sess = store
+        .get_session(session_id)?
+        .ok_or_else(|| anyhow!("paper session '{session_id}' not found"))?;
+    ensure!(
+        sess.kind == crate::paper_store::PaperSessionKind::PublicPaper,
+        "paper session '{session_id}' is not PublicPaper"
+    );
+    ensure!(
+        sess.status == PaperSessionStatus::Stopped && sess.fault_reason.is_none(),
+        "paper session '{session_id}' is not cleanly stopped without faults"
+    );
+    ensure!(
+        sess.cycle_count >= 3,
+        "paper session '{session_id}' has fewer than 3 committed cycles ({})",
+        sess.cycle_count
+    );
+    let db_check =
+        crate::watchdog::WatchdogSupervisor::check_database_integrity(store.db_path(), u64::MAX);
+    ensure!(
+        db_check.quick_check_ok,
+        "paper database failed PRAGMA quick_check: {}",
+        db_check.detail
+    );
+    let artifact = serde_json::json!({
+        "provenance": "public_paper",
+        "session_id": sess.session_id,
+        "cycle_count": sess.cycle_count,
+        "status": "stopped",
+        "fault_reason": serde_json::Value::Null,
+        "quick_check": "ok",
+        "stream_reconnects": stream_reconnects,
+        "mtm_equity_usd": sess.mtm_equity_usd.round_dp(2).to_string(),
+    });
+    let bytes = serde_json::to_vec_pretty(&artifact)?;
+    trust_store.record_checked(
+        crate::trusted_evidence::TrustedEvidenceKind::PublicPaperLifecycle,
+        &bytes,
+        "n/a",
+        &sess.session_id,
+        true,
+        &format!(
+            "Public-market paper session {} completed {} cycles cleanly",
+            sess.session_id, sess.cycle_count
+        ),
+        Utc::now().timestamp_millis(),
+    )
+}
+
 pub struct PaperServiceClient;
 
 impl PaperServiceClient {
@@ -746,6 +802,15 @@ pub async fn run_paper_session_service(
         .set_status(&cfg.session_id, PaperSessionStatus::Stopped, None)?;
 
     let g = shared_telemetry.read().expect("telemetry lock");
+    if let Ok(tstore) = crate::trusted_evidence::TrustStore::open_default() {
+        let _ = attest_stopped_public_paper_session(
+            &cfg.store,
+            &g.session_id,
+            g.stream_reconnects,
+            &tstore,
+        );
+    }
+
     Ok(PaperControlResponse {
         ok: true,
         error: None,

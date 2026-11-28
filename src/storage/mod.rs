@@ -688,6 +688,65 @@ impl Storage {
         Ok(n.max(0) as usize)
     }
 
+    pub fn list_unresolved_intents(&self) -> Result<Vec<(String, crate::core::OrderIntent)>> {
+        let conn = self.inner.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT intent_id, intent_json FROM execution_intents WHERE state NOT IN ('rejected','applied')",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, raw) = row?;
+            let intent: crate::core::OrderIntent = serde_json::from_str(&raw)?;
+            out.push((id, intent));
+        }
+        Ok(out)
+    }
+
+    pub fn active_aegis_reserved_notional(&self) -> Result<rust_decimal::Decimal> {
+        let conn = self.inner.lock().unwrap();
+        let has_table: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='aegis_reservations')",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has_table {
+            return Ok(rust_decimal::Decimal::ZERO);
+        }
+        let mut stmt =
+            conn.prepare("SELECT notional FROM aegis_reservations WHERE state='active'")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut sum = rust_decimal::Decimal::ZERO;
+        for row in rows {
+            if let Ok(d) = rust_decimal::Decimal::from_str_exact(row?.trim()) {
+                sum += d.max(rust_decimal::Decimal::ZERO);
+            }
+        }
+        Ok(sum)
+    }
+
+    pub fn get_meta_kv(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.inner.lock().unwrap();
+        Ok(conn
+            .query_row(
+                "SELECT value FROM meta_kv WHERE key=?1",
+                params![key],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn set_meta_kv(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.inner.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO meta_kv (key, value, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            params![key, value, now],
+        )?;
+        Ok(())
+    }
+
     pub fn record_research_event(&self, ev: &ResearchEventRecord) -> Result<()> {
         let conn = self.inner.lock().unwrap();
         conn.execute(

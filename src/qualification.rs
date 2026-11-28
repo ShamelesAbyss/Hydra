@@ -288,6 +288,104 @@ pub fn evaluate_scientific_strategy_acceptance(
     }
 }
 
+/// Genuine in-process historical OOS strategy acceptance producer: evaluates portfolio replay,
+/// purged embargoed walk-forward CV, and block bootstrap CI, then records the authenticated
+/// result (honestly `passed=false` when rejected) into `TrustStore`.
+pub fn evaluate_and_record_historical_oos(
+    ds: &crate::oracle_research::MultiMarketDataset,
+    fang_cfg: &crate::fang_engine::UnifiedStrategyConfig,
+    folds: usize,
+    embargo_bars: usize,
+    trust_store: Option<&crate::trusted_evidence::TrustStore>,
+) -> Result<(StrategyAcceptanceVerdict, serde_json::Value)> {
+    let (ts, dataset_sha3) = ds.validate_and_fingerprint()?;
+    let config_sha3 = fang_cfg.config_sha3()?;
+    let exec = crate::oracle_research::ExecutionModelConfig::default();
+    let portfolio = crate::oracle_research::simulate_portfolio(ds, fang_cfg, &exec)?;
+    let fold_count = folds.max(2);
+    let min_test = exec.warmup_bars + exec.latency_bars + 2;
+    let test_bars = (ts.len() / (fold_count + 2)).max(min_test);
+    let train_bars = ts
+        .len()
+        .saturating_sub(fold_count * test_bars + embargo_bars)
+        .max(exec.warmup_bars + 2);
+    let wf = crate::oracle_research::walk_forward_purged_cv(
+        ds,
+        train_bars,
+        embargo_bars,
+        test_bars,
+        test_bars,
+        fang_cfg,
+        &exec,
+    )?;
+    let mut oos_bar_returns: Vec<f64> = Vec::new();
+    for f in &wf.folds {
+        let fold_ds = ds.slice_range(f.test_range.0, f.test_range.1)?;
+        let (_, fold_bars) =
+            crate::oracle_research::simulate_portfolio_with_bar_returns(&fold_ds, fang_cfg, &exec)?;
+        oos_bar_returns.extend(fold_bars);
+    }
+    let boot = if oos_bar_returns.len() < 10 {
+        BootstrapInterval {
+            samples: oos_bar_returns.len(),
+            block_len: 1,
+            resamples: 100,
+            p05_mean_return_pct: -100.0,
+            median_mean_return_pct: 0.0,
+            p95_mean_return_pct: 0.0,
+        }
+    } else {
+        let block_len = 6.min(oos_bar_returns.len() / 2).max(1);
+        crate::oracle_research::block_bootstrap_ci(&oos_bar_returns, block_len, 200, 7)?
+    };
+    let verdict = evaluate_scientific_strategy_acceptance(
+        &portfolio,
+        &wf,
+        &boot,
+        &ScientificAcceptanceCriteria::default(),
+    );
+    let eligible = matches!(
+        verdict,
+        StrategyAcceptanceVerdict::EligibleForMonitoredPilot { .. }
+    );
+    let mut payload = serde_json::json!({
+        "verdict": verdict,
+        "config_sha3": config_sha3,
+        "dataset_sha3_256": dataset_sha3,
+        "registry_version": crate::fang_engine::REGISTRY_VERSION,
+        "portfolio": portfolio,
+        "walk_forward": wf,
+        "bootstrap_ci": boot,
+    });
+    if let Some(tstore) = trust_store {
+        if let Ok(bytes) = serde_json::to_vec_pretty(&payload) {
+            let summary = format!(
+                "Historical OOS strategy-accept verdict={} trades={} net={:+.2}%",
+                if eligible {
+                    "eligible_for_monitored_pilot"
+                } else {
+                    "rejected_keep_disabled"
+                },
+                portfolio.metrics.trades_count,
+                portfolio.metrics.net_return_pct
+            );
+            if let Ok(rec) = tstore.record(
+                crate::trusted_evidence::TrustedEvidenceKind::HistoricalOosQualification,
+                &bytes,
+                &config_sha3,
+                &dataset_sha3,
+                eligible,
+                &summary,
+                Utc::now().timestamp_millis(),
+            ) {
+                payload["trusted_evidence_record_id"] = serde_json::json!(rec.record_id);
+                payload["trusted_evidence_passed"] = serde_json::json!(rec.passed);
+            }
+        }
+    }
+    Ok((verdict, payload))
+}
+
 fn sha3_hex(bytes: &[u8]) -> String {
     let mut h = Sha3_256::new();
     h.update(bytes);

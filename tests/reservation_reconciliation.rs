@@ -166,11 +166,16 @@ fn evidence(owned: bool) -> AccountExposureEvidence {
                 signed_size: dec!(2),
                 entry_price: dec!(100),
                 notional: dec!(200),
+                liquidation_px: None,
+                leverage: None,
+                margin_used: None,
             }]
         } else {
             vec![]
         },
         open_orders: vec![],
+        withdrawable_collateral: None,
+        total_margin_used: None,
     }
 }
 #[test]

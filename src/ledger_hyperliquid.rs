@@ -210,7 +210,7 @@ fn token_name(token: &str) -> Result<()> {
     );
     Ok(())
 }
-fn supported_perp(symbol: &str) -> Result<()> {
+pub fn supported_perp(symbol: &str) -> Result<()> {
     // Spot and HIP-3 require instrument/collateral metadata before closed-PnL or
     // funding can be labeled USDC. Reject visibly instead of misdenominating it.
     ensure!(
@@ -222,4 +222,125 @@ fn supported_perp(symbol: &str) -> Result<()> {
         "unsupported spot/HIP-3 instrument or invalid symbol; collateral mapping required"
     );
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawNonFundingEntry {
+    time: i64,
+    hash: String,
+    delta: RawNonFundingDelta,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawNonFundingDelta {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    usdc: Option<String>,
+    #[serde(default)]
+    amount: Option<String>,
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    to_perp: Option<bool>,
+}
+
+/// Parses Hyperliquid `userNonFundingLedgerUpdates` into canonical `ExternalCashFlow` records
+/// so deposits, withdrawals, and account-class transfers never corrupt trading PnL or HWM.
+pub fn parse_non_funding_ledger_updates(
+    json: &str,
+) -> Result<Vec<crate::settlement::ExternalCashFlow>> {
+    use crate::settlement::{ExternalCashFlow, ExternalCashFlowKind};
+    ensure!(
+        json.len() <= MAX_PAGE_BYTES,
+        "cash-flow history page exceeds byte budget"
+    );
+    let rows: Vec<RawNonFundingEntry> = serde_json::from_str(json)
+        .context("invalid userNonFundingLedgerUpdates response schema")?;
+    ensure!(
+        rows.len() <= MAX_PAGE_RECORDS,
+        "cash-flow history page exceeds record budget"
+    );
+    let mut out = Vec::with_capacity(rows.len());
+    for (idx, row) in rows.into_iter().enumerate() {
+        ensure!(row.time > 0, "cash-flow update lacks positive timestamp");
+        ensure!(
+            !row.hash.trim().is_empty(),
+            "cash-flow update lacks transaction hash"
+        );
+        let token = row
+            .delta
+            .token
+            .clone()
+            .unwrap_or_else(|| "USDC".to_string());
+        token_name(&token)?;
+        let raw_amt = row
+            .delta
+            .usdc
+            .as_deref()
+            .or(row.delta.amount.as_deref())
+            .context("cash-flow update lacks usdc/amount field")?;
+        let amt = decimal(raw_amt)?;
+        let (kind, signed_amount) = match row.delta.kind.as_str() {
+            "deposit" | "vaultDeposit" => (ExternalCashFlowKind::Deposit, amt.abs()),
+            "withdraw" | "vaultWithdraw" => (ExternalCashFlowKind::Withdrawal, -amt.abs()),
+            "accountClassTransfer" => {
+                let inflow = row.delta.to_perp.unwrap_or(amt >= Decimal::ZERO);
+                (
+                    ExternalCashFlowKind::InternalTransfer,
+                    if inflow { amt.abs() } else { -amt.abs() },
+                )
+            }
+            "internalTransfer" | "subAccountTransfer" | "spotTransfer" => {
+                (ExternalCashFlowKind::InternalTransfer, amt)
+            }
+            other => anyhow::bail!("unsupported non-funding ledger update type '{other}'"),
+        };
+        out.push(ExternalCashFlow {
+            cash_flow_id: format!("{}:{}:{idx}", row.hash.to_ascii_lowercase(), row.time),
+            kind,
+            token,
+            signed_amount,
+            timestamp_ms: row.time,
+        });
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settlement::ExternalCashFlowKind;
+
+    #[test]
+    fn non_funding_ledger_updates_decode_deposits_withdrawals_and_transfers() {
+        let raw = r#"[
+          {"time":1700000001000,"hash":"0x0101010101010101010101010101010101010101010101010101010101010101","delta":{"type":"deposit","usdc":"250.5"}},
+          {"time":1700000002000,"hash":"0x0202020202020202020202020202020202020202020202020202020202020202","delta":{"type":"withdraw","usdc":"50.0"}},
+          {"time":1700000003000,"hash":"0x0303030303030303030303030303030303030303030303030303030303030303","delta":{"type":"accountClassTransfer","usdc":"100.0","toPerp":false}}
+        ]"#;
+        let flows = parse_non_funding_ledger_updates(raw).unwrap();
+        assert_eq!(flows.len(), 3);
+        assert_eq!(flows[0].kind, ExternalCashFlowKind::Deposit);
+        assert_eq!(
+            flows[0].signed_amount,
+            Decimal::from_str_exact("250.5").unwrap()
+        );
+        assert_eq!(flows[1].kind, ExternalCashFlowKind::Withdrawal);
+        assert_eq!(
+            flows[1].signed_amount,
+            Decimal::from_str_exact("-50.0").unwrap()
+        );
+        assert_eq!(flows[2].kind, ExternalCashFlowKind::InternalTransfer);
+        assert_eq!(
+            flows[2].signed_amount,
+            Decimal::from_str_exact("-100.0").unwrap()
+        );
+        assert!(parse_non_funding_ledger_updates(
+            r#"[{"time":1700000004000,"hash":"0x01","delta":{"type":"mystery","usdc":"1"}}]"#
+        )
+        .is_err());
+    }
 }

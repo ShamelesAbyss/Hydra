@@ -35,7 +35,7 @@ use crate::learning::{
     regime::{classify_view, RegimeView},
     strictness::DroughtState,
 };
-use crate::ledger::{ExchangeFill, FillSide, PnlConvention};
+use crate::ledger::ExchangeFill;
 use crate::monitoring::Heartbeat;
 use crate::portfolio::{EntryContext, PortfolioManager};
 use crate::protective_orders::{
@@ -51,14 +51,36 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 
+fn utc_day_key(now_ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(now_ms)
+        .unwrap_or_else(Utc::now)
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+fn utc_week_key(now_ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(now_ms)
+        .unwrap_or_else(Utc::now)
+        .format("%G-W%V")
+        .to_string()
+}
+
+fn load_decimal_kv(storage: &Storage, key: &str) -> Option<Decimal> {
+    storage
+        .get_meta_kv(key)
+        .ok()
+        .flatten()
+        .and_then(|s| Decimal::from_str_exact(s.trim()).ok())
+}
+
 fn shadow_sample_from_verified(
     lo: &VerifiedLearningOutcome,
-    equity_usd: Decimal,
+    original_risk_usd: Option<Decimal>,
 ) -> Option<ShadowSample> {
-    if equity_usd <= Decimal::ZERO {
+    if lo.owner_strategy.eq_ignore_ascii_case("unattributed") {
         return None;
     }
-    let risk_unit = (equity_usd * Decimal::new(1, 2)).max(Decimal::ONE);
+    let risk_unit = original_risk_usd.filter(|r| *r > Decimal::ZERO)?;
     let r = (lo.verified_net_pnl_usdc / risk_unit).to_f64()?;
     if !r.is_finite() {
         return None;
@@ -113,19 +135,28 @@ pub struct Engine {
     order_journal: Vec<ExecutionJournalRecord>,
     halted_unresolved: bool,
     halted_unprotected: bool,
+    daily_key: String,
+    weekly_key: String,
     daily_pnl_usd: Decimal,
     weekly_pnl_usd: Decimal,
     session_pnl_usd: Decimal,
     high_water_equity_usd: Decimal,
-    active_pilot: Option<crate::live_gate::MonitoredPilotGrant>,
+    cash_flow_baseline_usd: Decimal,
+    aegis_breaker_reason: Option<String>,
     last_ipc_supervision_ms: i64,
     ws_order_evidence: Vec<ExchangeOrderSnapshot>,
     learning_samples: Vec<ShadowSample>,
     ipc_server: Option<EngineIpcServer>,
+    account_stream: Option<crate::account_stream::AccountStreamHandle>,
+    last_ws_reconnect_seen: u64,
+    settlement_cursor_ms: i64,
 }
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        if let Some(ref stream) = self.account_stream {
+            stream.stop();
+        }
         if let Some(mut srv) = self.ipc_server.take() {
             srv.stop();
         }
@@ -148,7 +179,7 @@ impl Engine {
                 cfg.live_trading,
                 live_override,
             );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            crate::live_gate::require_live_runtime_construction(&req)?;
         }
 
         let kinds: Vec<VenueKind> = match venue {
@@ -179,6 +210,21 @@ impl Engine {
             Arc::new(AtomicBool::new(false)),
             Some(storage.clone()),
         );
+        let account_stream = venues.iter().find_map(|v| {
+            let (acct, _) = v.account_identity()?;
+            let ws_url = if v.is_production_venue() {
+                crate::hunter_stream::HYPERLIQUID_PUBLIC_WS_URL
+            } else {
+                return None;
+            };
+            crate::account_stream::spawn_account_stream(
+                crate::account_stream::AccountStreamConfig {
+                    ws_url: ws_url.into(),
+                    account: acct,
+                },
+            )
+            .ok()
+        });
         let mut engine = Self::new_with_venues(
             cfg.clone(),
             storage,
@@ -194,6 +240,7 @@ impl Engine {
             true,
         )
         .await?;
+        engine.account_stream = account_stream;
         match EngineIpcServer::start_with_authority(&cfg.data_dir, authority) {
             Ok(srv) => engine.ipc_server = Some(srv),
             Err(e) => {
@@ -227,7 +274,7 @@ impl Engine {
                 cfg.live_trading,
                 live_override,
             );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            crate::live_gate::require_live_runtime_construction(&req)?;
         }
         let ownership = if cfg.live_trading && any_prod {
             let account = crate::ownership::configured_account(&cfg)?
@@ -343,6 +390,10 @@ impl Engine {
                 Some(storage.clone()),
             ),
         };
+        execution = execution.with_pilot_authority(authority.pilot.clone());
+        for v in &venues {
+            v.attach_pilot_authority(authority.pilot.clone());
+        }
         let stop = authority.stop_flag.clone();
         if install_ctrlc {
             let stop_signal = stop.clone();
@@ -374,9 +425,12 @@ impl Engine {
                 .unwrap_or(Decimal::new(15, 2)),
             ..Default::default()
         });
+        if let (Ok(cs), Ok(rs)) = (u_cfg.config_sha3(), policy.policy_sha3()) {
+            authority.pilot.set_deployed_digests(cs, rs);
+        }
 
-        // Reconstruct durable execution journal from open positions so crash-restarts retain
-        // authoritative symbol ownership while genuine exchange orphans / unresolved intents still halt.
+        // Reconstruct durable execution journal from open positions; unknown ownership stays
+        // `"unattributed"` so protective stops keep working while entry gating stays honest.
         let mut restored_journal = Vec::new();
         if let Ok(open) = storage.list_open_positions() {
             for p in open {
@@ -391,9 +445,7 @@ impl Engine {
                             } else {
                                 crate::core::Side::Short
                             },
-                            owner_strategy: p
-                                .strategy
-                                .unwrap_or_else(|| "adaptive_ema_anchor".into()),
+                            owner_strategy: p.strategy.unwrap_or_else(|| "unattributed".into()),
                             requested_qty: qty,
                             limit_price: Decimal::try_from(p.entry_price).ok(),
                             filled_qty: qty,
@@ -405,17 +457,54 @@ impl Engine {
             }
         }
 
-        let mut persisted_daily = Decimal::ZERO;
-        let mut persisted_weekly = Decimal::ZERO;
-        if let Ok(d) = storage.sum_realized_since(Utc::now() - chrono::Duration::hours(24)) {
-            if let Ok(dec) = Decimal::try_from(d) {
-                persisted_daily = dec;
+        let now_init_ms = Utc::now().timestamp_millis();
+        let today_key = utc_day_key(now_init_ms);
+        let cur_week_key = utc_week_key(now_init_ms);
+        let saved_daily_key = storage.get_meta_kv("aegis_daily_key").ok().flatten();
+        let saved_weekly_key = storage.get_meta_kv("aegis_weekly_key").ok().flatten();
+        let mut persisted_daily = if saved_daily_key.as_deref() == Some(today_key.as_str()) {
+            load_decimal_kv(&storage, "aegis_daily_pnl_usd").unwrap_or(Decimal::ZERO)
+        } else {
+            Decimal::ZERO
+        };
+        let mut persisted_weekly = if saved_weekly_key.as_deref() == Some(cur_week_key.as_str()) {
+            load_decimal_kv(&storage, "aegis_weekly_pnl_usd").unwrap_or(Decimal::ZERO)
+        } else {
+            Decimal::ZERO
+        };
+        if !any_prod && persisted_daily == Decimal::ZERO && saved_daily_key.is_none() {
+            if let Ok(d) = storage.sum_realized_since(Utc::now() - chrono::Duration::hours(24)) {
+                if let Ok(dec) = Decimal::try_from(d) {
+                    persisted_daily = dec;
+                }
             }
         }
-        if let Ok(w) = storage.sum_realized_since(Utc::now() - chrono::Duration::days(7)) {
-            if let Ok(dec) = Decimal::try_from(w) {
-                persisted_weekly = dec;
+        if !any_prod && persisted_weekly == Decimal::ZERO && saved_weekly_key.is_none() {
+            if let Ok(w) = storage.sum_realized_since(Utc::now() - chrono::Duration::days(7)) {
+                if let Ok(dec) = Decimal::try_from(w) {
+                    persisted_weekly = dec;
+                }
             }
+        }
+        let persisted_hwm = load_decimal_kv(&storage, "aegis_high_water_equity_usd")
+            .unwrap_or(Decimal::ZERO)
+            .max(init_equity);
+        let cash_flow_baseline_usd =
+            load_decimal_kv(&storage, "aegis_external_cashflow_baseline_usd")
+                .unwrap_or(Decimal::ZERO);
+        let persisted_breaker = storage
+            .get_meta_kv("aegis_breaker_latched_reason")
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty());
+        let settlement_cursor_ms = storage
+            .get_meta_kv("nexus_settlement_cursor_ms")
+            .ok()
+            .flatten()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or_else(|| now_init_ms.saturating_sub(300_000));
+        if persisted_breaker.is_some() {
+            authority.update_runtime_status(0, 0, true, true);
         }
 
         let mut resolved_constraints = instrument_constraints;
@@ -431,14 +520,21 @@ impl Engine {
         if let Some(ref store) = settlement_store {
             if let Ok(outcomes) = store.emitted_learning_outcomes() {
                 for lo in &outcomes {
-                    if let Some(s) = shadow_sample_from_verified(lo, init_equity) {
+                    let risk_usd = load_decimal_kv(
+                        &storage,
+                        &format!("settlement_risk_rt:{}", lo.round_trip_id),
+                    )
+                    .or_else(|| {
+                        load_decimal_kv(&storage, &format!("settlement_risk_sym:{}", lo.symbol))
+                    });
+                    if let Some(s) = shadow_sample_from_verified(lo, risk_usd) {
                         learning_samples.push(s);
                     }
                 }
             }
         }
 
-        Ok(Self {
+        let engine = Self {
             _account_ownership: ownership,
             cfg,
             storage,
@@ -463,20 +559,118 @@ impl Engine {
             order_journal: restored_journal,
             halted_unresolved: false,
             halted_unprotected: false,
+            daily_key: today_key,
+            weekly_key: cur_week_key,
             daily_pnl_usd: persisted_daily,
             weekly_pnl_usd: persisted_weekly,
             session_pnl_usd: Decimal::ZERO,
-            high_water_equity_usd: init_equity,
-            active_pilot: None,
+            high_water_equity_usd: persisted_hwm,
+            cash_flow_baseline_usd,
+            aegis_breaker_reason: persisted_breaker,
             last_ipc_supervision_ms: 0,
             ws_order_evidence: Vec::new(),
             learning_samples,
             ipc_server: None,
-        })
+            account_stream: None,
+            last_ws_reconnect_seen: 0,
+            settlement_cursor_ms,
+        };
+        engine.persist_risk_state();
+        Ok(engine)
     }
 
-    pub fn active_pilot(&self) -> Option<&crate::live_gate::MonitoredPilotGrant> {
-        self.active_pilot.as_ref()
+    pub fn set_account_stream(&mut self, stream: crate::account_stream::AccountStreamHandle) {
+        self.account_stream = Some(stream);
+    }
+
+    pub fn set_unified_strategy_config(&mut self, mut u_cfg: UnifiedStrategyConfig) -> Result<()> {
+        u_cfg.generate_grid_proposals = false;
+        u_cfg
+            .enabled_families
+            .retain(|f| !matches!(f, crate::fang_engine::StrategyFamily::BoundedGrid));
+        if let Ok(mv) = Decimal::try_from(self.cfg.risk.max_notional_per_market_usd) {
+            u_cfg.max_market_notional = u_cfg.max_market_notional.min(mv);
+        }
+        let cs = u_cfg.config_sha3()?;
+        let rs = self.sovereign_policy.policy_sha3()?;
+        self.unified_cfg = u_cfg;
+        self.control_authority.pilot.set_deployed_digests(cs, rs);
+        Ok(())
+    }
+
+    fn persist_risk_state(&self) {
+        let _ = self.storage.set_meta_kv("aegis_daily_key", &self.daily_key);
+        let _ = self
+            .storage
+            .set_meta_kv("aegis_daily_pnl_usd", &self.daily_pnl_usd.to_string());
+        let _ = self
+            .storage
+            .set_meta_kv("aegis_weekly_key", &self.weekly_key);
+        let _ = self
+            .storage
+            .set_meta_kv("aegis_weekly_pnl_usd", &self.weekly_pnl_usd.to_string());
+        let _ = self.storage.set_meta_kv(
+            "aegis_high_water_equity_usd",
+            &self.high_water_equity_usd.to_string(),
+        );
+        let _ = self.storage.set_meta_kv(
+            "aegis_external_cashflow_baseline_usd",
+            &self.cash_flow_baseline_usd.to_string(),
+        );
+        let _ = self.storage.set_meta_kv(
+            "nexus_settlement_cursor_ms",
+            &self.settlement_cursor_ms.to_string(),
+        );
+        if let Some(ref reason) = self.aegis_breaker_reason {
+            let _ = self
+                .storage
+                .set_meta_kv("aegis_breaker_latched_reason", reason);
+        }
+    }
+
+    fn latch_breaker(&mut self, reason: &str) {
+        if self.aegis_breaker_reason.is_none() {
+            self.aegis_breaker_reason = Some(reason.to_string());
+        }
+        let _ = self.storage.set_meta_kv(
+            "aegis_breaker_latched_reason",
+            self.aegis_breaker_reason.as_deref().unwrap_or(reason),
+        );
+        let open_cnt = self
+            .storage
+            .list_open_positions()
+            .map(|v| v.len())
+            .unwrap_or(0);
+        let unres = self.storage.count_unresolved_intents().unwrap_or(0);
+        self.control_authority.update_runtime_status(
+            open_cnt,
+            unres,
+            !self.halted_unprotected,
+            true,
+        );
+    }
+
+    fn rollover_utc_windows(&mut self, now_ms: i64) {
+        let cur_day = utc_day_key(now_ms);
+        let cur_week = utc_week_key(now_ms);
+        let mut changed = false;
+        if cur_day != self.daily_key {
+            self.daily_key = cur_day;
+            self.daily_pnl_usd = Decimal::ZERO;
+            changed = true;
+        }
+        if cur_week != self.weekly_key {
+            self.weekly_key = cur_week;
+            self.weekly_pnl_usd = Decimal::ZERO;
+            changed = true;
+        }
+        if changed {
+            self.persist_risk_state();
+        }
+    }
+
+    pub fn active_pilot(&self) -> Option<crate::live_gate::MonitoredPilotGrant> {
+        self.control_authority.pilot.snapshot()
     }
 
     pub fn attach_monitored_pilot(
@@ -500,9 +694,23 @@ impl Engine {
             "monitored pilot grant is expired or inactive at timestamp {now_ms}"
         );
         grant.limits().validate()?;
+        if grant.scope() == crate::live_gate::PilotGrantScope::ProductionMainnet {
+            anyhow::ensure!(
+                grant.build_identity() == crate::trusted_evidence::build_identity(),
+                "monitored pilot grant build identity does not match running executable"
+            );
+            anyhow::ensure!(
+                grant.strategy_config_sha3() == self.unified_cfg.config_sha3()?,
+                "monitored pilot grant strategy configuration digest mismatch"
+            );
+            anyhow::ensure!(
+                grant.risk_policy_sha3() == self.sovereign_policy.policy_sha3()?,
+                "monitored pilot grant risk policy digest mismatch"
+            );
+        }
         self.control_authority
             .set_active_pilot_session_id(Some(grant.session_id().to_string()));
-        self.active_pilot = Some(grant);
+        self.control_authority.pilot.attach(grant);
         Ok(())
     }
 
@@ -511,15 +719,17 @@ impl Engine {
             !self.control_authority.is_emergency_suspended(),
             "cannot renew operator supervision while emergency suspension is active"
         );
-        let grant = self
-            .active_pilot
-            .as_mut()
+        let sid = self
+            .control_authority
+            .pilot
+            .active_session_id()
             .ok_or_else(|| anyhow::anyhow!("no active monitored pilot attached"))?;
-        grant.renew_supervision(now_ms)
+        self.control_authority.pilot.renew(&sid, now_ms)?;
+        Ok(())
     }
 
     pub fn revoke_monitored_pilot(&mut self) {
-        self.active_pilot = None;
+        self.control_authority.pilot.revoke("revoked by operator");
         self.control_authority.set_active_pilot_session_id(None);
     }
 
@@ -529,6 +739,10 @@ impl Engine {
 
     pub fn settlement_store(&self) -> Option<&SettlementStore> {
         self.settlement_store.as_ref()
+    }
+
+    pub fn learning_samples(&self) -> &[ShadowSample] {
+        &self.learning_samples
     }
 
     pub fn storage(&self) -> &Storage {
@@ -574,6 +788,41 @@ impl Engine {
     /// Authoritatively reconciles local order journal & unresolved intents against exchange REST
     /// snapshots, consuming `RecoveryAction`s and blocking new entries whenever state is uncertain.
     pub async fn reconcile_startup_and_recovery(&mut self) -> Result<RecoveryReport> {
+        let mut ws_needs_backfill = false;
+        let mut ws_reconnects = self.last_ws_reconnect_seen;
+        if let Some(ref stream) = self.account_stream {
+            let batch = stream.drain_updates();
+            ws_needs_backfill =
+                batch.needs_rest_backfill || batch.reconnect_count > self.last_ws_reconnect_seen;
+            ws_reconnects = batch.reconnect_count;
+            for ord in batch.orders {
+                let dup = self.ws_order_evidence.iter().any(|existing| {
+                    existing.exchange_oid == ord.exchange_oid
+                        && existing.state == ord.state
+                        && existing.filled_qty == ord.filled_qty
+                        && existing.observed_at_ms == ord.observed_at_ms
+                });
+                if !dup {
+                    self.push_ws_order_evidence(ord);
+                }
+            }
+            if let Some(ref store) = self.settlement_store {
+                for f in &batch.fills {
+                    let strat = self.resolve_fill_strategy(f);
+                    if let Err(e) = store.record_fill(f, strat.as_deref()) {
+                        tracing::error!(error=%e, fill_id=%f.fill_id, "WS fill persistence failed");
+                        self.halted_unresolved = true;
+                    }
+                }
+                for fp in &batch.fundings {
+                    if let Err(e) = store.record_funding(fp) {
+                        tracing::error!(error=%e, funding_id=%fp.funding_id, "WS funding persistence failed");
+                        self.halted_unresolved = true;
+                    }
+                }
+            }
+        }
+
         let mut ex_orders = Vec::new();
         let mut ex_positions = Vec::new();
         let mut venue_query_failed = false;
@@ -616,6 +865,84 @@ impl Engine {
                 }
             }
         }
+
+        // Empty `open_exchange_orders` NEVER clears unresolved SQLite intents without explicit
+        // exchange terminal/order-status evidence or fill evidence.
+        if let Ok(unresolved_list) = self.storage.list_unresolved_intents() {
+            for (_id, intent) in unresolved_list {
+                let in_journal = self.order_journal.iter().any(|r| r.cloid == intent.id);
+                if !in_journal {
+                    self.order_journal.push(ExecutionJournalRecord {
+                        cloid: intent.id.clone(),
+                        exchange_oid: None,
+                        symbol: intent.symbol.clone(),
+                        side: intent.side,
+                        owner_strategy: intent
+                            .source_signal
+                            .clone()
+                            .unwrap_or_else(|| "unattributed".into()),
+                        requested_qty: Decimal::try_from(intent.size).unwrap_or(Decimal::ZERO),
+                        limit_price: intent.limit_price.and_then(|p| Decimal::try_from(p).ok()),
+                        filled_qty: Decimal::ZERO,
+                        state: OrderLifecycleState::Submitted,
+                        submitted_at_ms: intent.created_at.timestamp_millis(),
+                    });
+                }
+                let known_open = ex_orders
+                    .iter()
+                    .any(|o| o.cloid.as_deref() == Some(intent.id.as_str()));
+                let known_ws = self
+                    .ws_order_evidence
+                    .iter()
+                    .any(|o| o.cloid.as_deref() == Some(intent.id.as_str()));
+                if !known_open && !known_ws {
+                    if let Some(v) = self
+                        .venues
+                        .iter()
+                        .find(|v| v.kind().as_str() == intent.venue)
+                    {
+                        if let Ok(obs) = v.order_status_observation(&intent).await {
+                            if let crate::order_status::Outcome::Order(ord) = obs.outcome {
+                                let state = match ord.status.as_str() {
+                                    "filled" => OrderLifecycleState::Filled,
+                                    "canceled" | "cancelled" | "marginCanceled" => {
+                                        OrderLifecycleState::Cancelled
+                                    }
+                                    s if s.contains("reject") => OrderLifecycleState::Rejected,
+                                    "open" => OrderLifecycleState::Acknowledged,
+                                    _ => OrderLifecycleState::Unresolved,
+                                };
+                                if matches!(
+                                    state,
+                                    OrderLifecycleState::Filled
+                                        | OrderLifecycleState::Cancelled
+                                        | OrderLifecycleState::Rejected
+                                        | OrderLifecycleState::Acknowledged
+                                ) {
+                                    let oid_num = ord.order_id.parse::<u64>().unwrap_or(0);
+                                    if oid_num > 0 {
+                                        let filled = (ord.original_size - ord.remaining_size)
+                                            .max(Decimal::ZERO);
+                                        self.push_ws_order_evidence(ExchangeOrderSnapshot {
+                                            source: crate::ledger::EvidenceSource::RestSnapshot,
+                                            cloid: Some(intent.id.clone()),
+                                            exchange_oid: oid_num,
+                                            symbol: intent.symbol.clone(),
+                                            side: intent.side,
+                                            state,
+                                            filled_qty: filled,
+                                            avg_fill_px: Some(ord.limit_price),
+                                            observed_at_ms: obs.acquired_finished_ms,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let rep = reconcile_execution_state(
             &self.order_journal,
             &ex_orders,
@@ -681,9 +1008,35 @@ impl Engine {
                 RecoveryAction::ReconcileOwnership { .. } => {}
             }
         }
+
+        let settlement_ok = if ws_needs_backfill
+            || !ex_orders.is_empty()
+            || !self.ws_order_evidence.is_empty()
+        {
+            match self
+                .reconcile_settlement_from_venues(Utc::now().timestamp_millis())
+                .await
+            {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::error!(error=%e, "settlement REST backfill failed; retaining recovery hold");
+                    false
+                }
+            }
+        } else {
+            true
+        };
+        if ws_needs_backfill && !venue_query_failed && settlement_ok {
+            if let Some(ref stream) = self.account_stream {
+                stream.mark_rest_backfill_complete(ws_reconnects);
+                self.last_ws_reconnect_seen = ws_reconnects;
+            }
+        }
+
         let db_unresolved = self.storage.count_unresolved_intents()?;
         let holds = rep.unresolved_holds.max(db_unresolved);
-        self.halted_unresolved = holds > 0 || venue_query_failed || !rep.consistency.consistent;
+        self.halted_unresolved =
+            holds > 0 || venue_query_failed || !rep.consistency.consistent || !settlement_ok;
         let open_cnt = self
             .storage
             .list_open_positions()
@@ -693,9 +1046,235 @@ impl Engine {
             open_cnt,
             holds,
             !self.halted_unprotected,
-            false,
+            self.aegis_breaker_reason.is_some(),
         );
         Ok(rep)
+    }
+
+    fn resolve_fill_strategy(&self, fill: &ExchangeFill) -> Option<String> {
+        if let Some(ref cloid) = fill.client_order_id {
+            if let Some(rec) = self.order_journal.iter().find(|r| r.cloid == *cloid) {
+                if rec.owner_strategy != "unattributed" {
+                    return Some(rec.owner_strategy.clone());
+                }
+            }
+            if let Ok(Some(s)) = self
+                .storage
+                .get_meta_kv(&format!("settlement_strategy_intent:{cloid}"))
+            {
+                if !s.trim().is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+        if fill.order_id > 0 {
+            if let Ok(Some(cloid)) = self
+                .storage
+                .get_meta_kv(&format!("settlement_oid_intent:{}", fill.order_id))
+            {
+                if let Ok(Some(s)) = self
+                    .storage
+                    .get_meta_kv(&format!("settlement_strategy_intent:{cloid}"))
+                {
+                    if !s.trim().is_empty() {
+                        return Some(s);
+                    }
+                }
+            }
+            if let Some(rec) = self
+                .order_journal
+                .iter()
+                .find(|r| r.exchange_oid == Some(fill.order_id))
+            {
+                if rec.owner_strategy != "unattributed" {
+                    return Some(rec.owner_strategy.clone());
+                }
+            }
+        }
+        if let Ok(open) = self.storage.list_open_positions() {
+            let matching: Vec<_> = open
+                .iter()
+                .filter(|p| p.symbol.eq_ignore_ascii_case(&fill.symbol))
+                .collect();
+            if matching.len() == 1 {
+                if let Some(ref s) = matching[0].strategy {
+                    if !s.trim().is_empty() && s != "unattributed" {
+                        return Some(s.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Reconciles genuine exchange fills, fees, funding payments (with verified complete coverage),
+    /// and non-funding external cash flows into durable `SettlementStore`, emitting verified
+    /// net-of-cost COGNITION learning samples scaled by each trade's original entry risk.
+    pub async fn reconcile_settlement_from_venues(&mut self, now_ms: i64) -> Result<usize> {
+        let Some(store) = self.settlement_store.clone() else {
+            return Ok(0);
+        };
+        let end_ms = now_ms.max(self.settlement_cursor_ms + 1);
+        let since_ms = self.settlement_cursor_ms.saturating_sub(60_000).max(0);
+        let mut ingested = 0usize;
+        let mut any_supported = false;
+        let mut covered_symbols: std::collections::BTreeSet<String> = self
+            .symbols
+            .iter()
+            .map(|s| s.trim().to_ascii_uppercase())
+            .collect();
+        if let Ok(open) = self.storage.list_open_positions() {
+            for p in open {
+                covered_symbols.insert(p.symbol.trim().to_ascii_uppercase());
+            }
+        }
+
+        let mut cash_flows_total = self.cash_flow_baseline_usd;
+        let mut cf_updated = false;
+        for v in &self.venues {
+            match v.fetch_account_fills(since_ms, end_ms).await {
+                Ok(fills) => {
+                    any_supported = true;
+                    for f in &fills {
+                        covered_symbols.insert(f.symbol.trim().to_ascii_uppercase());
+                        let mapped_cloid = f.client_order_id.clone().or_else(|| {
+                            (f.order_id > 0)
+                                .then(|| {
+                                    self.storage
+                                        .get_meta_kv(&format!(
+                                            "settlement_oid_intent:{}",
+                                            f.order_id
+                                        ))
+                                        .ok()
+                                        .flatten()
+                                })
+                                .flatten()
+                        });
+                        if let Some(ref c) = mapped_cloid {
+                            let _ = self
+                                .storage
+                                .set_meta_kv(&format!("settlement_fill_cloid:{}", f.fill_id), c);
+                        }
+                        let strat = self.resolve_fill_strategy(f);
+                        if store.record_fill(f, strat.as_deref())? {
+                            ingested += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if v.is_production_venue()
+                        || !msg.contains("does not supply authoritative account fills")
+                    {
+                        return Err(e.context("fetch_account_fills failed"));
+                    }
+                }
+            }
+            match v.fetch_account_funding(since_ms, end_ms).await {
+                Ok(fundings) => {
+                    any_supported = true;
+                    for fp in &fundings {
+                        covered_symbols.insert(fp.symbol.trim().to_ascii_uppercase());
+                        if store.record_funding(fp)? {
+                            ingested += 1;
+                        }
+                    }
+                    // Clean pagination termination guarantees full funding coverage for [since_ms, end_ms].
+                    for sym in &covered_symbols {
+                        store.record_funding_coverage(
+                            &crate::settlement::FundingCoverageWindow {
+                                symbol: sym.clone(),
+                                start_ms: since_ms,
+                                end_ms,
+                                complete: true,
+                            },
+                        )?;
+                    }
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if v.is_production_venue()
+                        || !msg.contains("does not supply authoritative account funding")
+                    {
+                        return Err(e.context("fetch_account_funding failed"));
+                    }
+                }
+            }
+            match v.fetch_account_cash_flows(since_ms, end_ms).await {
+                Ok(flows) => {
+                    any_supported = true;
+                    for cf in &flows {
+                        if store.record_external_cash_flow(cf)? {
+                            ingested += 1;
+                            if cf.token == "USDC" {
+                                cash_flows_total += cf.signed_amount;
+                                cf_updated = true;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if v.is_production_venue()
+                        || !msg.contains("does not supply authoritative account cash flows")
+                    {
+                        return Err(e.context("fetch_account_cash_flows failed"));
+                    }
+                }
+            }
+        }
+
+        if cf_updated {
+            let delta_cf = cash_flows_total - self.cash_flow_baseline_usd;
+            self.cash_flow_baseline_usd = cash_flows_total;
+            self.high_water_equity_usd = (self.high_water_equity_usd + delta_cf).max(Decimal::ZERO);
+            self.persist_risk_state();
+        }
+
+        if !any_supported && ingested == 0 {
+            return Ok(0);
+        }
+
+        let (rts, newly_emitted) = store.recompute_and_commit()?;
+        for lo in &newly_emitted {
+            let rt_opt = rts.iter().find(|r| r.round_trip_id == lo.round_trip_id);
+            let mut risk_usd: Option<Decimal> = None;
+            if let Some(rt) = rt_opt {
+                for eid in &rt.entry_fill_ids {
+                    if let Ok(Some(cloid)) = self
+                        .storage
+                        .get_meta_kv(&format!("settlement_fill_cloid:{eid}"))
+                    {
+                        if let Some(r) = load_decimal_kv(
+                            &self.storage,
+                            &format!("settlement_risk_intent:{cloid}"),
+                        ) {
+                            risk_usd = Some(r);
+                            break;
+                        }
+                    }
+                }
+            }
+            if risk_usd.is_none() {
+                risk_usd =
+                    load_decimal_kv(&self.storage, &format!("settlement_risk_sym:{}", lo.symbol));
+            }
+            if let Some(r) = risk_usd {
+                let _ = self.storage.set_meta_kv(
+                    &format!("settlement_risk_rt:{}", lo.round_trip_id),
+                    &r.to_string(),
+                );
+            }
+            if let Some(sample) = shadow_sample_from_verified(lo, risk_usd) {
+                self.learning_samples.push(sample);
+            }
+            if any_supported {
+                self.record_realized_pnl(lo.verified_net_pnl_usdc);
+            }
+        }
+        self.settlement_cursor_ms = end_ms;
+        self.persist_risk_state();
+        Ok(newly_emitted.len())
     }
 
     /// Reconciles native `reduce_only: true` exchange protective stops against all open durable
@@ -731,10 +1310,7 @@ impl Engine {
                 });
             protected_positions.push(OpenProtectedPosition {
                 symbol: p.symbol.clone(),
-                owner_strategy: p
-                    .strategy
-                    .clone()
-                    .unwrap_or_else(|| "adaptive_ema_anchor".into()),
+                owner_strategy: p.strategy.clone().unwrap_or_else(|| "unattributed".into()),
                 side,
                 qty,
                 entry_price: entry,
@@ -920,13 +1496,14 @@ impl Engine {
             let mark_px = snapshots
                 .iter()
                 .find(|s| s.symbol == p.symbol && s.mid.is_finite() && s.mid > 0.0)
-                .map(|s| s.mid)
-                .unwrap_or(p.entry_price);
-            let ntl = Decimal::try_from(p.size.abs() * mark_px).unwrap_or(Decimal::ZERO);
-            total_exposure += ntl;
-            *sym_exposure
-                .entry(p.symbol.clone())
-                .or_insert(Decimal::ZERO) += ntl;
+                .map(|s| s.mid);
+            if let Some(m) = mark_px {
+                let ntl = Decimal::try_from(p.size.abs() * m).unwrap_or(Decimal::ZERO);
+                total_exposure += ntl;
+                *sym_exposure
+                    .entry(p.symbol.clone())
+                    .or_insert(Decimal::ZERO) += ntl;
+            }
             occupied.insert(
                 p.symbol.clone(),
                 p.strategy.clone().unwrap_or_else(|| p.side.clone()),
@@ -1051,14 +1628,34 @@ impl Engine {
         };
         let poll_ms = self.cfg.poll_interval_ms.max(250);
         self.heartbeat.beat("engine_tick");
+        self.rollover_utc_windows(now_ms);
+        let any_prod = self.venues.iter().any(|v| v.is_production_venue());
 
         let ipc_snap = self.control_authority.snapshot();
         if ipc_snap.last_supervision_renewed_ms > self.last_ipc_supervision_ms
             && !ipc_snap.emergency_suspended
         {
             self.last_ipc_supervision_ms = ipc_snap.last_supervision_renewed_ms;
-            if let Some(ref mut grant) = self.active_pilot {
-                let _ = grant.renew_supervision(now_ms.max(ipc_snap.last_supervision_renewed_ms));
+            if let Some(sid) = self.control_authority.pilot.active_session_id() {
+                let _ = self
+                    .control_authority
+                    .pilot
+                    .renew(&sid, now_ms.max(ipc_snap.last_supervision_renewed_ms));
+            }
+        }
+        if !ipc_snap.breaker_latched && self.aegis_breaker_reason.is_some() {
+            // Audited IPC rearm cleared the breaker latch in storage; sync local state cleanly.
+            if self
+                .storage
+                .get_meta_kv("aegis_breaker_latched_reason")
+                .ok()
+                .flatten()
+                .is_none()
+            {
+                self.aegis_breaker_reason = None;
+                self.high_water_equity_usd =
+                    load_decimal_kv(&self.storage, "aegis_high_water_equity_usd")
+                        .unwrap_or(Decimal::ZERO);
             }
         }
 
@@ -1069,6 +1666,7 @@ impl Engine {
                         if let Ok(d) = Decimal::try_from(equity) {
                             if d > self.high_water_equity_usd {
                                 self.high_water_equity_usd = d;
+                                self.persist_risk_state();
                             }
                         }
                         if let Err(error) =
@@ -1120,7 +1718,7 @@ impl Engine {
             }
         }
 
-        // === 3. Position trailing / TP / time-stop management ===
+        // === 3. Position trailing / TP / time-stop management & Authoritative Settlement ===
         let realized_before = self
             .storage
             .sum_realized_in_session(self.session_id)
@@ -1144,41 +1742,96 @@ impl Engine {
                     .record_error(self.session_id, "exit", &e.to_string());
             }
         }
-        let realized_after = self
-            .storage
-            .sum_realized_in_session(self.session_id)
-            .unwrap_or(realized_before);
-        let realized_delta = realized_after - realized_before;
-        if realized_delta.abs() > 1e-9 {
-            if let Ok(d) = Decimal::try_from(realized_delta) {
-                self.record_realized_pnl(d);
+        if let Err(e) = self.reconcile_settlement_from_venues(now_ms).await {
+            self.halted_unresolved = true;
+            let msg = format!("settlement reconciliation failed: {e}");
+            let _ = self
+                .storage
+                .record_error(self.session_id, "settlement", &msg);
+        } else if !any_prod {
+            // Non-production offline simulation venues without `fetch_account_fills` fall back
+            // to local simulation `closed_trades` PnL delta.
+            let has_fills_api = self.venues.iter().any(|v| v.account_identity().is_some());
+            if !has_fills_api {
+                let realized_after = self
+                    .storage
+                    .sum_realized_in_session(self.session_id)
+                    .unwrap_or(realized_before);
+                let realized_delta = realized_after - realized_before;
+                if realized_delta.abs() > 1e-9 {
+                    if let Ok(d) = Decimal::try_from(realized_delta) {
+                        self.record_realized_pnl(d);
+                    }
+                }
             }
         }
+        self.control_authority
+            .pilot
+            .update_pnl(self.daily_pnl_usd, self.session_pnl_usd);
 
         // === 4. Fail-closed admission gate on suspension, unresolved intents, missing protection, or pilot expiry/loss ===
-        let pilot_blocked = if let Some(ref grant) = self.active_pilot {
+        let active_grant = self.control_authority.pilot.snapshot();
+        let entry_block_reason = if self.control_authority.is_emergency_suspended() {
+            "emergency_suspended".to_string()
+        } else if self.halted_unresolved {
+            "unresolved_recovery_or_settlement_hold".to_string()
+        } else if self.halted_unprotected {
+            "unprotected_position_hold".to_string()
+        } else if self.aegis_breaker_reason.is_some()
+            || self.control_authority.snapshot().breaker_latched
+        {
+            self.aegis_breaker_reason
+                .clone()
+                .unwrap_or_else(|| "aegis_breaker_latched".into())
+        } else if let Some(ref grant) = active_grant {
+            if !grant.is_active_at(now_ms) {
+                "pilot_lease_or_session_expired".to_string()
+            } else if -self.daily_pnl_usd >= grant.limits().max_daily_loss_usd {
+                self.latch_breaker("pilot max_daily_loss_usd breached");
+                "pilot_daily_loss_limit".to_string()
+            } else if -self.session_pnl_usd >= grant.limits().max_session_loss_usd {
+                self.latch_breaker("pilot max_session_loss_usd breached");
+                "pilot_session_loss_limit".to_string()
+            } else {
+                String::new()
+            }
+        } else if any_prod && self.cfg.live_trading {
+            "no_active_restricted_pilot_grant".to_string()
+        } else if !self.cfg.live_trading {
+            format!(
+                "mode_{}_entries_disabled",
+                self.control_authority.snapshot().mode
+            )
+        } else {
+            String::new()
+        };
+
+        let pilot_blocked = if let Some(ref grant) = active_grant {
             !grant.is_active_at(now_ms)
                 || (-self.daily_pnl_usd >= grant.limits().max_daily_loss_usd)
                 || (-self.session_pnl_usd >= grant.limits().max_session_loss_usd)
         } else {
-            false
+            any_prod && self.cfg.live_trading
         };
         if self.control_authority.is_emergency_suspended()
             || self.halted_unresolved
             || self.halted_unprotected
+            || self.aegis_breaker_reason.is_some()
             || pilot_blocked
         {
             summary.halts_blocked_entries = true;
             if tick.is_multiple_of((10_000 / poll_ms.max(1)).max(1)) {
                 self.heartbeat.persist(&self.storage, self.session_id).ok();
             }
+            self.control_authority
+                .record_tick(tick, now_ms, &entry_block_reason);
             if self.dash.is_some() {
                 self.update_dashboard(tick, &snapshots);
             }
             return Ok(summary);
         }
 
-        // === 5. Shared FANG unified plan + AEGIS sovereign admission + durable execution ===
+        // === 5. Shared FANG unified plan + AEGIS sovereign risk + precision rounding -> durable execution ===
         let plan_out = self.unified_planning_step(tick, &snapshots)?;
         summary.planned_candidates = plan_out.report.selected.len();
         let candles_by_sym: BTreeMap<String, Vec<crate::core::Candle>> = snapshots
@@ -1190,16 +1843,18 @@ impl Engine {
 
         for cand in plan_out.report.selected {
             // Revalidate suspension, halts, and monitored pilot state immediately before every candidate!
-            let mid_batch_pilot_blocked = if let Some(ref grant) = self.active_pilot {
+            let active_now = self.control_authority.pilot.snapshot();
+            let mid_batch_pilot_blocked = if let Some(ref grant) = active_now {
                 !grant.is_active_at(now_ms)
                     || (-self.daily_pnl_usd >= grant.limits().max_daily_loss_usd)
                     || (-self.session_pnl_usd >= grant.limits().max_session_loss_usd)
             } else {
-                false
+                any_prod && self.cfg.live_trading
             };
             if self.control_authority.is_emergency_suspended()
                 || self.halted_unresolved
                 || self.halted_unprotected
+                || self.aegis_breaker_reason.is_some()
                 || mid_batch_pilot_blocked
             {
                 summary.halts_blocked_entries = true;
@@ -1228,45 +1883,132 @@ impl Engine {
                 0.0
             };
 
-            // Independent AEGIS Sovereign Risk evaluation (fail closed on missing inputs)
-            let eq_dec = self
-                .portfolio
-                .verified_equity(std::time::Duration::from_secs(60))
-                .ok()
-                .and_then(|e| Decimal::try_from(e).ok());
-            let open_pos = self.storage.list_open_positions()?;
-            let sov_positions: Vec<SovereignPositionInput> = open_pos
-                .iter()
-                .filter_map(|p| {
-                    let pos_snap = snapshots.iter().find(|s| s.symbol == p.symbol);
-                    let mark_px = pos_snap
-                        .map(|s| s.mid)
-                        .filter(|m| m.is_finite() && *m > 0.0)
-                        .unwrap_or(p.entry_price);
-                    let ntl = Decimal::try_from(p.size.abs() * mark_px).ok()?;
-                    let fund = pos_snap
-                        .and_then(|s| s.funding_bps_1h)
-                        .filter(|f| f.is_finite())
-                        .and_then(|f| Decimal::try_from(f).ok());
-                    Some(SovereignPositionInput {
-                        symbol: p.symbol.clone(),
-                        owner_strategy: p
-                            .strategy
-                            .clone()
-                            .unwrap_or_else(|| "adaptive_ema_anchor".into()),
-                        side: if p.side.eq_ignore_ascii_case("LONG") {
-                            crate::core::Side::Long
+            // Acquire authoritative scoped account exposure evidence before any admission calculation.
+            let mut latest_evidence: Option<
+                crate::adapters::account_evidence::AccountExposureEvidence,
+            > = None;
+            let mut evidence_failed = false;
+            if let Some(venue) = self.venues.iter().find(|v| v.kind().as_str() == snap.venue) {
+                match venue.account_exposure_evidence().await {
+                    Ok(ev) => {
+                        if let Err(e) = ev.validate(Utc::now().timestamp_millis(), 30_000) {
+                            tracing::warn!(error=%e, "stale/invalid account exposure evidence");
+                            evidence_failed = true;
                         } else {
-                            crate::core::Side::Short
-                        },
-                        notional_usd: ntl,
-                        liquidation_distance_pct: None,
-                        funding_bps_1h: fund,
-                    })
-                })
-                .collect();
+                            latest_evidence = Some(ev);
+                        }
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if venue.is_production_venue()
+                            || !msg.contains("does not supply scoped account exposure evidence")
+                        {
+                            evidence_failed = true;
+                            tracing::warn!(error=%e, "account_exposure_evidence failed; blocking new entry");
+                        }
+                    }
+                }
+            }
+            if evidence_failed {
+                summary.risk_rejected += 1;
+                let _ = self.storage.record_error(
+                    self.session_id,
+                    "risk",
+                    "authoritative account evidence unavailable or stale",
+                );
+                self.push_signal_row(sig, "blocked: stale evidence");
+                continue;
+            }
+
+            let eq_dec = if let Some(ref ev) = latest_evidence {
+                Some(ev.snapshot.equity)
+            } else if !any_prod {
+                self.portfolio
+                    .verified_equity(std::time::Duration::from_secs(60))
+                    .ok()
+                    .and_then(|e| Decimal::try_from(e).ok())
+            } else {
+                None
+            };
+            if let Some(e) = eq_dec {
+                if e > self.high_water_equity_usd {
+                    self.high_water_equity_usd = e;
+                    self.persist_risk_state();
+                }
+            }
+
+            let open_pos = self.storage.list_open_positions()?;
+            let mut missing_mark = false;
+            let mut sov_positions: Vec<SovereignPositionInput> = Vec::with_capacity(open_pos.len());
+            for p in &open_pos {
+                let pos_snap = snapshots.iter().find(|s| s.symbol == p.symbol);
+                let Some(mark_px) = pos_snap
+                    .map(|s| s.mid)
+                    .filter(|m| m.is_finite() && *m > 0.0)
+                else {
+                    missing_mark = true;
+                    break;
+                };
+                let Some(ntl) = Decimal::try_from(p.size.abs() * mark_px).ok() else {
+                    missing_mark = true;
+                    break;
+                };
+                let liq_dist_pct = latest_evidence
+                    .as_ref()
+                    .and_then(|ev| ev.positions.iter().find(|ep| ep.symbol == p.symbol))
+                    .and_then(|ep| ep.liquidation_px)
+                    .and_then(|lp| {
+                        let m_dec = Decimal::try_from(mark_px).ok()?;
+                        if m_dec > Decimal::ZERO {
+                            Some((((m_dec - lp).abs() / m_dec) * Decimal::from(100u32)).round_dp(4))
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(ld) = liq_dist_pct {
+                    if ld < self.sovereign_policy.min_liquidation_distance_pct {
+                        missing_mark = true;
+                        let _ = self.storage.record_error(
+                            self.session_id,
+                            "risk",
+                            &format!(
+                                "existing position {} liquidation buffer {ld}% below floor {}%",
+                                p.symbol, self.sovereign_policy.min_liquidation_distance_pct
+                            ),
+                        );
+                        break;
+                    }
+                }
+                let fund = pos_snap
+                    .and_then(|s| s.funding_bps_1h)
+                    .filter(|f| f.is_finite())
+                    .and_then(|f| Decimal::try_from(f).ok());
+                sov_positions.push(SovereignPositionInput {
+                    symbol: p.symbol.clone(),
+                    owner_strategy: p.strategy.clone().unwrap_or_else(|| "unattributed".into()),
+                    side: if p.side.eq_ignore_ascii_case("LONG") {
+                        crate::core::Side::Long
+                    } else {
+                        crate::core::Side::Short
+                    },
+                    notional_usd: ntl,
+                    liquidation_distance_pct: liq_dist_pct,
+                    funding_bps_1h: fund,
+                });
+            }
+            if missing_mark {
+                summary.risk_rejected += 1;
+                let _ = self.storage.record_error(
+                    self.session_id,
+                    "risk",
+                    "open position lacks fresh valid mark price or liquidation buffer; entry denied",
+                );
+                self.push_signal_row(sig, "blocked: missing mark");
+                continue;
+            }
+
             let used_ntl: Decimal = sov_positions.iter().map(|p| p.notional_usd).sum();
-            let reserved_ntl: Decimal = self
+            let journal_reserved: Decimal = self
                 .order_journal
                 .iter()
                 .filter(|r| {
@@ -1282,6 +2024,24 @@ impl Engine {
                         * r.limit_price.unwrap_or(Decimal::ZERO)
                 })
                 .sum();
+            let db_reserved = self
+                .storage
+                .active_aegis_reserved_notional()
+                .unwrap_or(Decimal::ZERO);
+            let exchange_order_reserved: Decimal = latest_evidence
+                .as_ref()
+                .map(|ev| {
+                    ev.open_orders
+                        .iter()
+                        .filter(|o| !o.reduce_only)
+                        .map(|o| o.size * o.limit_price.max(o.mark_price))
+                        .sum()
+                })
+                .unwrap_or(Decimal::ZERO);
+            let reserved_ntl = journal_reserved
+                .max(db_reserved)
+                .max(exchange_order_reserved);
+
             let mut pairwise_correlations = BTreeMap::new();
             let cand_upper = sig.symbol.trim().to_ascii_uppercase();
             if let Some(ref cm) = corr_matrix {
@@ -1307,17 +2067,77 @@ impl Engine {
                 }
             }
 
-            if let Some(ref grant) = self.active_pilot {
-                if let Err(err) = crate::live_gate::require_authorized_pilot_execution(
-                    grant,
+            // Round order size/price to exact exchange precision BEFORE risk & pilot limit checks.
+            let inst_c = self.instrument_constraints.get(&sig.symbol);
+            let req_lev = Decimal::ONE;
+            let px_dec = Decimal::try_from(cand.reference_price)
+                .unwrap_or(Decimal::ONE)
+                .max(Decimal::new(1, 4));
+            let raw_qty = (cand.requested_notional / px_dec).round_dp(8);
+            let (final_px_dec, final_qty_dec) = match inst_c {
+                Some(c) => match c.validate_and_round(px_dec, raw_qty, req_lev) {
+                    Ok(pair) => pair,
+                    Err(e) => {
+                        summary.risk_rejected += 1;
+                        let _ =
+                            self.storage
+                                .record_error(self.session_id, "precision", &e.to_string());
+                        continue;
+                    }
+                },
+                None => (px_dec, raw_qty),
+            };
+            let rounded_notional = (final_px_dec * final_qty_dec).round_dp(6);
+            let est_fee = (rounded_notional * Decimal::new(5, 4)).round_dp(6);
+            let post_fee_notional = rounded_notional + est_fee;
+
+            let avail_collateral = latest_evidence
+                .as_ref()
+                .and_then(|ev| ev.withdrawable_collateral)
+                .map(|w| (w - reserved_ntl - est_fee).max(Decimal::ZERO))
+                .or_else(|| {
+                    if !any_prod {
+                        eq_dec.map(|e| (e - used_ntl - reserved_ntl).max(Decimal::ZERO))
+                    } else {
+                        None
+                    }
+                });
+
+            self.control_authority.pilot.update_runtime_context(
+                self.daily_pnl_usd,
+                self.session_pnl_usd,
+                used_ntl + reserved_ntl,
+                eq_dec,
+                (self.high_water_equity_usd > Decimal::ZERO).then_some(self.high_water_equity_usd),
+            );
+
+            if active_now.is_some() || (any_prod && self.cfg.live_trading) {
+                let (acct_id, signer_id) = self
+                    .venues
+                    .iter()
+                    .find(|v| v.kind().as_str() == snap.venue)
+                    .and_then(|v| v.account_identity())
+                    .unwrap_or_default();
+                let acct_for_ctx = latest_evidence
+                    .as_ref()
+                    .map(|e| e.account.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(acct_id.as_str());
+                if let Err(err) = crate::live_gate::require_entry_mutation_authority(
+                    Some(&self.control_authority.pilot),
+                    &crate::live_gate::EntryMutationContext {
+                        production: any_prod,
+                        account: acct_for_ctx,
+                        signer: &signer_id,
+                        symbol: &sig.symbol,
+                        strategy_id: &sig.strategy,
+                        order_type: crate::live_gate::PilotOrderType::LimitIoc,
+                        requested_leverage: req_lev,
+                        requested_notional_usd: post_fee_notional,
+                        current_exposure_usd: used_ntl + reserved_ntl,
+                        emergency_suspended: self.control_authority.is_emergency_suspended(),
+                    },
                     now_ms,
-                    self.control_authority.is_emergency_suspended(),
-                    self.daily_pnl_usd,
-                    self.session_pnl_usd,
-                    &sig.symbol,
-                    &sig.strategy,
-                    cand.requested_notional,
-                    used_ntl + reserved_ntl,
                 ) {
                     summary.risk_rejected += 1;
                     let msg = err.to_string();
@@ -1326,10 +2146,10 @@ impl Engine {
                     continue;
                 }
             }
+
             let sov_state = SovereignPortfolioState {
                 account_equity_usd: eq_dec,
-                available_collateral_usd: eq_dec
-                    .map(|e| (e - used_ntl - reserved_ntl).max(Decimal::ZERO)),
+                available_collateral_usd: avail_collateral,
                 reserved_notional_usd: reserved_ntl,
                 open_positions: sov_positions,
                 daily_pnl_usd: Some(self.daily_pnl_usd),
@@ -1338,22 +2158,34 @@ impl Engine {
                     .then_some(self.high_water_equity_usd),
                 pairwise_correlations,
                 emergency_suspended: self.control_authority.is_emergency_suspended(),
-                breaker_reason: self
-                    .control_authority
-                    .snapshot()
-                    .breaker_latched
-                    .then(|| "breaker_latched".into()),
+                breaker_reason: self.aegis_breaker_reason.clone().or_else(|| {
+                    self.control_authority
+                        .snapshot()
+                        .breaker_latched
+                        .then(|| "breaker_latched".into())
+                }),
             };
-            let inst_c = self.instrument_constraints.get(&sig.symbol);
-            let req_lev = Decimal::ONE;
-            let est_fee = (cand.requested_notional * Decimal::new(5, 4)).round_dp(6);
-            let est_liq_dist_pct = eq_dec
-                .filter(|_| cand.reference_price.is_finite() && cand.reference_price > 0.0)
-                .map(|_| {
-                    ((Decimal::ONE / req_lev - Decimal::new(5, 2)).max(Decimal::ZERO)
-                        * Decimal::from(100u32))
-                    .round_dp(4)
-                });
+            // Conservative prospective liquidation distance derived from actual collateral,
+            // post-order portfolio exposure, and instrument maintenance margin tier (`>= 2.5%`).
+            let est_liq_dist_pct = match (eq_dec, avail_collateral, inst_c.map(|c| c.max_leverage))
+            {
+                (Some(eq), Some(avail), Some(max_lev))
+                    if eq > Decimal::ZERO
+                        && max_lev >= Decimal::ONE
+                        && rounded_notional > Decimal::ZERO =>
+                {
+                    let mmr = (Decimal::ONE / (Decimal::TWO * max_lev)).max(Decimal::new(25, 3));
+                    let post_exp = used_ntl + reserved_ntl + rounded_notional;
+                    let maint_req = (post_exp * mmr).round_dp(6);
+                    let free_after_entry =
+                        (avail - (rounded_notional / req_lev) - est_fee).max(Decimal::ZERO);
+                    let buf = ((free_after_entry + (eq - maint_req).max(Decimal::ZERO) * mmr)
+                        / post_exp.max(Decimal::ONE))
+                    .min((Decimal::ONE / req_lev - mmr).max(Decimal::ZERO));
+                    Some((buf * Decimal::from(100u32)).round_dp(4))
+                }
+                _ => None,
+            };
             let market_depth_usd = snap
                 .l2_depth_usd
                 .filter(|d| d.is_finite() && *d > 0.0)
@@ -1366,7 +2198,7 @@ impl Engine {
                 symbol: sig.symbol.clone(),
                 owner_strategy: sig.strategy.clone(),
                 side: sig.side,
-                requested_notional_usd: cand.requested_notional,
+                requested_notional_usd: rounded_notional,
                 estimated_fee_usd: est_fee,
                 estimated_liquidation_distance_pct: est_liq_dist_pct,
                 market_depth_usd,
@@ -1388,28 +2220,14 @@ impl Engine {
                 let msg = format!(
                     "AEGIS sovereign block (breaker={breaker_triggered}): reasons={reasons:?} missing={missing_inputs:?}"
                 );
+                if breaker_triggered {
+                    self.latch_breaker(&reasons.join("; "));
+                }
                 let _ = self.storage.record_error(self.session_id, "risk", &msg);
                 self.push_signal_row(sig, &format!("blocked: {}", truncate_reason(&msg)));
                 continue;
             }
 
-            let px_dec = Decimal::try_from(cand.reference_price)
-                .unwrap_or(Decimal::ONE)
-                .max(Decimal::new(1, 4));
-            let raw_qty = (cand.requested_notional / px_dec).round_dp(8);
-            let (final_px_dec, final_qty_dec) = match inst_c {
-                Some(c) => match c.validate_and_round(px_dec, raw_qty, req_lev) {
-                    Ok(pair) => pair,
-                    Err(e) => {
-                        summary.risk_rejected += 1;
-                        let _ =
-                            self.storage
-                                .record_error(self.session_id, "precision", &e.to_string());
-                        continue;
-                    }
-                },
-                None => (px_dec, raw_qty),
-            };
             let final_px = final_px_dec.to_f64().unwrap_or(cand.reference_price);
             let final_qty = final_qty_dec.to_f64().unwrap_or(0.0);
             if final_qty <= 0.0 || !final_px.is_finite() || final_px <= 0.0 {
@@ -1442,11 +2260,20 @@ impl Engine {
                 state: OrderLifecycleState::Submitted,
                 submitted_at_ms: Utc::now().timestamp_millis(),
             });
+            let _ = self.storage.set_meta_kv(
+                &format!("settlement_strategy_intent:{cloid}"),
+                &sig.strategy,
+            );
 
             if let Some(venue) = self.venues.iter().find(|v| v.kind().as_str() == snap.venue) {
                 match self.execution.submit(&intent, venue.as_ref()).await {
                     Ok(res) => {
                         self.storage.record_order(self.session_id, &intent, &res)?;
+                        if let Some(ref oid_str) = res.venue_order_id {
+                            let _ = self
+                                .storage
+                                .set_meta_kv(&format!("settlement_oid_intent:{oid_str}"), &cloid);
+                        }
                         if let Some(rec) = self.order_journal.iter_mut().find(|r| r.cloid == cloid)
                         {
                             rec.exchange_oid = res
@@ -1487,55 +2314,38 @@ impl Engine {
                             self.push_signal_row(sig, "filled");
                             self.drought.clear_for(&sig.symbol);
 
-                            if let Some(ref store) = self.settlement_store {
-                                let fill_qty = Decimal::try_from(res.filled_size)
-                                    .unwrap_or(final_qty_dec)
-                                    .round_dp(8);
-                                let fill_px =
-                                    Decimal::try_from(res.avg_fill_price.unwrap_or(final_px))
-                                        .unwrap_or(final_px_dec)
-                                        .round_dp(8);
-                                if fill_qty > Decimal::ZERO && fill_px > Decimal::ZERO {
-                                    let oid = res
-                                        .venue_order_id
-                                        .as_deref()
-                                        .and_then(|s| s.parse::<u64>().ok())
-                                        .unwrap_or(0);
-                                    let ex_fill = ExchangeFill {
-                                        fill_id: format!("engine-fill-{}", res.intent_id),
-                                        order_id: oid,
-                                        client_order_id: Some(intent.id.clone()),
-                                        symbol: sig.symbol.clone(),
-                                        side: match sig.side {
-                                            crate::core::Side::Long => FillSide::Buy,
-                                            crate::core::Side::Short => FillSide::Sell,
-                                        },
-                                        quantity: fill_qty,
-                                        price: fill_px,
-                                        closed_pnl_usdc: None,
-                                        pnl_convention: PnlConvention::Unverified,
-                                        fee: None,
-                                        timestamp_ms: now_ms.max(1),
-                                    };
-                                    if store.record_fill(&ex_fill, Some(&sig.strategy)).is_ok() {
-                                        if let Ok((_, newly_emitted)) = store.recompute_and_commit()
-                                        {
-                                            let eq_ref = eq_dec
-                                                .filter(|e| *e > Decimal::ZERO)
-                                                .unwrap_or(self.high_water_equity_usd);
-                                            for lo in &newly_emitted {
-                                                if let Some(sample) =
-                                                    shadow_sample_from_verified(lo, eq_ref)
-                                                {
-                                                    self.learning_samples.push(sample);
-                                                }
-                                            }
-                                        }
+                            // Record the trade's exact original entry risk (|entry - stop| * filled_qty)
+                            // for COGNITION normalized R calculation once authoritative exchange
+                            // fills and funding settle the closed round-trip.
+                            if let Some(entry_fill_px) = res.avg_fill_price {
+                                if let (Ok(ep_dec), Ok(sp_dec), Ok(fq_dec)) = (
+                                    Decimal::try_from(entry_fill_px),
+                                    Decimal::try_from(sig.stop_price),
+                                    Decimal::try_from(res.filled_size),
+                                ) {
+                                    let risk_usd = ((ep_dec - sp_dec).abs() * fq_dec).round_dp(6);
+                                    if risk_usd > Decimal::ZERO {
+                                        let _ = self.storage.set_meta_kv(
+                                            &format!("settlement_risk_intent:{}", intent.id),
+                                            &risk_usd.to_string(),
+                                        );
+                                        let _ = self.storage.set_meta_kv(
+                                            &format!("settlement_risk_sym:{}", sig.symbol),
+                                            &risk_usd.to_string(),
+                                        );
                                     }
                                 }
                             }
 
-                            // Immediately reconcile native reduce-only protective stop for the new position.
+                            // Immediately reconcile exchange settlement and native reduce-only protective stop.
+                            if let Err(e) = self.reconcile_settlement_from_venues(now_ms).await {
+                                self.halted_unresolved = true;
+                                let _ = self.storage.record_error(
+                                    self.session_id,
+                                    "settlement",
+                                    &format!("post-entry settlement error: {e}"),
+                                );
+                            }
                             if let Ok(prot) = self.reconcile_protective_orders().await {
                                 summary.protective_actions += prot.actions.len();
                             }
@@ -1554,6 +2364,8 @@ impl Engine {
         if tick.is_multiple_of((10_000 / poll_ms.max(1)).max(1)) {
             self.heartbeat.persist(&self.storage, self.session_id).ok();
         }
+        self.control_authority
+            .record_tick(tick, now_ms, &entry_block_reason);
         if self.dash.is_some() {
             self.update_dashboard(tick, &snapshots);
         }

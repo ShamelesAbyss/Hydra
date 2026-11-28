@@ -20,7 +20,11 @@ pub struct ExecutionEngine {
     live: bool,
     authority: Option<(crate::aegis::Aegis, f64)>,
     ledger: Option<crate::ledger::FinancialLedger>,
+    pilot: Option<crate::live_gate::PilotAuthorityCell>,
 }
+
+/// Conservative taker-fee estimate (5 bps) applied when revalidating rounded entries.
+const ENTRY_FEE_ESTIMATE_BPS: i64 = 5;
 
 impl ExecutionEngine {
     pub fn new(storage: Storage, live: bool) -> Self {
@@ -29,7 +33,14 @@ impl ExecutionEngine {
             live,
             authority: None,
             ledger: None,
+            pilot: None,
         }
+    }
+
+    /// Attach the shared restricted-pilot authority checked at the durable execution boundary.
+    pub fn with_pilot_authority(mut self, cell: crate::live_gate::PilotAuthorityCell) -> Self {
+        self.pilot = Some(cell);
+        self
     }
 
     pub fn with_authority(
@@ -125,13 +136,23 @@ impl ExecutionEngine {
                 message: "dry-run: ENABLE_LIVE_TRADING=false; no exchange write".into(),
             });
         }
-        if venue.is_production_venue() {
-            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+        let production = venue.is_production_venue();
+        if production && intent.reduce_only {
+            crate::live_gate::require_risk_reduction_authority(
                 crate::live_gate::ExecutionChannel::ProductionEngine,
                 self.live,
-                false,
+            )?;
+        }
+        if production && !intent.reduce_only {
+            ensure!(
+                self.authority.is_some(),
+                "production entry denied: durable AEGIS reservation authority not attached"
             );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            // Early deny-by-default (no network/evidence work) when no grant is attached.
+            ensure!(
+                self.pilot.as_ref().and_then(|c| c.snapshot()).is_some(),
+                "production entry denied: no active restricted pilot grant"
+            );
         }
         let reconciled = if !intent.reduce_only {
             self.reconciliation_evidence(venue).await?
@@ -162,10 +183,10 @@ impl ExecutionEngine {
                 );
                 let account = &evidence.snapshot;
                 ensure!(
-                    !account
+                    account
                         .exposure_by_market
                         .get(&intent.symbol)
-                        .is_some_and(|value| *value > Decimal::ZERO),
+                        .is_none_or(|value| *value <= Decimal::ZERO),
                     "instrument already has exchange exposure; reconcile ownership before entering"
                 );
                 let market = venue.snapshot(&intent.symbol, 2).await?;
@@ -186,6 +207,33 @@ impl ExecutionEngine {
                 let notional = Decimal::from_str_exact(&intent.size.to_string())?
                     .checked_mul(Decimal::from_str_exact(&bound.max(market.mid).to_string())?)
                     .ok_or_else(|| anyhow::anyhow!("risk notional overflow"))?;
+                // Final authority on the rounded, bounded order including estimated fees and
+                // current marked exposure plus outstanding orders from authoritative evidence.
+                let fee = (notional * Decimal::new(ENTRY_FEE_ESTIMATE_BPS, 4)).round_dp(6);
+                let current_exposure: Decimal = account.exposure_by_market.values().copied().sum();
+                let (_, engine_signer) = venue.account_identity().unwrap_or_default();
+                let suspended = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                    crate::live_gate::ExecutionChannel::ProductionEngine,
+                    self.live,
+                    false,
+                )
+                .emergency_suspended;
+                crate::live_gate::require_entry_mutation_authority(
+                    self.pilot.as_ref(),
+                    &crate::live_gate::EntryMutationContext {
+                        production,
+                        account: &evidence.account,
+                        signer: &engine_signer,
+                        symbol: &intent.symbol,
+                        strategy_id: intent.source_signal.as_deref().unwrap_or(""),
+                        order_type: crate::live_gate::PilotOrderType::LimitIoc,
+                        requested_leverage: Decimal::ONE,
+                        requested_notional_usd: notional + fee,
+                        current_exposure_usd: current_exposure,
+                        emergency_suspended: suspended,
+                    },
+                    Utc::now().timestamp_millis(),
+                )?;
                 match authority.reserve_journaled_entry(
                     &bounded_intent,
                     notional,

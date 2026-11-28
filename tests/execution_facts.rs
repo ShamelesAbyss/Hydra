@@ -135,8 +135,13 @@ fn evidence(price: Decimal, quantity: Decimal) -> AccountExposureEvidence {
             signed_size: quantity,
             entry_price: price,
             notional: dec!(220),
+            liquidation_px: None,
+            leverage: None,
+            margin_used: None,
         }],
         open_orders: vec![],
+        withdrawable_collateral: None,
+        total_margin_used: None,
     }
 }
 #[test]

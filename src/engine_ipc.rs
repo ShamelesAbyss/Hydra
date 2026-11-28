@@ -91,6 +91,18 @@ pub struct EngineControlResponse {
     pub maintenance_ready: bool,
     pub message: String,
     pub timestamp_ms: i64,
+    /// Genuine engine loop progress (monotonic tick counter), not IPC response freshness.
+    #[serde(default)]
+    pub engine_ticks: u64,
+    /// Engine-side wall clock of the last completed loop tick.
+    #[serde(default)]
+    pub last_tick_ms: i64,
+    /// Whether an active restricted pilot grant is attached (never implies eligibility).
+    #[serde(default)]
+    pub pilot_active: bool,
+    /// Human-readable reason new entries are currently blocked (empty when not blocked).
+    #[serde(default)]
+    pub entry_block_reason: String,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +117,9 @@ pub struct EngineAuthoritativeState {
     pub shutdown_requested: bool,
     pub last_supervision_renewed_ms: i64,
     pub active_pilot_session_id: Option<String>,
+    pub engine_ticks: u64,
+    pub last_tick_ms: i64,
+    pub entry_block_reason: String,
 }
 
 impl EngineAuthoritativeState {
@@ -120,6 +135,9 @@ impl EngineAuthoritativeState {
             shutdown_requested: false,
             last_supervision_renewed_ms: 0,
             active_pilot_session_id: None,
+            engine_ticks: 0,
+            last_tick_ms: 0,
+            entry_block_reason: String::new(),
         }
     }
 
@@ -137,6 +155,8 @@ pub struct EngineControlAuthority {
     pub state: Arc<Mutex<EngineAuthoritativeState>>,
     pub stop_flag: Arc<AtomicBool>,
     pub storage: Option<crate::storage::Storage>,
+    /// Shared restricted-pilot authority (renewal/revocation applied directly to the live grant).
+    pub pilot: crate::live_gate::PilotAuthorityCell,
 }
 
 impl EngineControlAuthority {
@@ -181,7 +201,17 @@ impl EngineControlAuthority {
             state: Arc::new(Mutex::new(st)),
             stop_flag,
             storage,
+            pilot: crate::live_gate::PilotAuthorityCell::new(),
         }
+    }
+
+    /// Records genuine engine loop progress for watchdog heartbeat probes.
+    pub fn record_tick(&self, tick: u64, now_ms: i64, entry_block_reason: &str) {
+        let mut st = self.state.lock().unwrap();
+        st.engine_ticks = st.engine_ticks.max(tick);
+        st.last_tick_ms = st.last_tick_ms.max(now_ms);
+        st.entry_block_reason = entry_block_reason.to_string();
+        st.active_pilot_session_id = self.pilot.active_session_id();
     }
 
     pub fn snapshot(&self) -> EngineAuthoritativeState {
@@ -364,6 +394,10 @@ fn fail_closed_error_response(
         maintenance_ready: false,
         message: msg,
         timestamp_ms: now_ms,
+        engine_ticks: 0,
+        last_tick_ms: 0,
+        pilot_active: false,
+        entry_block_reason: "engine IPC request failed closed".into(),
     }
 }
 
@@ -389,6 +423,10 @@ pub fn handle_authenticated_request(
         maintenance_ready: st.is_maintenance_ready(),
         message: msg,
         timestamp_ms: now_ms,
+        engine_ticks: st.engine_ticks,
+        last_tick_ms: st.last_tick_ms,
+        pilot_active: st.active_pilot_session_id.is_some(),
+        entry_block_reason: st.entry_block_reason.clone(),
     };
 
     if !constant_time_eq(expected_token_hex.as_bytes(), req.token_hex.as_bytes()) {
@@ -682,13 +720,57 @@ impl EngineIpcServer {
                                             Ok(req) => {
                                                 let mut ng = nonces_c.lock().unwrap();
                                                 let mut st = auth_c.state.lock().unwrap();
-                                                let r = handle_authenticated_request(
+                                                let now_ms = Utc::now().timestamp_millis();
+                                                let mut r = handle_authenticated_request(
                                                     &token_c,
                                                     &mut ng,
                                                     &mut st,
                                                     &req,
-                                                    Utc::now().timestamp_millis(),
+                                                    now_ms,
                                                 );
+                                                // Authority effects are applied to the live grant itself so the
+                                                // acknowledgment reflects actual engine acceptance.
+                                                match &req.command {
+                                                    EngineControlCommand::RenewPilotSupervision { session_id } if r.ok => {
+                                                        match auth_c.pilot.renew(session_id, now_ms) {
+                                                            Ok(exp) => {
+                                                                r.message = format!(
+                                                                    "Operator supervision lease renewed on live grant (expires_at_ms={exp})"
+                                                                );
+                                                            }
+                                                            Err(e) => {
+                                                                r.ok = false;
+                                                                r.message = format!("Pilot supervision renewal rejected by engine: {e}");
+                                                            }
+                                                        }
+                                                    }
+                                                    EngineControlCommand::EmergencySuspend { .. } if r.ok => {
+                                                        auth_c.pilot.revoke("emergency suspension via authenticated IPC");
+                                                        st.active_pilot_session_id = None;
+                                                        r.pilot_active = false;
+                                                    }
+                                                    EngineControlCommand::AuditedBreakerRearm {
+                                                        reset_equity_peak,
+                                                        ..
+                                                    } if r.ok => {
+                                                        if let Some(ref db) = auth_c.storage {
+                                                            let _ = db.with_conn(|c| {
+                                                                c.execute(
+                                                                    "DELETE FROM meta_kv WHERE key='aegis_breaker_latched_reason'",
+                                                                    [],
+                                                                )?;
+                                                                if *reset_equity_peak {
+                                                                    c.execute(
+                                                                        "DELETE FROM meta_kv WHERE key='aegis_high_water_equity_usd'",
+                                                                        [],
+                                                                    )?;
+                                                                }
+                                                                Ok::<(), rusqlite::Error>(())
+                                                            });
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
                                                 let need_persist = matches!(
                                                     req.command,
                                                     EngineControlCommand::EmergencySuspend { .. }
@@ -770,7 +852,24 @@ impl Drop for EngineIpcServer {
 
 pub struct EngineIpcClient;
 
+static LAST_CLIENT_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl EngineIpcClient {
+    /// Strictly increasing per-process nonce derived from microsecond wall clock so independent
+    /// owner clients (cockpit, watchdog, CLI) remain monotonic against the engine's shared tracker.
+    pub fn next_nonce() -> u64 {
+        let now_us = Utc::now().timestamp_micros().max(1) as u64;
+        let mut prev = LAST_CLIENT_NONCE.load(Ordering::SeqCst);
+        loop {
+            let next = now_us.max(prev + 1);
+            match LAST_CLIENT_NONCE.compare_exchange(prev, next, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return next,
+                Err(cur) => prev = cur,
+            }
+        }
+    }
+
     pub fn send_command(
         root: &Path,
         engine_id: &str,

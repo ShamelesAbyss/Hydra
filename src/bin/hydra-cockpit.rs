@@ -83,6 +83,55 @@ struct Options {
     /// Watchdog heartbeat stall timeout in milliseconds.
     #[arg(long, hide = true, default_value_t = 30_000)]
     watchdog_heartbeat_ms: i64,
+    /// Internal headless engine worker mode for self-contained standalone supervision (`--watchdog-target engine`).
+    #[arg(long, hide = true)]
+    engine_worker: bool,
+    /// Comma-separated symbols for `--engine-worker`.
+    #[arg(long, hide = true, default_value = "BTC,ETH,SOL")]
+    symbols: String,
+    /// Optional strategy configuration artifact for `--engine-worker`.
+    #[arg(long = "strategy-config", hide = true)]
+    strategy_config: Option<PathBuf>,
+    /// Engine tick cadence in ms for `--engine-worker`.
+    #[arg(long, hide = true, default_value_t = 1000)]
+    engine_poll_ms: u64,
+    /// Strictly non-production offline observation fixture mode for `--engine-worker`.
+    #[arg(long, hide = true)]
+    engine_offline_fixture: bool,
+}
+
+fn run_headless_engine_worker(options: &Options) -> anyhow::Result<()> {
+    let root = match options.root.as_ref() {
+        Some(r) => r.clone(),
+        None => hydra::paper_store::PaperStore::default_root()?,
+    };
+    let db_path = options.db.clone().unwrap_or_else(|| root.join("engine.db"));
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_sig = stop.clone();
+    let _ = ctrlc::set_handler(move || {
+        stop_sig.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    let syms: Vec<String> = options
+        .symbols
+        .split(',')
+        .map(|s| s.trim().to_ascii_uppercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let cfg = hydra::engine_worker::EngineWorkerConfig {
+        root,
+        db_path,
+        engine_id: options.engine_id.clone(),
+        symbols: syms,
+        poll_interval_ms: options.engine_poll_ms,
+        max_ticks: options.max_ticks,
+        strategy_config: options.strategy_config.clone(),
+        offline_fixture: options.engine_offline_fixture,
+    };
+    let _ticks = rt.block_on(hydra::engine_worker::run_headless_engine_worker(cfg, stop))?;
+    Ok(())
 }
 
 fn run_headless_watchdog_supervisor(options: &Options) -> anyhow::Result<()> {
@@ -104,48 +153,86 @@ fn run_headless_watchdog_supervisor(options: &Options) -> anyhow::Result<()> {
         let engine_id = options.engine_id.clone();
         let db_str = options
             .db
+            .clone()
+            .unwrap_or_else(|| root.join("engine.db"))
+            .display()
+            .to_string();
+        let root_str = root.display().to_string();
+        let poll_str = options.engine_poll_ms.clamp(200, 30_000).to_string();
+        let max_ticks_str = options.max_ticks.map(|m| m.to_string());
+        let sc_str = options
+            .strategy_config
             .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "data/hydra.db".to_string());
-        let nonce = std::sync::atomic::AtomicU64::new(1);
+            .map(|p| p.display().to_string());
+        let mut owned_args: Vec<String> = vec![
+            "--engine-worker".into(),
+            "--root".into(),
+            root_str,
+            "--db".into(),
+            db_str,
+            "--engine-id".into(),
+            engine_id.clone(),
+            "--symbols".into(),
+            options.symbols.clone(),
+            "--engine-poll-ms".into(),
+            poll_str,
+        ];
+        if let Some(ref m) = max_ticks_str {
+            owned_args.push("--max-ticks".into());
+            owned_args.push(m.clone());
+        }
+        if let Some(ref s) = sc_str {
+            owned_args.push("--strategy-config".into());
+            owned_args.push(s.clone());
+        }
+        if options.engine_offline_fixture {
+            owned_args.push("--engine-offline-fixture".into());
+        }
+        let arg_refs: Vec<&str> = owned_args.iter().map(String::as_str).collect();
         let root_probe = root.clone();
         let root_stop = root.clone();
         let eid_probe = engine_id.clone();
-        let eid_stop = engine_id.clone();
+        let eid_stop = engine_id;
         supervisor.supervise_live_worker(
             &exe,
-            &["--db", &db_str],
+            &arg_refs,
             poll_interval,
             stop_grace,
             max_launches,
-            move |_pid| {
-                let n = nonce.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                match hydra::engine_ipc::EngineIpcClient::send_command(
-                    &root_probe,
-                    &eid_probe,
-                    n,
-                    hydra::engine_ipc::EngineControlCommand::Heartbeat,
-                ) {
-                    Ok(resp) => hydra::watchdog::WorkerHealthProbe {
-                        alive_heartbeat_ms: Some(resp.timestamp_ms),
-                        progress_counter: n,
-                        healthy: resp.ok && !resp.breaker_latched,
-                        detail: format!("mode={} msg={}", resp.mode, resp.message),
-                    },
-                    Err(e) => hydra::watchdog::WorkerHealthProbe {
-                        alive_heartbeat_ms: None,
-                        progress_counter: 0,
-                        healthy: false,
-                        detail: format!("engine IPC heartbeat unreachable: {e}"),
-                    },
-                }
+            move |pid| match hydra::engine_ipc::EngineIpcClient::send_command(
+                &root_probe,
+                &eid_probe,
+                hydra::engine_ipc::EngineIpcClient::next_nonce(),
+                hydra::engine_ipc::EngineControlCommand::Heartbeat,
+            ) {
+                Ok(resp) => hydra::watchdog::WorkerHealthProbe {
+                    alive_heartbeat_ms: (resp.last_tick_ms > 0).then_some(resp.last_tick_ms),
+                    progress_counter: resp.engine_ticks,
+                    healthy: resp.ok
+                        && resp.pid == pid
+                        && !resp.breaker_latched
+                        && !resp.emergency_suspended,
+                    detail: format!(
+                        "pid={} mode={} ticks={} pilot={} block={}",
+                        resp.pid,
+                        resp.mode,
+                        resp.engine_ticks,
+                        resp.pilot_active,
+                        resp.entry_block_reason
+                    ),
+                },
+                Err(e) => hydra::watchdog::WorkerHealthProbe {
+                    alive_heartbeat_ms: None,
+                    progress_counter: 0,
+                    healthy: false,
+                    detail: format!("engine IPC heartbeat unreachable: {e}"),
+                },
             },
             move |_pid| {
-                let ts_nonce = chrono::Utc::now().timestamp_millis().max(1) as u64;
                 let _ = hydra::engine_ipc::EngineIpcClient::send_command(
                     &root_stop,
                     &eid_stop,
-                    ts_nonce,
+                    hydra::engine_ipc::EngineIpcClient::next_nonce(),
                     hydra::engine_ipc::EngineControlCommand::GracefulShutdown,
                 );
                 Ok(())
@@ -294,6 +381,16 @@ fn main() {
                 "WATCHDOG SUPERVISOR FAILED: {err:#}"
             ));
             eprintln!("watchdog supervisor failed: {err:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if options.engine_worker {
+        if let Err(err) = run_headless_engine_worker(&options) {
+            hydra::startup_diagnostics::log_startup(&format!(
+                "HEADLESS ENGINE WORKER FAILED: {err:#}"
+            ));
+            eprintln!("headless engine worker failed: {err:#}");
             std::process::exit(1);
         }
         return;

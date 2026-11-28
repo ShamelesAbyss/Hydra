@@ -60,6 +60,8 @@ pub struct HyperliquidAdapter {
     /// `/info {"type":"meta"}`. Hyperliquid rejects sizes with extra decimals and
     /// enforces per-asset leverage ceilings.
     sz_decimals: AssetMetaCache,
+    /// Shared restricted-pilot authority evaluated at the final signing/transmission boundary.
+    pilot_authority: Arc<std::sync::Mutex<Option<crate::live_gate::PilotAuthorityCell>>>,
     #[cfg(test)]
     test_submissions: Arc<std::sync::atomic::AtomicUsize>,
     #[cfg(test)]
@@ -155,6 +157,18 @@ impl HyperliquidAdapter {
         )
     }
 
+    pub fn new_mainnet_ws_url(&self) -> &'static str {
+        if self.transport_class.is_testnet() {
+            "wss://api.hyperliquid-testnet.xyz/ws"
+        } else {
+            "wss://api.hyperliquid.xyz/ws"
+        }
+    }
+
+    pub fn ws_url(&self) -> &'static str {
+        self.new_mainnet_ws_url()
+    }
+
     /// Construct a Hyperliquid Testnet sandbox adapter (`TestnetSandbox`).
     /// Structurally isolated from `ProductionMainnet` (EIP-712 source `"b"`, testnet endpoint);
     /// requires explicit `account_address` + disposable testnet key (never mainnet production keys).
@@ -200,6 +214,7 @@ impl HyperliquidAdapter {
             signer,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pilot_authority: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(test)]
@@ -216,10 +231,12 @@ impl HyperliquidAdapter {
                 cfg.live_trading,
                 true,
             );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            // Construction confers no entry authority: entries additionally require an attached
+            // ProductionMainnet grant at the final signing boundary.
+            crate::live_gate::require_live_runtime_construction(&req)?;
             let store = crate::treasury::TreasuryStore::default_store()?;
             let auth = store
-                .open_engine_signer(crate::treasury::SigningAccessScope::EngineExclusive, true)?;
+                .open_engine_signer(crate::treasury::SigningAccessScope::EngineExclusive, false)?;
             Some(Arc::new(auth))
         } else {
             crate::treasury::TreasuryStore::default_store()
@@ -253,6 +270,7 @@ impl HyperliquidAdapter {
             signer,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pilot_authority: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(test)]
@@ -360,15 +378,13 @@ impl HyperliquidAdapter {
         journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
     ) -> Result<super::OrderReceipt> {
         anyhow::ensure!(self.live_authorized, "ENABLE_LIVE_TRADING=false");
-        if self.transport_class.is_production()
-            || crate::live_gate::is_production_exchange_url(&self.base_url)
-        {
-            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+        let production = self.transport_class.is_production()
+            || crate::live_gate::is_production_exchange_url(&self.base_url);
+        if production && intent.reduce_only {
+            crate::live_gate::require_risk_reduction_authority(
                 crate::live_gate::ExecutionChannel::VenueAdapterDirect,
                 self.live_authorized,
-                false,
-            );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            )?;
         }
         if let Some(journal) = journal {
             journal.verify_intent(intent)?;
@@ -405,6 +421,51 @@ impl HyperliquidAdapter {
             limit_px.is_finite() && limit_px > 0.0 && sz > 0.0,
             "order rounds to zero"
         );
+        // Final exposure-increasing authority on the exact rounded order (deny-by-default on
+        // production; re-evaluated at Utc::now() before signing and again before transmission).
+        let entry_guard: Option<Box<dyn Fn() -> Result<()> + Send + Sync>> = if intent.reduce_only {
+            None
+        } else {
+            let cell = self.pilot_authority.lock().unwrap().clone();
+            let account = self.account_address.clone().unwrap_or_default();
+            let signer_addr = self
+                .signer
+                .as_ref()
+                .map(|s| s.signer_address().to_string())
+                .unwrap_or_default();
+            let symbol = intent.symbol.clone();
+            let strategy = intent.source_signal.clone().unwrap_or_default();
+            let notional = rust_decimal::Decimal::try_from(limit_px * sz)
+                .map_err(|_| anyhow!("rounded entry notional not representable"))?;
+            let fee = (notional * rust_decimal::Decimal::new(5, 4)).round_dp(6);
+            Some(Box::new(move || {
+                let suspended = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+                    crate::live_gate::ExecutionChannel::VenueAdapterDirect,
+                    true,
+                    false,
+                )
+                .emergency_suspended;
+                crate::live_gate::require_entry_mutation_authority(
+                    cell.as_ref(),
+                    &crate::live_gate::EntryMutationContext {
+                        production,
+                        account: &account,
+                        signer: &signer_addr,
+                        symbol: &symbol,
+                        strategy_id: &strategy,
+                        order_type: crate::live_gate::PilotOrderType::LimitIoc,
+                        requested_leverage: rust_decimal::Decimal::ONE,
+                        requested_notional_usd: notional + fee,
+                        current_exposure_usd: rust_decimal::Decimal::ZERO,
+                        emergency_suspended: suspended,
+                    },
+                    Utc::now().timestamp_millis(),
+                )
+            }))
+        };
+        if let Some(g) = entry_guard.as_ref() {
+            g()?;
+        }
         self.verify_identity().await?;
         let action = crate::hyperliquid_wire::OrderAction::ioc(
             self.asset_id_for(&intent.symbol).await?,
@@ -426,20 +487,39 @@ impl HyperliquidAdapter {
             .as_deref()
             .ok_or_else(|| anyhow!("EngineSignerAuthority missing"))?;
         #[cfg(not(test))]
-        let resp = match journal {
-            Some(journal) => {
-                crate::hyperliquid_wire::submit_ioc_journaled_with_signer(
-                    signer_auth,
-                    &action,
-                    journal,
-                )
-                .await?
+        let resp = {
+            let mainnet = self.transport_class.is_production();
+            let guard: Option<crate::hyperliquid_wire::PreMutationGuard<'_>> = entry_guard
+                .as_deref()
+                .map(|g| g as crate::hyperliquid_wire::PreMutationGuard<'_>);
+            match journal {
+                Some(journal) => {
+                    crate::hyperliquid_wire::submit_ioc_journaled_with_signer(
+                        signer_auth,
+                        &action,
+                        journal,
+                        mainnet,
+                        guard,
+                    )
+                    .await?
+                }
+                None => {
+                    crate::hyperliquid_wire::submit_ioc_with_signer(
+                        signer_auth,
+                        &action,
+                        mainnet,
+                        guard,
+                    )
+                    .await?
+                }
             }
-            None => crate::hyperliquid_wire::submit_ioc_with_signer(signer_auth, &action).await?,
         };
         #[cfg(test)]
         let resp = {
             let _ = signer_auth;
+            if let Some(g) = entry_guard.as_ref() {
+                g()?;
+            }
             let root = self
                 .test_nonce_root
                 .as_ref()
@@ -706,6 +786,105 @@ impl VenueAdapter for HyperliquidAdapter {
             || crate::live_gate::is_production_exchange_url(&self.base_url)
     }
 
+    fn attach_pilot_authority(&self, cell: crate::live_gate::PilotAuthorityCell) {
+        *self.pilot_authority.lock().unwrap() = Some(cell);
+    }
+
+    fn account_identity(&self) -> Option<(String, String)> {
+        let account = self.account_address.clone()?;
+        let signer = self.signer.as_ref()?.signer_address().to_string();
+        Some((account, signer))
+    }
+
+    async fn fetch_account_fills(
+        &self,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<Vec<crate::ledger::ExchangeFill>> {
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account identity missing; fills unavailable"))?;
+        anyhow::ensure!(start_ms >= 0 && end_ms > start_ms, "invalid fill window");
+        let mut out = Vec::new();
+        let mut cursor = start_ms;
+        for _ in 0..64 {
+            let raw: serde_json::Value = self
+                .info(json!({"type":"userFillsByTime","user":account,"startTime":cursor,"endTime":end_ms,"aggregateByTime":false}))
+                .await?;
+            let len = raw.as_array().map_or(0, Vec::len);
+            let fills = crate::ledger_hyperliquid::parse_fills(&serde_json::to_string(&raw)?)?;
+            let times: Vec<i64> = fills.iter().map(|f| f.timestamp_ms).collect();
+            out.extend(fills);
+            match crate::history::next_cursor(cursor, end_ms, &times, len)? {
+                None => return Ok(out),
+                Some(next) => cursor = next,
+            }
+        }
+        anyhow::bail!("fill history page budget exceeded; settlement coverage incomplete")
+    }
+
+    async fn fetch_account_funding(
+        &self,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<Vec<crate::ledger::FundingPayment>> {
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account identity missing; funding unavailable"))?;
+        anyhow::ensure!(start_ms >= 0 && end_ms > start_ms, "invalid funding window");
+        let mut out = Vec::new();
+        let mut cursor = start_ms;
+        for _ in 0..64 {
+            let raw: serde_json::Value = self
+                .info(json!({"type":"userFunding","user":account,"startTime":cursor,"endTime":end_ms}))
+                .await?;
+            let len = raw.as_array().map_or(0, Vec::len);
+            let rows = crate::ledger_hyperliquid::parse_funding(&serde_json::to_string(&raw)?)?;
+            let times: Vec<i64> = rows.iter().map(|f| f.timestamp_ms).collect();
+            out.extend(rows);
+            match crate::history::next_cursor(cursor, end_ms, &times, len)? {
+                None => return Ok(out),
+                Some(next) => cursor = next,
+            }
+        }
+        anyhow::bail!("funding history page budget exceeded; settlement coverage incomplete")
+    }
+
+    async fn fetch_account_cash_flows(
+        &self,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<Vec<crate::settlement::ExternalCashFlow>> {
+        let account = self
+            .account_address
+            .as_ref()
+            .ok_or_else(|| anyhow!("account identity missing; cash flows unavailable"))?;
+        anyhow::ensure!(
+            start_ms >= 0 && end_ms > start_ms,
+            "invalid cash-flow window"
+        );
+        let mut out = Vec::new();
+        let mut cursor = start_ms;
+        for _ in 0..64 {
+            let raw: serde_json::Value = self
+                .info(json!({"type":"userNonFundingLedgerUpdates","user":account,"startTime":cursor,"endTime":end_ms}))
+                .await?;
+            let len = raw.as_array().map_or(0, Vec::len);
+            let rows = crate::ledger_hyperliquid::parse_non_funding_ledger_updates(
+                &serde_json::to_string(&raw)?,
+            )?;
+            let times: Vec<i64> = rows.iter().map(|f| f.timestamp_ms).collect();
+            out.extend(rows);
+            match crate::history::next_cursor(cursor, end_ms, &times, len)? {
+                None => return Ok(out),
+                Some(next) => cursor = next,
+            }
+        }
+        anyhow::bail!("cash-flow history page budget exceeded; settlement coverage incomplete")
+    }
+
     async fn ping(&self) -> Result<()> {
         let _mids: serde_json::Value = self.info(json!({"type":"allMids"})).await?;
         Ok(())
@@ -942,6 +1121,11 @@ impl VenueAdapter for HyperliquidAdapter {
     async fn account_exposure_evidence(
         &self,
     ) -> Result<super::account_evidence::AccountExposureEvidence> {
+        let env = if self.transport_class.is_testnet() {
+            "testnet"
+        } else {
+            "mainnet"
+        };
         tokio::time::timeout(std::time::Duration::from_secs(15), async {
             let account = self
                 .account_address
@@ -959,8 +1143,9 @@ impl VenueAdapter for HyperliquidAdapter {
                 .info(json!({"type":"frontendOpenOrders","user":account,"dex":""}))
                 .await?;
             let mids: serde_json::Value = self.info(json!({"type":"allMids","dex":""})).await?;
-            super::account_evidence::parse_hyperliquid(
+            super::account_evidence::parse_hyperliquid_for_env(
                 account,
+                env,
                 &mode,
                 &serde_json::to_string(&state)?,
                 &serde_json::to_string(&orders)?,
@@ -1112,12 +1297,10 @@ impl VenueAdapter for HyperliquidAdapter {
         if self.transport_class.is_production()
             || crate::live_gate::is_production_exchange_url(&self.base_url)
         {
-            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+            crate::live_gate::require_risk_reduction_authority(
                 crate::live_gate::ExecutionChannel::VenueAdapterDirect,
                 self.live_authorized,
-                false,
-            );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            )?;
         }
         let dp = self.sz_decimals_for(&spec.symbol).await?;
         let asset = self.asset_id_for(&spec.symbol).await?;
@@ -1172,12 +1355,10 @@ impl VenueAdapter for HyperliquidAdapter {
         if self.transport_class.is_production()
             || crate::live_gate::is_production_exchange_url(&self.base_url)
         {
-            let req = crate::live_gate::LiveAuthorizationRequest::from_treasury_store(
+            crate::live_gate::require_risk_reduction_authority(
                 crate::live_gate::ExecutionChannel::VenueAdapterDirect,
                 self.live_authorized,
-                false,
-            );
-            crate::live_gate::require_certified_live_execution(&req)?;
+            )?;
         }
         let asset = self.asset_id_for(symbol).await?;
         let signer_auth = self
@@ -1415,6 +1596,7 @@ mod tests {
             signer: None,
             identity_verified_at: Arc::new(Mutex::new(None)),
             sz_decimals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pilot_authority: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(test)]
@@ -1688,6 +1870,7 @@ mod tests {
                 "ETH".into(),
                 (4, 4, Some(20)),
             )]))),
+            pilot_authority: Arc::new(std::sync::Mutex::new(None)),
             test_submissions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(test)]
             test_nonce_root: Some(tempfile::tempdir().unwrap()),

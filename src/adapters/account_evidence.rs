@@ -16,6 +16,12 @@ pub struct PositionEvidence {
     pub signed_size: Decimal,
     pub entry_price: Decimal,
     pub notional: Decimal,
+    #[serde(default)]
+    pub liquidation_px: Option<Decimal>,
+    #[serde(default)]
+    pub leverage: Option<Decimal>,
+    #[serde(default)]
+    pub margin_used: Option<Decimal>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,6 +49,10 @@ pub struct AccountExposureEvidence {
     pub snapshot: crate::aegis::AccountSnapshot,
     pub positions: Vec<PositionEvidence>,
     pub open_orders: Vec<OpenOrderEvidence>,
+    #[serde(default)]
+    pub withdrawable_collateral: Option<Decimal>,
+    #[serde(default)]
+    pub total_margin_used: Option<Decimal>,
 }
 
 impl AccountExposureEvidence {
@@ -55,7 +65,7 @@ impl AccountExposureEvidence {
         );
         ensure!(
             self.venue == "hyperliquid"
-                && self.environment == "mainnet"
+                && (self.environment == "mainnet" || self.environment == "testnet")
                 && self.perp_dex.is_empty()
                 && self.account_mode == "disabled",
             "unsupported account evidence scope"
@@ -169,6 +179,8 @@ fn decimal(value: &str) -> Result<Decimal> {
 struct RawState {
     asset_positions: Vec<RawAssetPosition>,
     margin_summary: RawMargin,
+    #[serde(default)]
+    withdrawable: Option<String>,
     time: i64,
 }
 #[derive(Deserialize)]
@@ -177,16 +189,29 @@ struct RawAssetPosition {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RawLeverage {
+    value: serde_json::Value,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RawPosition {
     coin: String,
     szi: String,
     entry_px: Option<String>,
     position_value: Option<String>,
+    #[serde(default)]
+    liquidation_px: Option<String>,
+    #[serde(default)]
+    margin_used: Option<String>,
+    #[serde(default)]
+    leverage: Option<RawLeverage>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawMargin {
     account_value: String,
+    #[serde(default)]
+    total_margin_used: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +231,29 @@ struct RawOrder {
 /// The caller records acquisition bounds covering every read used in the bundle.
 pub fn parse_hyperliquid(
     account: &str,
+    mode: &str,
+    state_json: &str,
+    orders_json: &str,
+    mids_json: &str,
+    started_ms: i64,
+    finished_ms: i64,
+) -> Result<AccountExposureEvidence> {
+    parse_hyperliquid_for_env(
+        account,
+        "mainnet",
+        mode,
+        state_json,
+        orders_json,
+        mids_json,
+        started_ms,
+        finished_ms,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn parse_hyperliquid_for_env(
+    account: &str,
+    environment: &str,
     mode: &str,
     state_json: &str,
     orders_json: &str,
@@ -261,12 +309,37 @@ pub fn parse_hyperliquid(
                 .as_deref()
                 .context("account position lacks entry price")?,
         )?;
+        let liq_px = raw
+            .liquidation_px
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(decimal)
+            .transpose()?
+            .filter(|d| *d > Decimal::ZERO);
+        let margin_used = raw
+            .margin_used
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(decimal)
+            .transpose()?;
+        let lev = raw
+            .leverage
+            .as_ref()
+            .and_then(|l| match &l.value {
+                serde_json::Value::String(s) => decimal(s).ok(),
+                serde_json::Value::Number(n) => Decimal::from_str_exact(&n.to_string()).ok(),
+                _ => None,
+            })
+            .filter(|d| *d > Decimal::ZERO);
         accumulate(&mut exposure, &raw.coin, notional)?;
         positions.push(PositionEvidence {
             symbol: raw.coin,
             signed_size: size,
             entry_price: entry,
             notional,
+            liquidation_px: liq_px,
+            leverage: lev,
+            margin_used,
         });
     }
     for raw in orders {
@@ -297,10 +370,23 @@ pub fn parse_hyperliquid(
             is_trigger: raw.is_trigger,
         });
     }
+    let withdrawable_collateral = state
+        .withdrawable
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(decimal)
+        .transpose()?;
+    let total_margin_used = state
+        .margin_summary
+        .total_margin_used
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(decimal)
+        .transpose()?;
     let evidence = AccountExposureEvidence {
         account: crate::ownership::canonical_account(account)?,
         venue: "hyperliquid".into(),
-        environment: "mainnet".into(),
+        environment: environment.into(),
         perp_dex: String::new(),
         account_mode: mode.into(),
         acquired_started_ms: started_ms,
@@ -314,6 +400,8 @@ pub fn parse_hyperliquid(
         },
         positions,
         open_orders,
+        withdrawable_collateral,
+        total_margin_used,
     };
     evidence.validate(finished_ms, 30_000)?;
     Ok(evidence)

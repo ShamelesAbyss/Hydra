@@ -409,7 +409,7 @@ async fn equilibrium_engine_ipc_pilot_bounds_settlement_and_watchdog_supervisor(
         g.provide_depth = true;
         g.provide_constraints = true;
     }
-    let ts = 1_700_450_000_000_i64;
+    let ts = Utc::now().timestamp_millis() - 5_000;
     let mk_ev = |p: u8, tier, env, fp: &str| {
         EvidenceRecord::produce_attested(
             EvidenceProducer::LocalVerificationSuite,

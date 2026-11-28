@@ -49,6 +49,8 @@ fn evidence() -> AccountExposureEvidence {
         },
         positions: vec![],
         open_orders: vec![],
+        withdrawable_collateral: None,
+        total_margin_used: None,
     }
 }
 fn intent() -> OrderIntent {

@@ -814,7 +814,7 @@ mod dpapi {
     }
 }
 
-fn protect_bytes(plain: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn protect_bytes(plain: &[u8]) -> Result<Vec<u8>> {
     #[cfg(windows)]
     {
         dpapi::protect(plain)
@@ -825,7 +825,7 @@ fn protect_bytes(plain: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
-fn unprotect_bytes(stored: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn unprotect_bytes(stored: &[u8]) -> Result<Vec<u8>> {
     #[cfg(windows)]
     {
         dpapi::unprotect(stored)
@@ -834,6 +834,11 @@ fn unprotect_bytes(stored: &[u8]) -> Result<Vec<u8>> {
     {
         Ok(stored.to_vec())
     }
+}
+
+/// Atomic owner-restricted write (`0600` on Unix) shared by trusted local stores.
+pub(crate) fn write_atomic_restricted(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic(path, bytes, true)
 }
 
 /// Result of a genuine public-address Hyperliquid `/info` verification.

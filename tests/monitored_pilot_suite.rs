@@ -180,6 +180,8 @@ impl VenueAdapter for PilotMockVenue {
             },
             positions: Vec::new(),
             open_orders: Vec::new(),
+            withdrawable_collateral: None,
+            total_margin_used: None,
         })
     }
 
@@ -250,6 +252,7 @@ fn valid_pilot_limits() -> MonitoredPilotLimits {
         max_drawdown_ratio: Decimal::new(10, 2),
         permitted_order_types: BTreeSet::from([
             PilotOrderType::LimitPostOnly,
+            PilotOrderType::LimitIoc,
             PilotOrderType::NativeReduceOnlyStop,
         ]),
         pilot_session_duration_secs: 3_600,
@@ -495,7 +498,7 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
     .unwrap();
     assert!(engine.active_pilot().is_none());
 
-    let t0 = 1_700_250_000_000_i64;
+    let t0 = Utc::now().timestamp_millis() - 10_000;
     let reg = complete_pilot_registry("risk-v1");
 
     // Check tight per-order notional ceiling (500 USD) rejects 1,500 USD BTC plan cleanly before loosening to 1,600 USD
@@ -597,18 +600,19 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
     assert!(!wrong_renew.ok);
 
     // Authenticated IPC supervision lease renewal succeeds with real session_id
+    let pilot_session_id = engine.active_pilot().unwrap().session_id().to_string();
     let renew = EngineIpcClient::send_command(
         tmp.path(),
         "pilot-eng",
         2,
         EngineControlCommand::RenewPilotSupervision {
-            session_id: engine.active_pilot().unwrap().session_id().to_string(),
+            session_id: pilot_session_id.clone(),
         },
     )
     .unwrap();
     assert!(renew.ok);
 
-    // EmergencySuspend refuses future supervision renewals
+    // EmergencySuspend revokes active pilot grant & refuses future supervision renewals
     let susp = EngineIpcClient::send_command(
         tmp.path(),
         "pilot-eng",
@@ -619,12 +623,13 @@ async fn monitored_pilot_engine_enforces_instruments_ceilings_supervision_lease_
     )
     .unwrap();
     assert!(susp.ok && susp.emergency_suspended);
+    assert!(engine.active_pilot().is_none());
     let renew_after_susp = EngineIpcClient::send_command(
         tmp.path(),
         "pilot-eng",
         4,
         EngineControlCommand::RenewPilotSupervision {
-            session_id: engine.active_pilot().unwrap().session_id().to_string(),
+            session_id: pilot_session_id,
         },
     )
     .unwrap();

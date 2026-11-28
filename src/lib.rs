@@ -5,6 +5,7 @@
 
 pub mod account;
 pub mod account_positions;
+pub mod account_stream;
 pub mod adapters;
 pub mod aegis;
 pub mod aegis_sovereign;
@@ -14,6 +15,7 @@ pub mod cockpit;
 pub mod config;
 pub mod core;
 pub mod engine_ipc;
+pub mod engine_worker;
 pub mod evolution;
 #[cfg(feature = "desktop")]
 pub mod evolution_ui;
@@ -45,9 +47,11 @@ pub mod state;
 pub mod storage;
 pub mod strategies;
 pub mod telemetry;
+pub mod testnet_qualify;
 pub mod treasury;
 #[cfg(feature = "desktop")]
 pub mod treasury_ui;
+pub mod trusted_evidence;
 pub mod tui;
 pub mod utils;
 pub mod watchdog;

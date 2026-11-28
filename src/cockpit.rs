@@ -1139,7 +1139,7 @@ impl Cockpit {
             self.engine_ipc_state = None;
             return;
         }
-        self.engine_ipc_nonce = self.engine_ipc_nonce.saturating_add(1);
+        self.engine_ipc_nonce = crate::engine_ipc::EngineIpcClient::next_nonce();
         match crate::engine_ipc::EngineIpcClient::send_command(
             &self.engine_ipc_root,
             &self.engine_ipc_id,
@@ -1165,7 +1165,7 @@ impl Cockpit {
             ));
             return;
         }
-        self.engine_ipc_nonce = self.engine_ipc_nonce.saturating_add(1);
+        self.engine_ipc_nonce = crate::engine_ipc::EngineIpcClient::next_nonce();
         match crate::engine_ipc::EngineIpcClient::send_command(
             &self.engine_ipc_root,
             &self.engine_ipc_id,
@@ -1185,6 +1185,63 @@ impl Cockpit {
         }
     }
 
+    fn spawn_supervised_engine_worker(&mut self) {
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => {
+                self.engine_ipc_notice = Some(format!("locate executable failed: {e}"));
+                return;
+            }
+        };
+        let is_cli = exe
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("hydra"));
+        let db_path = self.active_path.clone();
+        let mut cmd = std::process::Command::new(&exe);
+        if is_cli {
+            cmd.arg("--no-banner")
+                .arg("watchdog-supervise")
+                .arg("--target")
+                .arg("engine")
+                .arg("--max-launches")
+                .arg("4");
+        } else {
+            cmd.arg("--watchdog-supervisor")
+                .arg("--watchdog-target")
+                .arg("engine")
+                .arg("--watchdog-max-launches")
+                .arg("4");
+        }
+        cmd.arg("--root")
+            .arg(&self.engine_ipc_root)
+            .arg("--db")
+            .arg(&db_path)
+            .arg("--engine-id")
+            .arg(&self.engine_ipc_id)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        }
+        match cmd.spawn() {
+            Ok(child) => {
+                self.engine_ipc_notice = Some(format!(
+                    "Started supervised headless engine worker (watchdog pid={}, mode=OBSERVATION)",
+                    child.id()
+                ));
+            }
+            Err(e) => {
+                self.engine_ipc_notice = Some(format!("Spawn engine worker failed: {e}"));
+            }
+        }
+    }
+
     fn engine_ipc_panel(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.horizontal_wrapped(|ui| {
@@ -1193,10 +1250,12 @@ impl Cockpit {
                     pill(
                         ui,
                         &format!(
-                            "PID {} · {} · POS {} · STOPS {}",
+                            "PID {} · {} · TICKS {} · POS {} · PILOT {} · STOPS {}",
                             st.pid,
                             st.mode,
+                            st.engine_ticks,
                             st.open_positions,
+                            if st.pilot_active { "ACTIVE" } else { "OFF" },
                             if st.protective_stops_verified {
                                 "OK"
                             } else {
@@ -1215,7 +1274,29 @@ impl Cockpit {
                     pill(ui, "ENGINE IPC OFFLINE", AMBER);
                 }
             });
+            if let Some(ref st) = self.engine_ipc_state {
+                if !st.entry_block_reason.is_empty() {
+                    ui.label(
+                        RichText::new(format!(
+                            "Entry gate blocked: {} (eligibility != active pilot session)",
+                            st.entry_block_reason
+                        ))
+                        .small()
+                        .color(AMBER),
+                    );
+                }
+            }
             ui.horizontal_wrapped(|ui| {
+                if self.engine_ipc_state.is_none()
+                    && ui
+                        .button("Start Supervised Headless Engine (OBSERVATION)")
+                        .on_hover_text(
+                            "Starts independent headless `--engine-worker` under WatchdogSupervisor (never opens a second window, never auto-resumes live entries)",
+                        )
+                        .clicked()
+                {
+                    self.spawn_supervised_engine_worker();
+                }
                 if ui.button("Refresh Engine State").clicked() {
                     self.send_engine_ipc_command(crate::engine_ipc::EngineControlCommand::GetState);
                 }
@@ -1231,6 +1312,13 @@ impl Cockpit {
                         crate::engine_ipc::EngineControlCommand::EmergencySuspend {
                             reason: "Operator Cockpit IPC suspend".into(),
                         },
+                    );
+                }
+                if self.engine_ipc_state.is_some()
+                    && ui.button("Graceful Shutdown Engine").clicked()
+                {
+                    self.send_engine_ipc_command(
+                        crate::engine_ipc::EngineControlCommand::GracefulShutdown,
                     );
                 }
             });

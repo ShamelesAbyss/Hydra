@@ -154,9 +154,14 @@ impl VenueAdapter for Fake {
                     signed_size: size,
                     entry_price: rust_decimal_macros::dec!(100),
                     notional: size.abs() * rust_decimal_macros::dec!(100),
+                    liquidation_px: None,
+                    leverage: None,
+                    margin_used: None,
                 }]
             },
             open_orders: vec![],
+            withdrawable_collateral: None,
+            total_margin_used: None,
         })
     }
     async fn risk_snapshot(&self) -> Result<hydra::aegis::AccountSnapshot> {

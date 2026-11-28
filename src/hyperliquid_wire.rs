@@ -502,24 +502,6 @@ pub async fn submit_cancel_by_oid_with_signer(
     post_signed_action_with_signer(signer, &action.packed()?, action, mainnet).await
 }
 
-pub async fn submit_trigger_stop(
-    key: &str,
-    action: &TriggerOrderAction,
-    mainnet: bool,
-) -> Result<ExchangeResponseStatus> {
-    let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(None, key)?;
-    submit_trigger_stop_with_signer(&signer, action, mainnet).await
-}
-
-pub async fn submit_cancel_by_oid(
-    key: &str,
-    action: &CancelAction,
-    mainnet: bool,
-) -> Result<ExchangeResponseStatus> {
-    let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(None, key)?;
-    submit_cancel_by_oid_with_signer(&signer, action, mainnet).await
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangePayload<'a> {
@@ -539,13 +521,21 @@ pub(crate) async fn reserve_nonce_at(
         .map_err(|_| anyhow::anyhow!("nonce coordinator worker failed"))?
 }
 
-/// Submit exactly once, to the fixed mainnet endpoint, with no body/signature logs.
-/// Transport/HTTP/decoding failures stay errors for the durable unresolved gate.
+/// Optional final authority guard re-evaluated after nonce reservation (immediately before
+/// signing) and again immediately before transmission.
+pub type PreMutationGuard<'a> = &'a (dyn Fn() -> Result<()> + Send + Sync);
+
+/// Submit exactly once to the transport-selected endpoint (mainnet only when `mainnet == true`),
+/// with no body/signature logs. Transport/HTTP/decoding failures stay errors for the durable
+/// unresolved gate. Testnet sandbox adapters MUST pass `mainnet == false` so the EIP-712 source
+/// and endpoint both target the official Testnet origin.
 pub async fn submit_ioc_with_signer(
     signer: &crate::treasury::EngineSignerAuthority,
     action: &OrderAction,
+    mainnet: bool,
+    guard: Option<PreMutationGuard<'_>>,
 ) -> Result<ExchangeResponseStatus> {
-    submit_ioc_with_signer_impl(signer, action, None).await
+    submit_ioc_with_signer_impl(signer, action, None, mainnet, guard).await
 }
 
 #[cfg(not(test))]
@@ -553,19 +543,27 @@ pub(crate) async fn submit_ioc_journaled_with_signer(
     signer: &crate::treasury::EngineSignerAuthority,
     action: &OrderAction,
     journal: &crate::submission_wire::SubmissionJournal<'_>,
+    mainnet: bool,
+    guard: Option<PreMutationGuard<'_>>,
 ) -> Result<ExchangeResponseStatus> {
-    submit_ioc_with_signer_impl(signer, action, Some(journal)).await
+    submit_ioc_with_signer_impl(signer, action, Some(journal), mainnet, guard).await
 }
 
-pub async fn submit_ioc(key: &str, action: &OrderAction) -> Result<ExchangeResponseStatus> {
-    let signer = crate::treasury::EngineSignerAuthority::from_disposable_sandbox_key(None, key)?;
-    submit_ioc_with_signer_impl(&signer, action, None).await
+/// Endpoint selected strictly by transport class; never mixes mainnet signing with Testnet URLs.
+pub fn exchange_endpoint(mainnet: bool) -> &'static str {
+    if mainnet {
+        MAINNET_EXCHANGE
+    } else {
+        TESTNET_EXCHANGE
+    }
 }
 
 async fn submit_ioc_with_signer_impl(
     signer_auth: &crate::treasury::EngineSignerAuthority,
     action: &OrderAction,
     journal: Option<&crate::submission_wire::SubmissionJournal<'_>>,
+    mainnet: bool,
+    guard: Option<PreMutationGuard<'_>>,
 ) -> Result<ExchangeResponseStatus> {
     let signer = signer_auth.signer_address();
     let nonce = reserve_nonce_at(
@@ -584,12 +582,20 @@ async fn submit_ioc_with_signer_impl(
         .retry(reqwest::retry::never())
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
+    // Final authority revalidation immediately before signing.
+    if let Some(g) = guard {
+        g().context("final pre-signing authority check failed; nothing signed or sent")?;
+    }
     let signature = signer_auth.sign_digest(agent_digest(
         action_hash(&action.packed()?, nonce, None, None),
-        true,
+        mainnet,
     ))?;
+    // And again immediately before transmission (no await between this check and send()).
+    if let Some(g) = guard {
+        g().context("final pre-transmission authority check failed; signed action discarded")?;
+    }
     let mut response = http
-        .post(MAINNET_EXCHANGE)
+        .post(exchange_endpoint(mainnet))
         .json(&ExchangePayload {
             action,
             signature,
@@ -764,6 +770,22 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains(&zero));
+    }
+
+    #[test]
+    fn exchange_endpoint_is_selected_strictly_by_transport() {
+        assert_eq!(
+            exchange_endpoint(true),
+            "https://api.hyperliquid.xyz/exchange"
+        );
+        assert_eq!(exchange_endpoint(false), TESTNET_EXCHANGE);
+        assert!(crate::live_gate::is_hyperliquid_testnet_url(
+            exchange_endpoint(false)
+        ));
+        assert!(crate::live_gate::is_production_exchange_url(
+            exchange_endpoint(true)
+        ));
+        assert_ne!(agent_digest([7; 32], true), agent_digest([7; 32], false));
     }
 
     #[test]

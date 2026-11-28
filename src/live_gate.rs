@@ -672,13 +672,33 @@ impl MonitoredPilotLimits {
     }
 }
 
+/// Execution scope a pilot grant may authorize. Only `ProductionMainnet` grants can authorize
+/// real-money mainnet entries, and they can only be minted by
+/// [`authorize_restricted_mainnet_pilot`] from trusted evidence + local owner consent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PilotGrantScope {
+    /// Offline/loopback fixture enforcement only (structurally cannot authorize production).
+    OfflineFixture,
+    /// Hyperliquid Testnet sandbox.
+    TestnetSandbox,
+    /// Real-money Hyperliquid mainnet restricted monitored pilot.
+    ProductionMainnet,
+}
+
 /// Ephemeral in-memory restricted monitored pilot authorization grant.
 /// Non-forgeable (all fields private, never auto-persisted or deserializable from disk).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct MonitoredPilotGrant {
     session_id: String,
+    scope: PilotGrantScope,
     limits: MonitoredPilotLimits,
     owner_consent_statement: String,
+    account_address: String,
+    signer_address: String,
+    strategy_config_sha3: String,
+    risk_policy_sha3: String,
+    build_identity: String,
     granted_at_ms: i64,
     session_expires_at_ms: i64,
     supervision_expires_at_ms: i64,
@@ -689,6 +709,30 @@ pub struct MonitoredPilotGrant {
 impl MonitoredPilotGrant {
     pub fn session_id(&self) -> &str {
         &self.session_id
+    }
+
+    pub fn scope(&self) -> PilotGrantScope {
+        self.scope
+    }
+
+    pub fn account_address(&self) -> &str {
+        &self.account_address
+    }
+
+    pub fn signer_address(&self) -> &str {
+        &self.signer_address
+    }
+
+    pub fn strategy_config_sha3(&self) -> &str {
+        &self.strategy_config_sha3
+    }
+
+    pub fn risk_policy_sha3(&self) -> &str {
+        &self.risk_policy_sha3
+    }
+
+    pub fn build_identity(&self) -> &str {
+        &self.build_identity
     }
 
     pub fn limits(&self) -> &MonitoredPilotLimits {
@@ -952,6 +996,12 @@ pub fn authorize_monitored_pilot_session(
 
     Ok(MonitoredPilotGrant {
         session_id: uuid::Uuid::new_v4().to_string(),
+        scope: PilotGrantScope::OfflineFixture,
+        account_address: limits.wallet_address.trim().to_ascii_lowercase(),
+        signer_address: String::new(),
+        strategy_config_sha3: String::new(),
+        risk_policy_sha3: expected_risk_sha3.to_string(),
+        build_identity: crate::trusted_evidence::build_identity(),
         limits,
         owner_consent_statement: owner_consent_statement.trim().to_string(),
         granted_at_ms: now_ms,
@@ -960,6 +1010,426 @@ pub fn authorize_monitored_pilot_session(
         last_renewed_at_ms: now_ms,
         evidence_digest,
     })
+}
+
+/// Canonical consent text the owner must type locally (shown verbatim in the cockpit/CLI).
+pub fn restricted_pilot_consent_text(limits: &MonitoredPilotLimits) -> String {
+    format!(
+        "I AUTHORIZE A RESTRICTED MONITORED REAL-MONEY PILOT ON {} WITH MAX CAPITAL {} USD, MAX ORDER {} USD, MAX EXPOSURE {} USD, MAX LEVERAGE {}X, MAX DAILY LOSS {} USD, MAX SESSION LOSS {} USD AND I ACCEPT TOTAL LOSS OF THIS CAPITAL",
+        limits.wallet_address.trim().to_ascii_lowercase(),
+        limits.max_allocated_capital_usd.normalize(),
+        limits.max_order_notional_usd.normalize(),
+        limits.max_aggregate_exposure_usd.normalize(),
+        limits.max_leverage.normalize(),
+        limits.max_daily_loss_usd.normalize(),
+        limits.max_session_loss_usd.normalize(),
+    )
+}
+
+/// Inputs for the single trusted real-money restricted pilot minting path.
+pub struct MainnetPilotRequest<'a> {
+    pub trust_store: &'a crate::trusted_evidence::TrustStore,
+    pub strategy_config_sha3: &'a str,
+    pub risk_policy_sha3: &'a str,
+    pub limits: MonitoredPilotLimits,
+    pub owner_consent_statement: &'a str,
+    /// Account the running production adapter is bound to.
+    pub adapter_account: &'a str,
+    /// Signer address of the engine-owned `EngineSignerAuthority`.
+    pub engine_signer: &'a str,
+    pub treasury_profile: Option<&'a crate::treasury::TreasuryProfile>,
+    pub treasury_key_present: bool,
+    pub emergency_suspended: bool,
+    pub now_ms: i64,
+}
+
+/// The ONLY constructor of `ProductionMainnet` grants. Deny-by-default: requires trusted
+/// (MAC-authenticated, artifact-verified, build-bound, unexpired) historical OOS, public-paper and
+/// Testnet execution evidence for the exact deployed strategy configuration, explicit verbatim
+/// local owner consent, matching DPAPI-protected Treasury wallet/signer and adapter account,
+/// validated owner ceilings and no active suspension.
+pub fn authorize_restricted_mainnet_pilot(
+    req: MainnetPilotRequest<'_>,
+) -> Result<MonitoredPilotGrant> {
+    let mut reasons: Vec<String> = Vec::new();
+    if let Err(e) = req.limits.validate() {
+        reasons.push(format!("invalid owner ceilings: {e}"));
+    }
+    if req.emergency_suspended {
+        reasons.push("emergency suspension active".into());
+    }
+    if req.strategy_config_sha3.len() != 64 {
+        reasons.push("deployed strategy configuration digest missing".into());
+    }
+    if req.risk_policy_sha3.trim().is_empty() {
+        reasons.push("risk policy digest missing".into());
+    }
+    let binding = crate::trusted_evidence::DeploymentBinding::current(req.strategy_config_sha3);
+    let readiness = req.trust_store.readiness(&binding, req.now_ms);
+    for st in &readiness.statuses {
+        if !st.satisfied {
+            reasons.push(format!("{:?}: {}", st.kind, st.reason));
+        }
+    }
+    let wallet = req.limits.wallet_address.trim().to_ascii_lowercase();
+    match req.treasury_profile {
+        Some(p) => {
+            if !(p.wallet_authorized && p.risk_acknowledged && req.treasury_key_present) {
+                reasons.push(
+                    "Treasury wallet not authorized / risk not acknowledged / key absent".into(),
+                );
+            }
+            if p.emergency_suspended {
+                reasons.push("Treasury emergency suspension active".into());
+            }
+            if !p.protection_backend.is_encrypted_at_rest() {
+                reasons.push("Treasury credential backend is not encrypted at rest".into());
+            }
+            if !p.dedicated_wallet_address.eq_ignore_ascii_case(&wallet) {
+                reasons.push("pilot wallet does not match Treasury dedicated wallet".into());
+            }
+            if !p
+                .derived_signer_address
+                .eq_ignore_ascii_case(req.engine_signer)
+            {
+                reasons.push("engine signer does not match Treasury signer".into());
+            }
+        }
+        None => reasons.push("no Treasury profile configured".into()),
+    }
+    if !req.adapter_account.eq_ignore_ascii_case(&wallet) {
+        reasons.push("production adapter account does not match pilot wallet".into());
+    }
+    if req.owner_consent_statement.trim() != restricted_pilot_consent_text(&req.limits) {
+        reasons.push("owner consent statement does not match the required verbatim text".into());
+    }
+    ensure!(
+        reasons.is_empty(),
+        "restricted mainnet pilot refused: {}",
+        reasons.join("; ")
+    );
+    use sha3::{Digest, Sha3_256};
+    let mut hasher = Sha3_256::new();
+    for st in &readiness.statuses {
+        hasher.update(st.record_id.as_deref().unwrap_or("").as_bytes());
+    }
+    let session_ms = (req.limits.pilot_session_duration_secs as i64).saturating_mul(1_000);
+    let lease_ms = (req.limits.operator_supervision_lease_secs as i64).saturating_mul(1_000);
+    Ok(MonitoredPilotGrant {
+        session_id: uuid::Uuid::new_v4().to_string(),
+        scope: PilotGrantScope::ProductionMainnet,
+        account_address: wallet,
+        signer_address: req.engine_signer.to_ascii_lowercase(),
+        strategy_config_sha3: req.strategy_config_sha3.to_string(),
+        risk_policy_sha3: req.risk_policy_sha3.to_string(),
+        build_identity: crate::trusted_evidence::build_identity(),
+        owner_consent_statement: req.owner_consent_statement.trim().to_string(),
+        limits: req.limits,
+        granted_at_ms: req.now_ms,
+        session_expires_at_ms: req.now_ms.saturating_add(session_ms),
+        supervision_expires_at_ms: req.now_ms.saturating_add(lease_ms.min(session_ms)),
+        last_renewed_at_ms: req.now_ms,
+        evidence_digest: hex::encode(hasher.finalize()),
+    })
+}
+
+#[derive(Debug, Default)]
+struct PilotAuthorityState {
+    grant: Option<MonitoredPilotGrant>,
+    revoked_reason: Option<String>,
+    daily_pnl_usd: rust_decimal::Decimal,
+    session_pnl_usd: rust_decimal::Decimal,
+    current_exposure_usd: rust_decimal::Decimal,
+    effective_equity_usd: Option<rust_decimal::Decimal>,
+    high_water_equity_usd: Option<rust_decimal::Decimal>,
+    deployed_strategy_config_sha3: Option<String>,
+    deployed_risk_policy_sha3: Option<String>,
+}
+
+/// Single shared authority shared by the engine loop, the durable executor, the production
+/// adapter final signing boundary and authenticated owner IPC. Revocation/suspension is
+/// immediately visible to every mutation boundary (no stale per-batch authorization).
+#[derive(Debug, Clone, Default)]
+pub struct PilotAuthorityCell {
+    inner: std::sync::Arc<std::sync::Mutex<PilotAuthorityState>>,
+}
+
+impl PilotAuthorityCell {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn attach(&self, grant: MonitoredPilotGrant) {
+        let mut g = self.inner.lock().unwrap();
+        g.grant = Some(grant);
+        g.revoked_reason = None;
+    }
+
+    pub fn revoke(&self, reason: &str) {
+        let mut g = self.inner.lock().unwrap();
+        if g.grant.take().is_some() || g.revoked_reason.is_none() {
+            g.revoked_reason = Some(reason.to_string());
+        }
+    }
+
+    pub fn snapshot(&self) -> Option<MonitoredPilotGrant> {
+        self.inner.lock().unwrap().grant.clone()
+    }
+
+    pub fn active_session_id(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .grant
+            .as_ref()
+            .map(|g| g.session_id.clone())
+    }
+
+    pub fn revoked_reason(&self) -> Option<String> {
+        self.inner.lock().unwrap().revoked_reason.clone()
+    }
+
+    pub fn update_pnl(&self, daily: rust_decimal::Decimal, session: rust_decimal::Decimal) {
+        let mut g = self.inner.lock().unwrap();
+        g.daily_pnl_usd = daily;
+        g.session_pnl_usd = session;
+    }
+
+    pub fn update_runtime_context(
+        &self,
+        daily: rust_decimal::Decimal,
+        session: rust_decimal::Decimal,
+        current_exposure: rust_decimal::Decimal,
+        effective_equity: Option<rust_decimal::Decimal>,
+        high_water_equity: Option<rust_decimal::Decimal>,
+    ) {
+        let mut g = self.inner.lock().unwrap();
+        g.daily_pnl_usd = daily;
+        g.session_pnl_usd = session;
+        g.current_exposure_usd = current_exposure;
+        g.effective_equity_usd = effective_equity;
+        g.high_water_equity_usd = high_water_equity;
+    }
+
+    pub fn set_deployed_digests(
+        &self,
+        strategy_config_sha3: impl Into<String>,
+        risk_policy_sha3: impl Into<String>,
+    ) {
+        let mut g = self.inner.lock().unwrap();
+        g.deployed_strategy_config_sha3 = Some(strategy_config_sha3.into());
+        g.deployed_risk_policy_sha3 = Some(risk_policy_sha3.into());
+    }
+
+    /// Owner supervision renewal applied directly to the live grant; the result reflects actual
+    /// acceptance (session match, unexpired session, monotonic clock).
+    pub fn renew(&self, session_id: &str, now_ms: i64) -> Result<i64> {
+        let mut g = self.inner.lock().unwrap();
+        let grant = g
+            .grant
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("no active pilot grant"))?;
+        ensure!(
+            !session_id.trim().is_empty() && grant.session_id == session_id,
+            "pilot session id mismatch"
+        );
+        grant.renew_supervision(now_ms)?;
+        Ok(grant.supervision_expires_at_ms)
+    }
+}
+
+/// Final entry (exposure-increasing) mutation context evaluated at `Utc::now()` immediately
+/// before signing and again before transmission.
+#[derive(Debug, Clone)]
+pub struct EntryMutationContext<'a> {
+    pub production: bool,
+    pub account: &'a str,
+    pub signer: &'a str,
+    pub symbol: &'a str,
+    pub strategy_id: &'a str,
+    pub order_type: PilotOrderType,
+    pub requested_leverage: rust_decimal::Decimal,
+    pub requested_notional_usd: rust_decimal::Decimal,
+    pub current_exposure_usd: rust_decimal::Decimal,
+    pub emergency_suspended: bool,
+}
+
+/// Deny-by-default authority check for any exposure-increasing production mutation.
+/// Non-production (Testnet/offline) transports only enforce an attached grant if present.
+pub fn require_entry_mutation_authority(
+    cell: Option<&PilotAuthorityCell>,
+    ctx: &EntryMutationContext<'_>,
+    now_ms: i64,
+) -> Result<()> {
+    use rust_decimal::Decimal;
+    ensure!(
+        !ctx.emergency_suspended,
+        "entry denied: emergency suspension active"
+    );
+    let state = cell.map(|c| {
+        let g = c.inner.lock().unwrap();
+        (
+            g.grant.clone(),
+            g.daily_pnl_usd,
+            g.session_pnl_usd,
+            g.revoked_reason.clone(),
+            g.current_exposure_usd,
+            g.effective_equity_usd,
+            g.high_water_equity_usd,
+            g.deployed_strategy_config_sha3.clone(),
+            g.deployed_risk_policy_sha3.clone(),
+        )
+    });
+    let (
+        grant,
+        daily,
+        session,
+        revoked,
+        cell_exposure,
+        equity_opt,
+        hwm_opt,
+        strat_sha_opt,
+        risk_sha_opt,
+    ) = match state {
+        Some(s) => s,
+        None if ctx.production => {
+            bail!("entry denied: no pilot authority attached to production path")
+        }
+        None => return Ok(()),
+    };
+    let Some(grant) = grant else {
+        if ctx.production {
+            bail!(
+                "entry denied: no active restricted pilot grant{}",
+                revoked
+                    .map(|r| format!(" (revoked: {r})"))
+                    .unwrap_or_default()
+            );
+        }
+        return Ok(());
+    };
+    let eff_exposure = ctx.current_exposure_usd.max(cell_exposure);
+    ensure!(
+        grant.limits.permitted_order_types.contains(&ctx.order_type),
+        "entry denied: order type {:?} not permitted by owner pilot ceilings",
+        ctx.order_type
+    );
+    ensure!(
+        ctx.requested_leverage > Decimal::ZERO
+            && ctx.requested_leverage <= grant.limits.max_leverage,
+        "entry denied: leverage {} exceeds owner ceiling {}",
+        ctx.requested_leverage,
+        grant.limits.max_leverage
+    );
+    let max_alloc_notional = grant.limits.max_allocated_capital_usd * grant.limits.max_leverage;
+    ensure!(
+        eff_exposure + ctx.requested_notional_usd <= max_alloc_notional,
+        "entry denied: post-order exposure {} exceeds allocated capital * max_leverage ({max_alloc_notional})",
+        eff_exposure + ctx.requested_notional_usd
+    );
+    if let Some(eq) = equity_opt {
+        ensure!(
+            eq > Decimal::ZERO,
+            "entry denied: non-positive account equity"
+        );
+        let denom = eq.min(grant.limits.max_allocated_capital_usd);
+        ensure!(
+            denom > Decimal::ZERO
+                && (eff_exposure + ctx.requested_notional_usd) / denom <= grant.limits.max_leverage,
+            "entry denied: effective pilot leverage exceeds max_leverage {}",
+            grant.limits.max_leverage
+        );
+        if let Some(hwm) = hwm_opt {
+            if hwm > Decimal::ZERO && eq < hwm {
+                let dd = (hwm - eq) / hwm;
+                ensure!(
+                    dd < grant.limits.max_drawdown_ratio,
+                    "entry denied: drawdown {dd} reached pilot max_drawdown_ratio {}",
+                    grant.limits.max_drawdown_ratio
+                );
+            }
+        }
+    }
+    if ctx.production {
+        ensure!(
+            grant.scope == PilotGrantScope::ProductionMainnet,
+            "entry denied: grant scope {:?} cannot authorize production",
+            grant.scope
+        );
+        ensure!(
+            grant.account_address.eq_ignore_ascii_case(ctx.account),
+            "entry denied: grant account does not match production account"
+        );
+        ensure!(
+            grant.signer_address.eq_ignore_ascii_case(ctx.signer),
+            "entry denied: grant signer does not match engine signer"
+        );
+        ensure!(
+            grant.build_identity == crate::trusted_evidence::build_identity(),
+            "entry denied: grant bound to a different executable build"
+        );
+        ensure!(
+            strat_sha_opt.as_deref() == Some(grant.strategy_config_sha3.as_str()),
+            "entry denied: grant strategy configuration digest mismatch or unbound"
+        );
+        ensure!(
+            risk_sha_opt.as_deref() == Some(grant.risk_policy_sha3.as_str()),
+            "entry denied: grant risk policy digest mismatch or unbound"
+        );
+    }
+    require_authorized_pilot_execution(
+        &grant,
+        now_ms,
+        ctx.emergency_suspended,
+        daily,
+        session,
+        ctx.symbol,
+        ctx.strategy_id,
+        ctx.requested_notional_usd,
+        eff_exposure,
+    )
+}
+
+/// Narrow risk-reducing authority (reduce-only exits, reduce-only native stops, cancellation of
+/// identified protective/entry orders). Never authorizes exposure increase, reversal, transfers or
+/// withdrawals. Remains available during suspension and after grant expiry/restart.
+pub fn require_risk_reduction_authority(
+    channel: ExecutionChannel,
+    configured_live: bool,
+) -> Result<()> {
+    ensure!(
+        configured_live,
+        "[{}] risk-reducing production action requires ENABLE_LIVE_TRADING=true",
+        channel.label()
+    );
+    let store = crate::treasury::TreasuryStore::default_store()?;
+    let profile = store
+        .load_profile()?
+        .ok_or_else(|| anyhow::anyhow!("[{}] no Treasury profile", channel.label()))?;
+    ensure!(
+        profile.wallet_authorized && profile.risk_acknowledged && store.has_protected_key(),
+        "[{}] Treasury signer not authorized for risk-reducing actions",
+        channel.label()
+    );
+    Ok(())
+}
+
+/// Production live runtime construction: requires configured live trading and an authorized
+/// Treasury signer, but confers NO entry authority (entries additionally require an attached
+/// `ProductionMainnet` grant at every mutation boundary). Suspension still permits construction
+/// so verified positions can receive protective management after a restart.
+pub fn require_live_runtime_construction(req: &LiveAuthorizationRequest) -> Result<()> {
+    ensure!(
+        !req.cli_live_requested || req.configured_live_trading,
+        "[{}] --live requested without ENABLE_LIVE_TRADING=true",
+        req.channel.label()
+    );
+    ensure!(
+        req.configured_live_trading,
+        "[{}] live execution disabled (ENABLE_LIVE_TRADING=false)",
+        req.channel.label()
+    );
+    require_risk_reduction_authority(req.channel, req.configured_live_trading)
 }
 
 #[cfg(test)]

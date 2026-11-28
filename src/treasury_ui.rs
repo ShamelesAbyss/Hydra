@@ -963,6 +963,80 @@ impl TreasuryWorkspace {
         readiness_gate_panel(ui, readiness);
         ui.add_space(8.0);
 
+        // Unified Trusted Evidence & Restricted Mainnet Pilot readiness (exact same verdict as CLI `pilot-readiness`).
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let default_cfg_sha = crate::fang_engine::UnifiedStrategyConfig::default()
+            .config_sha3()
+            .unwrap_or_default();
+        let binding = crate::trusted_evidence::DeploymentBinding::current(&default_cfg_sha);
+        let trusted = crate::trusted_evidence::TrustStore::open_default()
+            .map(|s| s.readiness(&binding, now_ms))
+            .unwrap_or_else(|_| crate::trusted_evidence::TrustedReadiness {
+                build_identity: binding.build_identity.clone(),
+                strategy_config_sha3: default_cfg_sha.clone(),
+                statuses: Vec::new(),
+                all_satisfied: false,
+            });
+        let pilot_ready =
+            trusted.all_satisfied && self.is_wallet_configured() && !self.is_suspended();
+        egui::Frame::new()
+            .fill(DEEP)
+            .stroke(Stroke::new(
+                1.0,
+                if pilot_ready {
+                    EMERALD.gamma_multiply(0.6)
+                } else {
+                    GOLD.gamma_multiply(0.5)
+                },
+            ))
+            .corner_radius(6)
+            .inner_margin(10)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new("RESTRICTED MONITORED MAINNET PILOT READINESS (TRUST STORE)")
+                            .monospace()
+                            .size(11.0)
+                            .strong()
+                            .color(if pilot_ready { EMERALD } else { GOLD }),
+                    );
+                    badge(
+                        ui,
+                        if pilot_ready {
+                            "PILOT ELIGIBLE (REQUIRES EXPLICIT GRANT)"
+                        } else {
+                            "PILOT LOCKED (INCOMPLETE EVIDENCE)"
+                        },
+                        if pilot_ready { EMERALD } else { GOLD },
+                    );
+                });
+                ui.label(
+                    RichText::new(format!(
+                        "Build: {} · Strategy Config Digest: {} · Eligibility NEVER activates trading automatically; explicit owner limits & verbatim consent are always required per session.",
+                        trusted.build_identity,
+                        &trusted.strategy_config_sha3[..16.min(trusted.strategy_config_sha3.len())],
+                    ))
+                    .small()
+                    .color(MUTED),
+                );
+                for st in &trusted.statuses {
+                    let col = if st.satisfied { EMERALD } else { CRIMSON };
+                    ui.label(
+                        RichText::new(format!(
+                            "  [{}] {:?}: {}",
+                            if st.satisfied { "OK" } else { "BLOCKED" },
+                            st.kind,
+                            st.reason
+                        ))
+                        .monospace()
+                        .small()
+                        .color(col),
+                    );
+                }
+            });
+        ui.add_space(8.0);
+
         // Autonomous Leviathan Architecture Readiness Table.
         ui.label(
             RichText::new("AUTONOMOUS LEVIATHAN ARCHITECTURE MATRIX")

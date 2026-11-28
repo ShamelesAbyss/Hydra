@@ -30,6 +30,41 @@ pub trait VenueAdapter: Send + Sync {
         false
     }
 
+    /// Attach the shared restricted-pilot authority consulted at the final signing boundary.
+    fn attach_pilot_authority(&self, _cell: crate::live_gate::PilotAuthorityCell) {}
+
+    /// `(account_address, signer_address)` the adapter is bound to, when authenticated.
+    fn account_identity(&self) -> Option<(String, String)> {
+        None
+    }
+
+    /// Authoritative exchange fills (venue/account scoped) in `[start_ms, end_ms]`.
+    async fn fetch_account_fills(
+        &self,
+        _start_ms: i64,
+        _end_ms: i64,
+    ) -> Result<Vec<crate::ledger::ExchangeFill>> {
+        anyhow::bail!("venue does not supply authoritative account fills")
+    }
+
+    /// Authoritative per-position funding payments in `[start_ms, end_ms]`.
+    async fn fetch_account_funding(
+        &self,
+        _start_ms: i64,
+        _end_ms: i64,
+    ) -> Result<Vec<crate::ledger::FundingPayment>> {
+        anyhow::bail!("venue does not supply authoritative account funding")
+    }
+
+    /// Authoritative non-funding deposits/withdrawals/transfers in `[start_ms, end_ms]`.
+    async fn fetch_account_cash_flows(
+        &self,
+        _start_ms: i64,
+        _end_ms: i64,
+    ) -> Result<Vec<crate::settlement::ExternalCashFlow>> {
+        anyhow::bail!("venue does not supply authoritative account cash flows")
+    }
+
     /// Live/best-effort health ping.
     async fn ping(&self) -> Result<()>;
 
