@@ -228,9 +228,15 @@ pub fn evaluate_certification_readiness() -> CertificationChecklist {
             },
             PillarAssessment {
                 index: 5,
-                pillar: "External watchdog supervision and extended paper qualification",
+                pillar: "External watchdog supervision and fault-injection resilience",
+                status: PillarStatus::OfflineFixtureVerified,
+                evidence: "src/watchdog.rs & src/qualification.rs (OS-locked supervisor, PRAGMA quick_check, disk budget, 10-scenario fault-injection battery)",
+            },
+            PillarAssessment {
+                index: 6,
+                pillar: "Extended multi-week public paper qualification and owner release-signing keys",
                 status: PillarStatus::PendingExternalValidation,
-                evidence: "Project Sovereignty (v1.15.0): external watchdog process & multi-day public paper qualification pending",
+                evidence: "READINESS_V2.md: requires real multi-week elapsed public-market soak evidence & pinned PINNED_RELEASE_SIGNING_PUBKEY_HEX before live pilot",
             },
         ],
     }

@@ -266,6 +266,27 @@ pub enum Command {
         #[arg(long)]
         fixture: std::path::PathBuf,
     },
+    /// Run external watchdog database integrity, disk-space, and post-restart revalidation checks.
+    WatchdogCheck {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+    },
+    /// Run the 10-scenario Section 21 fault-injection battery and an honest local qualification snapshot.
+    QualifyCampaign {
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Evaluate scientific strategy acceptance gates across ORACLE portfolio, walk-forward, and bootstrap CI.
+    StrategyAccept {
+        #[arg(long)]
+        dataset: std::path::PathBuf,
+        #[arg(long, default_value_t = 3)]
+        folds: usize,
+        #[arg(long, default_value_t = 4)]
+        embargo_bars: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -633,6 +654,100 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&rep)?);
         return Ok(());
     }
+    if let Command::WatchdogCheck { db, root } = &cli.cmd {
+        let wd_root = match root {
+            Some(r) => r.clone(),
+            None => std::env::temp_dir().join("hydra-watchdog-check"),
+        };
+        let (db_rep, disk_rep, checklist) = crate::watchdog::run_watchdog_health_check(
+            &wd_root,
+            db,
+            &crate::watchdog::WatchdogPolicy::default(),
+        )?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "database": db_rep,
+                "disk": disk_rep,
+                "post_restart_revalidation": checklist,
+            }))?
+        );
+        return Ok(());
+    }
+    if let Command::QualifyCampaign { out } = &cli.cmd {
+        let tmp_dir = std::env::temp_dir().join(format!("hydra-qualify-{}", uuid::Uuid::new_v4()));
+        let fi = crate::qualification::run_fault_injection_campaign(&tmp_dir);
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        let fi = fi?;
+        let snap = crate::qualification::run_local_qualification_snapshot(5)?;
+        let payload = serde_json::json!({
+            "fault_injection": fi,
+            "local_qualification_snapshot": snap,
+        });
+        let raw = serde_json::to_string_pretty(&payload)?;
+        if let Some(p) = out {
+            std::fs::write(p, &raw)?;
+        }
+        println!("{raw}");
+        return Ok(());
+    }
+    if let Command::StrategyAccept {
+        dataset,
+        folds,
+        embargo_bars,
+    } = &cli.cmd
+    {
+        let ds = crate::research::read_json::<crate::oracle_research::MultiMarketDataset>(dataset)?;
+        let (ts, _) = ds.validate_and_fingerprint()?;
+        let fang_cfg = crate::fang_engine::UnifiedStrategyConfig::default();
+        let exec = crate::oracle_research::ExecutionModelConfig::default();
+        let portfolio = crate::oracle_research::simulate_portfolio(&ds, &fang_cfg, &exec)?;
+        let fold_count = (*folds).max(2);
+        let span = ts.len() / fold_count;
+        let test_bars = (span / 3).max(exec.warmup_bars + exec.latency_bars + 2);
+        let train_bars = ts
+            .len()
+            .saturating_sub(test_bars + *embargo_bars)
+            .max(exec.warmup_bars + 2);
+        let wf = crate::oracle_research::walk_forward_purged_cv(
+            &ds,
+            train_bars,
+            *embargo_bars,
+            test_bars,
+            test_bars,
+            &fang_cfg,
+            &exec,
+        )?;
+        let oos_rets: Vec<f64> = wf.folds.iter().map(|f| f.test_net_return_pct).collect();
+        let boot = if oos_rets.is_empty() {
+            crate::oracle_research::BootstrapInterval {
+                samples: 0,
+                block_len: 1,
+                resamples: 100,
+                p05_mean_return_pct: -100.0,
+                median_mean_return_pct: 0.0,
+                p95_mean_return_pct: 0.0,
+            }
+        } else {
+            crate::oracle_research::block_bootstrap_ci(&oos_rets, 1, 200, 7)?
+        };
+        let verdict = crate::qualification::evaluate_scientific_strategy_acceptance(
+            &portfolio,
+            &wf,
+            &boot,
+            &crate::qualification::ScientificAcceptanceCriteria::default(),
+        );
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "verdict": verdict,
+                "portfolio": portfolio,
+                "walk_forward": wf,
+                "bootstrap_ci": boot,
+            }))?
+        );
+        return Ok(());
+    }
     if let Command::BindHistory {
         db,
         account,
@@ -937,7 +1052,10 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::OraclePortfolio { .. }
         | Command::GenesisNsga2 { .. }
         | Command::CertificationStatus { .. }
-        | Command::SettlementAudit { .. } => {
+        | Command::SettlementAudit { .. }
+        | Command::WatchdogCheck { .. }
+        | Command::QualifyCampaign { .. }
+        | Command::StrategyAccept { .. } => {
             unreachable!("handled above")
         }
     }

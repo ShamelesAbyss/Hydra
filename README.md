@@ -16,8 +16,8 @@ Obsidian-glass command center · Dedicated OS-protected Treasury · Verified nat
 </div>
 
 > [!IMPORTANT]
-> **Public Release `v1.14.0 | PROJECT IMMORTALITY — FINANCIAL TRUTH & SOVEREIGN PROTECTION`. Live-trading safety certification remains incomplete.**
-> Public distribution does **not** constitute certification of unattended live-trading safety. Every production execution entry point enforces an authoritative `PendingCertification` gate and structural `VenueTransportClass` isolation (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`). Isolated SQLite paper sessions and self-contained detached streaming exist solely for simulation. All historical `v1.13.0`, `v1.12.0`, `v1.11.0`, `v1.10.0`, `v1.9.0`, `v1.8.0`, `v1.7.0`, and `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
+> **Public Release `v1.15.0 | PROJECT SOVEREIGNTY — AUTONOMOUS QUANTITATIVE INTELLIGENCE`. Live-trading safety certification remains incomplete.**
+> Public distribution does **not** constitute certification of unattended live-trading safety. Internal Sovereign Trilogy Milestones I–III (`v1.13.0`–`v1.15.0`) are complete, while `v2.0.0` remains held behind [`READINESS_V2.md`](READINESS_V2.md) until extended multi-week public-market paper soak telemetry and owner-provisioned `secp256k1` release signing complete (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`, `PendingCertification`). All historical `v1.14.0`, `v1.13.0`, `v1.12.0`, `v1.11.0`, `v1.10.0`, `v1.9.0`, `v1.8.0`, `v1.7.0`, and `v1.7.0-alpha.*` checkpoints remain preserved unchanged in [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases).
 >
 > **Financial Risk Disclosure:** Cryptocurrency perpetual futures involve substantial risk of total capital loss. Entrust Leviathan only with a separate dedicated wallet funded solely with capital you are fully prepared to lose. No strategy, adaptive model, or backtest guarantees profit.
 
@@ -38,7 +38,7 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 | Track | Current Status | Contents in GitHub Releases |
 | :--- | :--- | :--- |
-| **Latest Public Release** | **`v1.14.0 \| PROJECT IMMORTALITY — FINANCIAL TRUTH & SOVEREIGN PROTECTION`** | Self-contained **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Sanctuary + embedded `--paper-service-worker` + Authoritative FIFO Financial Settlement (`settlement.rs`) + REST/WS Execution Recovery (`execution_recovery.rs`) + Exchange-Native `reduce_only` Protective Stops (`protective_orders.rs`) + Fail-Closed AEGIS Sovereign Risk (`aegis_sovereign.rs`) + `SigningAccessScope` Treasury Isolation + Authenticated Engine IPC (`engine_ipc.rs`) + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
+| **Latest Public Release** | **`v1.15.0 \| PROJECT SOVEREIGNTY — AUTONOMOUS QUANTITATIVE INTELLIGENCE`** | Self-contained **`HYDRA-Leviathan-Windows-x64.exe`** (`WGPU 3D PBR` Spatial Sanctuary + embedded `--paper-service-worker` + External OS Watchdog (`watchdog.rs`) + 10-Scenario Fault-Injection & Scientific Acceptance (`qualification.rs`) + Authoritative FIFO Settlement + REST/WS Recovery + `reduce_only` Protective Stops + AEGIS Sovereign Risk + Treasury Scope Isolation + Authenticated Engine IPC + Glow compatibility), Windows portable ZIP, Linux x86_64 headless `tar.gz`, exact-tag source ZIP, structured `release-manifest.json`, and SHA-256 checksum manifests |
 | **Road to HYDRA 2.0** | Active `v1.x` progression | Iterative public releases advancing toward the generational [`v2.0.0` milestone](ROADMAP_V2.md) |
 | **Authoritative Development Branch** | [`main`](https://github.com/ShamelesAbyss/Hydra/tree/main) | Continuous engineering directly on `main` (internal test prereleases never replace Latest) |
 
@@ -206,7 +206,7 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 
 ### Windows Native Application (`HYDRA-Leviathan-Windows-x64.exe`)
 
-1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.14.0 | PROJECT IMMORTALITY — FINANCIAL TRUTH & SOVEREIGN PROTECTION`**).
+1. Open the repository's [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases) section and select the Latest public release (**`v1.15.0 | PROJECT SOVEREIGNTY — AUTONOMOUS QUANTITATIVE INTELLIGENCE`**).
 2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and the release's **`SHA256SUMS.txt`** manifest.
 3. Verify the executable integrity before launching:
    ```powershell
@@ -221,11 +221,13 @@ These seven heads represent logical subsystem boundaries inside one native Rust 
 Obtain the Linux package and checksum manifest from [GitHub Releases](https://github.com/ShamelesAbyss/Hydra/releases), verify, and extract:
 
 ```sh
-sha256sum --check hydra-1.14.0-linux-SHA256SUMS.txt
-mkdir hydra-1.14.0 && tar -xzf hydra-1.14.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.14.0
-cd hydra-1.14.0
+sha256sum --check hydra-1.15.0-linux-SHA256SUMS.txt
+mkdir hydra-1.15.0 && tar -xzf hydra-1.15.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.15.0
+cd hydra-1.15.0
 ./hydra --version
-./hydra --no-banner certification-status --json
+./hydra --no-banner qualify-campaign
+./hydra --no-banner watchdog-check
+./hydra --no-banner certification-status
 ./hydra --no-banner config-check
 ./hydra paper-service list
 ```
@@ -264,14 +266,14 @@ Environment templates live in [`.env.example`](.env.example) and strategy parame
 
 | Verification Gate | Current Verified State |
 | :--- | :--- |
-| **Offline Regression Suite** | **527 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`, 36 suites) + **481 passing headless tests** (`cargo test --locked --all-targets`, 35 suites), covering Project Immortality FIFO financial settlement & at-most-once learning (`settlement`), REST/WS execution recovery (`execution_recovery`), `reduce_only` protective stops (`protective_orders`), fail-closed AEGIS sovereign risk (`aegis_sovereign`), `SigningAccessScope` Treasury isolation (`treasury`), authenticated `EngineIpcServer` (`engine_ipc`), 5-pillar `PendingCertification` evaluation (`live_gate`, `immortality_suite`), plus Project Omniscience `hunter_microstructure`, `cognition_stats`, unified 7-strategy `FangUnifiedPlanner` (`fang_parity`), ORACLE multi-market purged walk-forward (`oracle_research`), GENESIS constraint-aware NSGA-II (`genesis_nsga2`), 96-bone 3D PBR WGPU renderer, and Leviathan Evolution |
+| **Offline Regression Suite** | **530 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`, 37 suites) + **484 passing headless tests** (`cargo test --locked --all-targets`, 36 suites), covering Project Sovereignty external OS watchdog (`watchdog`), 10-scenario fault-injection campaign (`10/10`), scientific strategy acceptance (`strategy-accept`), resource priority scheduler (`qualification`), 7-head `SynapseBus` connectivity (`sovereignty_suite`), Project Immortality FIFO settlement (`settlement`), REST/WS execution recovery (`execution_recovery`), `reduce_only` protective stops (`protective_orders`), AEGIS sovereign risk (`aegis_sovereign`), `SigningAccessScope` Treasury isolation (`treasury`), authenticated `EngineIpcServer` (`engine_ipc`), 6-pillar `PendingCertification` (`live_gate`), Project Omniscience (`hunter_microstructure`, `cognition_stats`, `fang_parity`, `oracle_research`, `genesis_nsga2`), 96-bone 3D PBR WGPU renderer, and Leviathan Evolution |
 | **Renderer & Fallback** | Verified native Windows 11 RTX 4070 `WGPU 3D PBR` Spatial & Classic rendering (`--features desktop-wgpu`, `0.14–0.53 ms` GPU pass) plus Glow compatibility build (`--features desktop`, 0 warnings, runtime check passed) and `catch_unwind` fallback |
 | **Formatting, Clippy & Policy** | `cargo fmt --check`, `cargo clippy --locked --all-targets`, memorial verification, and automated GitHub compliance check pass |
 | **Dependency Audit** | `cargo audit` passes with **0 vulnerability entries** and 1 known Chrono maintenance warning (zero advisory ignores) |
 | **Signing Conformance** | 8 offline cross-language fixtures verified against published official Hyperliquid Python SDK constants |
 | **Live-Trading Certification** | **Not certified.** No real exchange orders, credential probes, or transfers were executed during development; unattended `AWAKENED` mode remains locked |
 
-Open certification blockers tracked transparently in [`MILESTONE_MATRIX.md`](MILESTONE_MATRIX.md): complete round-trip fee/funding net settlement, external deposit/withdrawal cash-flow reconciliation, full WebSocket stream/restart recovery, authenticated local control IPC, external watchdog supervision, and release-signing key infrastructure.
+Open external prerequisites before `v2.0.0` are tracked strictly in the [`Live-Trading Readiness Matrix (v2.0.0)`](READINESS_V2.md) and [`MILESTONE_MATRIX.md`](MILESTONE_MATRIX.md): extended multi-week (`>= 14–30` day) public-market `paper-service` qualification across regimes, positive multi-month OOS dataset evidence, and owner-provisioned offline `secp256k1` release-signing keys (`PINNED_RELEASE_SIGNING_PUBKEY_HEX` in `src/evolution.rs`).
 
 ---
 
@@ -290,7 +292,7 @@ Open certification blockers tracked transparently in [`MILESTONE_MATRIX.md`](MIL
 | [Dependency Audit](DEPENDENCY_AUDIT.md) | [ORACLE Simulation Contract](BACKTESTING.md) |
 | [Contributing & Branch Policy](CONTRIBUTING.md) | [GENESIS Optimization Contract](OPTIMIZATION.md) |
 | [Engineering Guidance](AGENTS.md) | [Road to HYDRA 2.0](ROADMAP_V2.md) |
-| [MIT License](LICENSE) | [Dependency Audit](DEPENDENCY_AUDIT.md) |
+| [MIT License](LICENSE) | [Live-Trading Readiness Matrix (v2.0.0)](READINESS_V2.md) |
 
 ---
 

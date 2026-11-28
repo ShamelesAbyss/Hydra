@@ -1,6 +1,6 @@
-# v1.14.0 | PROJECT IMMORTALITY — FINANCIAL TRUTH & SOVEREIGN PROTECTION
+# v1.15.0 | PROJECT SOVEREIGNTY — AUTONOMOUS QUANTITATIVE INTELLIGENCE
 
-> **Sovereign Trilogy Milestone II (`v1.14.0`).** Continuing directly from verified `v1.13.0`, **Project Immortality** delivers the authoritative financial accounting, execution recovery, exchange-native reduce-only protective stops, sovereign fail-closed portfolio risk, Treasury signing-scope isolation, authenticated main-engine IPC, and evidence-backed 5-pillar certification evaluation architecture while keeping unattended live execution strictly locked (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`, `PendingCertification`) until external watchdog supervision and extended public paper qualification complete.
+> **Sovereign Trilogy Milestone III (`v1.15.0`).** Completing the internal Sovereign Trilogy engineering campaign alongside verified `v1.13.0` (**Project Omniscience**) and `v1.14.0` (**Project Immortality**), **Project Sovereignty** delivers external OS-locked process watchdog supervision, a 10-scenario fault-injection campaign, priority-based resource isolation, conservative scientific strategy acceptance gating, full 7-head `SynapseBus` integration, and an evidence-first Section 26 `v2.0.0` Readiness Matrix (`READINESS_V2.md`). Unattended live execution intentionally remains locked (`MODE: DORMANT`, `ENABLE_LIVE_TRADING=false`, `PendingCertification`) until multi-week public-market paper soak telemetry and owner-provisioned `secp256k1` release signing keys are completed externally.
 
 ---
 
@@ -8,44 +8,38 @@
 
 Compiled executables, portable packages, source archives, release notes and SHA-256 checksums are available through the repository's GitHub Releases section:
 
-- **`HYDRA-Leviathan-Windows-x64.exe`** — Self-contained standalone Windows x64 native `WGPU 3D PBR` Spatial Consciousness & Immortality command center (embedding `--paper-service-worker` detached execution, automatic Glow fallback, clean-profile initialization, 360° orbital 96-bone Leviathan sanctuary, persistent Overview paper-session client, Treasury & Offering, Leviathan Evolution updater, and all seven integrated subsystem workspaces). Double-click directly on Windows 10/11 — no Rust, Python, PowerShell, CLI arguments, repository clone, or ZIP extraction required.
-- **`hydra-1.14.0-x86_64-pc-windows-msvc.zip`** — Advanced Windows portable archive containing `HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, headless/Ratatui `hydra.exe`, `config/`, documentation, artwork, and memorial rules.
-- **`hydra-1.14.0-x86_64-unknown-linux-gnu.tar.gz`** — Verified Ubuntu x86_64 headless engine & CLI archive (`hydra certification-status`, `hydra settlement-audit`, `hydra fang-registry`, `hydra cognition-stats`, `hydra oracle-portfolio`, `hydra genesis-nsga2`, `hydra paper-service`, `hydra synapse-paper`).
-- **`hydra-1.14.0-source.zip`** — Exact-tag source export.
-- **`hydra-1.14.0-release-manifest.json`** — Machine-readable release manifest recording version, tag, commit SHA, prerelease flag (`false`), UTC build timestamp, and SHA-256 + byte size of each published asset.
-- **`hydra-1.14.0-SHA256SUMS.txt`** & **`hydra-1.14.0-linux-SHA256SUMS.txt`** — SHA-256 checksum manifests for verifying package integrity before launch.
+- **`HYDRA-Leviathan-Windows-x64.exe`** — Self-contained standalone Windows x64 native `WGPU 3D PBR` Spatial Consciousness & Sovereignty command center (embedding `--paper-service-worker` detached execution, automatic Glow fallback, clean-profile initialization, 360° orbital 96-bone Leviathan sanctuary, persistent Overview paper-session client, Treasury & Offering, Leviathan Evolution updater, and all seven integrated subsystem workspaces). Double-click directly on Windows 10/11 — no Rust, Python, PowerShell, CLI arguments, repository clone, or ZIP extraction required.
+- **`hydra-1.15.0-x86_64-pc-windows-msvc.zip`** — Advanced Windows portable archive containing `HYDRA-Leviathan-Windows-x64.exe`, `hydra-cockpit.exe`, headless/Ratatui `hydra.exe`, `config/`, documentation, artwork, and memorial rules.
+- **`hydra-1.15.0-x86_64-unknown-linux-gnu.tar.gz`** — Verified Ubuntu x86_64 headless engine & CLI archive (`hydra watchdog-check`, `hydra qualify-campaign`, `hydra strategy-accept`, `hydra certification-status`, `hydra settlement-audit`, `hydra fang-registry`, `hydra cognition-stats`, `hydra oracle-portfolio`, `hydra genesis-nsga2`, `hydra paper-service`, `hydra synapse-paper`).
+- **`hydra-1.15.0-source.zip`** — Exact-tag source export.
+- **`hydra-1.15.0-release-manifest.json`** — Machine-readable release manifest recording version, tag, commit SHA, prerelease flag (`false`), UTC build timestamp, and SHA-256 + byte size of each published asset.
+- **`hydra-1.15.0-SHA256SUMS.txt`** & **`hydra-1.15.0-linux-SHA256SUMS.txt`** — SHA-256 checksum manifests for verifying package integrity before launch.
 
 ---
 
-## Major Engineering Upgrades — Financial Truth & Sovereign Protection
+## Major Engineering Upgrades — External Supervision, Fault Injection & `v2.0.0` Readiness
 
-- **NEXUS Authoritative Financial Settlement (`src/settlement.rs`, `hydra settlement-audit`):**
-  - Exact `rust_decimal::Decimal` FIFO partial-fill lot settlement attributing multi-tranche entry fees, exit fees, negative maker rebates, and position-specific hourly funding payments (`FundingCoverageWindow`).
-  - Retains explicit `SettlementHoldReason`s (`UnknownFee`, `UnverifiedPnlConvention`, `MissingFundingCoverage`, `UnsupportedToken`, `ExternalCashFlowGap`) and keeps `verified_net_pnl_usdc: None` rather than converting unknown components to zero.
-  - Idempotent fill/funding/cash-flow deduplication, `reconcile_account_equity` separating external deposits/withdrawals from realized net trading PnL, and `emit_eligible_learning_outcomes` enforcing strictly **at-most-once** learning emission across reconnects/restarts.
-- **NEXUS Execution Recovery & Native Protective Orders (`src/execution_recovery.rs`, `src/protective_orders.rs`):**
-  - Full `OrderLifecycleState` separation (`Prepared`, `Signed`, `Submitted`, `Acknowledged`, `PartiallyFilled`, `Filled`, `Cancelled`, `Rejected`, `Unresolved`), `InstrumentOrderConstraints` tick/lot rounding & leverage checks, duplicate `cloid` blocking, `check_rest_ws_consistency`, blind-retry refusal on ambiguous submissions, and startup position ownership recovery.
-  - `ProtectiveOrderManager::reconcile_positions_and_stops` managing exchange-side `reduce_only: true` protective stops across partial-fill quantity adjustments and closed-position orphan cancellations—remaining authorized even when new exposure entries are blocked, while halting new entries if stop protection cannot be verified.
-- **AEGIS Independent Portfolio Risk Sovereignty (`src/aegis_sovereign.rs`):**
-  - Fail-closed admission evaluator (`evaluate_sovereign_admission`) rejecting any missing or stale risk input (`account_equity_usd`, `available_collateral_usd`, `estimated_liquidation_distance_pct`, `market_depth_usd`, `instrument_max_leverage`, `daily_pnl_usd`, `weekly_pnl_usd`).
-  - Validates post-fee exposure, correlated cluster limits, liquidation distance floor, hourly funding drag, daily/weekly loss breakers, and audited circuit-breaker rearm.
-- **Treasury Credential Isolation & Authenticated Engine IPC (`src/treasury.rs`, `src/engine_ipc.rs`, `src/live_gate.rs`, `hydra certification-status`):**
-  - Added `SigningAccessScope` (`EngineExclusive` vs `UiReadOnly`), encrypted-backend enforcement (`WindowsDpapiCurrentUser`), `revoke_live_authorization`, and `replace_signing_key_audited` without leaking secret bytes in errors or `Debug` output.
-  - Added OS-scoped `EngineIpcServer` / `EngineIpcClient` with constant-time 256-bit token checks, strictly monotonic `nonce` replay prevention, timestamp freshness bounds, pre-allocation bounded line reads, `EmergencySuspend`, mode transition refusal for `AWAKENED`/`GUARDIAN`, and evidence-backed 5-pillar certification status (`evaluate_certification_readiness`).
+- **External Watchdog Supervision (`src/watchdog.rs`, `hydra watchdog-check`):**
+  - Enforces exclusive OS `watchdog.lock` process ownership, SQLite `PRAGMA quick_check(1)` + database size-budget monitoring, real Win32 (`GetDiskFreeSpaceExW`) / POSIX (`df -Pk`) disk free-space verification, exponential restart backoff budgets with persistent `watchdog-alerts.jsonl` escalation records, and a mandatory 7-item `PostRestartRevalidationChecklist` (`live_auto_resume_prohibited: true`).
+- **10-Scenario Fault-Injection Campaign & Resource Priority Scheduler (`src/qualification.rs`, `hydra qualify-campaign`, `hydra strategy-accept`):**
+  - Exercises all 10 failure classes end-to-end (`network_loss`, `exchange_unavailable`, `stale_and_malformed_data`, `unexpected_process_termination`, `database_locking`, `disk_exhaustion`, `interrupted_persistence`, `ipc_auth_and_frame_failure`, `resource_contention`, and `restart_continuity`), records honest real-clock elapsed qualification runtimes (`actual_elapsed_seconds`), enforces conservative scientific strategy gating (`EligibleForMonitoredPilot` vs. `RejectedKeepDisabled`), and isolates priority slots (`ExecutionAndProtective` / `MarketIngestion` > `UiAndTelemetry` > `HeavyOptimization`) via `ResourceBudgetScheduler`.
+- **7-Head `SynapseBus`, 6-Pillar `PendingCertification` & `READINESS_V2.md` (`src/live_gate.rs`, `tests/sovereignty_suite.rs`, `READINESS_V2.md`):**
+  - Verifies typed `SynapseBus` connectivity across all seven `HeadId`s (`Hunter`, `Fang`, `Cognition`, `Aegis`, `Nexus`, `Oracle`, `Genesis`), expands `evaluate_certification_readiness` to 6 explicit pillars (`ExternalWatchdog` verified offline; `ExtendedMultiWeekPublicPaperAndOwnerSigning` cleanly marked `PendingExternalValidation`), and publishes the Section 26 `v2.0.0` Live-Trading Readiness Matrix distinguishing a monitored limited-capital pilot from unattended production `AWAKENED` operation.
 
 ---
 
 ## Testing & Validation Results
 
-- **527 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`) across **36 test suites** (`311` lib unit tests + integration/doc suites), plus **481 passing offline headless tests** (`cargo test --locked --all-targets`) across **35 test suites** (`265` lib unit tests + integration/doc suites, including `tests/immortality_suite.rs`, `tests/fang_parity.rs`, `tests/live_gate_adversarial.rs`, and `tests/synapse_pipeline.rs`).
-- `cargo fmt --check`, `cargo audit` (596 crate dependencies, 0 vulnerability entries), `cargo check --locked --features desktop --all-targets` (0 warnings), `cargo clippy --locked --all-targets`, `cargo clippy --locked --features desktop-wgpu --all-targets`, `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass.
+- **530 passing offline desktop-wgpu tests** (`cargo test --locked --features desktop-wgpu --all-targets`) across **37 test suites** (`313` lib unit tests + integration/doc suites) and **484 passing offline headless tests** (`cargo test --locked --all-targets`) across **36 test suites** (`267` lib unit tests + integration/doc suites, including `tests/sovereignty_suite.rs`, `tests/immortality_suite.rs`, `tests/fang_parity.rs`, `tests/live_gate_adversarial.rs`, and `tests/synapse_pipeline.rs`).
+- `hydra --no-banner qualify-campaign` passed **10/10** fault-injection scenarios (`all_passed: true`) alongside an honest real-clock local simulation snapshot (`cycles_completed: 5`, `equity_usd: "9998.2000"`, `total_fees_usd: "1.8000"`).
+- `cargo fmt --check`, `cargo audit` (596 crate dependencies, 0 vulnerability entries), `cargo check --locked --features desktop --all-targets` (0 warnings), `cargo clippy --locked --all-targets`, `cargo clippy --locked --features desktop-wgpu --all-targets` (0 warnings in new `v1.15.0` modules), `verify-memorial.ps1`, and `verify-github-compliance.ps1` all pass.
 - No real-money orders, live wallet credentials, or transfers were used.
 
 ## Installation & Upgrade Instructions
 
 ### Fresh & Upgrade Installation (Windows x64)
 1. Ensure any prior Hydra instance is in `DORMANT` or `SUSPENDED` mode with no active engine session.
-2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and **`hydra-1.14.0-SHA256SUMS.txt`** from the repository's GitHub Releases section.
+2. Download **`HYDRA-Leviathan-Windows-x64.exe`** and **`hydra-1.15.0-SHA256SUMS.txt`** from the repository's GitHub Releases section.
 3. Verify SHA-256 integrity in PowerShell:
    ```powershell
    Get-FileHash .\HYDRA-Leviathan-Windows-x64.exe -Algorithm SHA256
@@ -54,9 +48,9 @@ Compiled executables, portable packages, source archives, release notes and SHA-
 
 ### Linux x86_64 Headless Engine & CLI
 ```sh
-sha256sum --check hydra-1.14.0-linux-SHA256SUMS.txt
-mkdir hydra-1.14.0 && tar -xzf hydra-1.14.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.14.0
-cd hydra-1.14.0 && ./hydra --version && ./hydra certification-status --json
+sha256sum --check hydra-1.15.0-linux-SHA256SUMS.txt
+mkdir hydra-1.15.0 && tar -xzf hydra-1.15.0-x86_64-unknown-linux-gnu.tar.gz -C hydra-1.15.0
+cd hydra-1.15.0 && ./hydra --version && ./hydra qualify-campaign
 ```
 
 ---

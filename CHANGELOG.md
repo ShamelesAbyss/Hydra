@@ -1,3 +1,12 @@
+## 1.15.0 — v1.15.0 | PROJECT SOVEREIGNTY — AUTONOMOUS QUANTITATIVE INTELLIGENCE
+
+- **External OS Watchdog Supervision (`src/watchdog.rs`, `src/cli/mod.rs`):**
+  Added exclusive `watchdog.lock` process supervision, SQLite `PRAGMA quick_check(1)` + DB byte-budget validation (`DbIntegrityReport`), real Win32 `GetDiskFreeSpaceExW` / POSIX `df -Pk` free-disk floor checks (`DiskSpaceReport`), bounded restart escalation logging (`watchdog-alerts.jsonl`), `PostRestartRevalidationChecklist` (`live_auto_resume_prohibited: true`), and `hydra watchdog-check`.
+- **10-Scenario Fault Injection, Scientific Strategy Gating & Priority Isolation (`src/qualification.rs`, `src/cli/mod.rs`, `tests/sovereignty_suite.rs`):**
+  Added 10-scenario fault-injection campaign (`run_fault_injection_campaign` — 10/10 pass across network loss, exchange outage, stale/malformed data, crash recovery, DB locking, disk exhaustion, corrupt DB, IPC tampering/oversized frames, resource contention, and restart continuity), honest real-clock `QualificationCampaignReport`, `evaluate_scientific_strategy_acceptance` (`EligibleForMonitoredPilot` vs. `RejectedKeepDisabled`), `ResourceBudgetScheduler`, and CLI commands (`qualify-campaign`, `strategy-accept`).
+- **6-Pillar `PendingCertification`, 7-Head `SynapseBus` Verification & Section 26 `v2.0.0` Matrix (`src/live_gate.rs`, `READINESS_V2.md`, `tests/sovereignty_suite.rs`):**
+  Expanded `evaluate_certification_readiness` with Pillar 5 (`ExternalWatchdog`: `OfflineFixtureVerified`) and Pillar 6 (`ExtendedMultiWeekPublicPaperAndOwnerSigning`: `PendingExternalValidation`), verified all seven `HeadId`s connected across `SynapseBus`, and published `READINESS_V2.md` holding `v2.0.0` strictly until multi-week public paper soak & owner `PINNED_RELEASE_SIGNING_PUBKEY_HEX` complete. Verified across **530** desktop-wgpu (`37` suites) / **484** headless (`36` suites) tests while keeping `MODE: DORMANT`, Glow fallback, GitHub compliance, and Ashlan's permanent memorial unchanged.
+
 ## 1.14.0 — v1.14.0 | PROJECT IMMORTALITY — FINANCIAL TRUTH & SOVEREIGN PROTECTION
 
 - **NEXUS Authoritative Financial Settlement (`src/settlement.rs`, `src/cli/mod.rs`):**

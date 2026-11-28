@@ -34,6 +34,7 @@ pub mod ownership;
 pub mod portfolio;
 pub mod position_context;
 pub mod protective_orders;
+pub mod qualification;
 pub mod reporting;
 pub mod research;
 #[cfg(feature = "desktop")]
@@ -49,6 +50,7 @@ pub mod treasury;
 pub mod treasury_ui;
 pub mod tui;
 pub mod utils;
+pub mod watchdog;
 
 pub mod execution_facts;
 pub mod hunter;
