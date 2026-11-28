@@ -1,10 +1,11 @@
-//! External Process Watchdog, Resource Monitor & Post-Restart Revalidation (`v1.15.0 | PROJECT SOVEREIGNTY`).
+//! External Process Watchdog, Resource Monitor & Post-Restart Revalidation (`v1.17.0 | PROJECT SENTINEL`).
 //!
 //! Safety & operational invariants:
 //! - Prevents duplicate watchdog instances via exclusive OS file lock (`watchdog.lock`).
-//! - Performs real SQLite `PRAGMA quick_check(1)`, database size checks, and OS disk free-space checks.
-//! - Enforces bounded restart backoff policies and persists critical fault escalation notifications
-//!   to append-only `watchdog-alerts.jsonl`.
+//! - Persists restart budgets atomically in `watchdog-state.json` across restarts.
+//! - Supervises live worker processes cleanly via non-blocking heartbeat/progress probes,
+//!   bounded graceful shutdown -> forced termination on hang, and enforced exponential backoff.
+//! - Performs real SQLite `PRAGMA quick_check(1)`, database size checks, and OS disk/RAM/VRAM probes.
 //! - Never auto-resumes live execution after a restart (`live_auto_resume_prohibited` is always `true`).
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -15,8 +16,8 @@ use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchdogPolicy {
@@ -78,6 +79,17 @@ pub struct DiskSpaceReport {
     pub sufficient: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PostRestartEvidence {
+    pub account_identity_ok: Option<bool>,
+    pub authorization_ok: Option<bool>,
+    pub positions_reconciled: Option<bool>,
+    pub unresolved_intents: Option<usize>,
+    pub financial_state_verified: Option<bool>,
+    pub market_fresh: Option<bool>,
+    pub risk_ready: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PostRestartRevalidationChecklist {
     pub account_identity_ok: bool,
@@ -116,6 +128,58 @@ impl PostRestartRevalidationChecklist {
             live_auto_resume_prohibited: true, // Always requires explicit owner re-entry after restart
         }
     }
+
+    /// Evaluates post-restart readiness from observed database/process evidence.
+    /// Unknown inputs fail closed for live authorization and market freshness; offline
+    /// simulation resumption is blocked if any verified check fails or unresolved intents remain.
+    pub fn from_evidence(ev: &PostRestartEvidence) -> Self {
+        let account_identity_ok = ev.account_identity_ok.unwrap_or(false);
+        let authorization_ok = ev.authorization_ok.unwrap_or(false);
+        let positions_reconciled = ev.positions_reconciled.unwrap_or(false);
+        let unresolved_intents_zero = ev.unresolved_intents == Some(0);
+        let financial_state_verified = ev.financial_state_verified.unwrap_or(false);
+        let market_fresh = ev.market_fresh.unwrap_or(false);
+        let risk_ready = ev.risk_ready.unwrap_or(false);
+        // When invoked offline without a live feed (`market_fresh == None`), report
+        // `market_fresh = false` honestly while allowing offline DB-verified simulation recovery
+        // as long as no stale feed failure was explicitly observed.
+        let feed_ok_for_sim = ev.market_fresh != Some(false);
+        let can_resume_simulation =
+            positions_reconciled && unresolved_intents_zero && risk_ready && feed_ok_for_sim;
+        Self {
+            account_identity_ok,
+            authorization_ok,
+            positions_reconciled,
+            unresolved_intents_zero,
+            financial_state_verified,
+            market_fresh,
+            risk_ready,
+            can_resume_simulation,
+            live_auto_resume_prohibited: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerHealthProbe {
+    pub alive_heartbeat_ms: Option<i64>,
+    pub progress_counter: u64,
+    pub healthy: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostResourceSnapshot {
+    pub timestamp_ms: i64,
+    pub logical_cores: usize,
+    pub ram_total_mb: Option<u64>,
+    pub ram_available_mb: Option<u64>,
+    pub available_disk_bytes: Option<u64>,
+    pub db_bytes: u64,
+    pub gpu_name: Option<String>,
+    pub vram_used_mb: Option<u64>,
+    pub vram_total_mb: Option<u64>,
+    pub gpu_utilization_pct: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,17 +274,64 @@ pub struct WatchdogSupervisor {
     tracker: RestartBudgetTracker,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PersistedWatchdogState {
+    history_ms: VecDeque<i64>,
+    total_restarts: usize,
+}
+
 impl WatchdogSupervisor {
+    pub fn state_path(root: &Path) -> PathBuf {
+        root.join("watchdog-state.json")
+    }
+
     pub fn acquire(root: impl AsRef<Path>, policy: WatchdogPolicy) -> Result<Self> {
         let root_pb = root.as_ref().to_path_buf();
         let lock = WatchdogLock::acquire(&root_pb)?;
-        let tracker = RestartBudgetTracker::new(&policy);
+        let mut tracker = RestartBudgetTracker::new(&policy);
+        let sp = Self::state_path(&root_pb);
+        if sp.is_file() {
+            if let Ok(raw) = fs::read_to_string(&sp) {
+                if let Ok(saved) = serde_json::from_str::<PersistedWatchdogState>(&raw) {
+                    tracker.history_ms = saved.history_ms;
+                    tracker.total_restarts = saved.total_restarts;
+                }
+            }
+        }
         Ok(Self {
             root: root_pb,
             policy,
             _lock: lock,
             tracker,
         })
+    }
+
+    fn persist_state(&self) -> Result<()> {
+        fs::create_dir_all(&self.root)?;
+        let saved = PersistedWatchdogState {
+            history_ms: self.tracker.history_ms.clone(),
+            total_restarts: self.tracker.total_restarts,
+        };
+        let bytes = serde_json::to_vec_pretty(&saved)?;
+        let dst = Self::state_path(&self.root);
+        let tmp = self.root.join("watchdog-state.json.tmp");
+        {
+            let mut f = File::create(&tmp)?;
+            f.write_all(&bytes)?;
+            f.sync_all()?;
+        }
+        fs::rename(&tmp, &dst)?;
+        Ok(())
+    }
+
+    fn record_and_persist_restart(&mut self, now_ms: i64) -> Result<Duration> {
+        let res = self.tracker.record_restart(now_ms);
+        let _ = self.persist_state();
+        res
+    }
+
+    pub fn tracker(&self) -> &RestartBudgetTracker {
+        &self.tracker
     }
 
     pub fn policy(&self) -> &WatchdogPolicy {
@@ -308,7 +419,8 @@ impl WatchdogSupervisor {
     }
 
     /// Supervises a real external child process across crashes using the configured
-    /// restart budget and durable fault escalation. Clean exit code 0 ends supervision normally.
+    /// restart budget, enforced exponential backoff, and durable fault escalation.
+    /// Clean exit code 0 ends supervision normally.
     pub fn supervise_bounded_process(
         &mut self,
         program: &Path,
@@ -336,18 +448,20 @@ impl WatchdogSupervisor {
             }
 
             let now_ms = Utc::now().timestamp_millis();
-            match self.tracker.record_restart(now_ms) {
-                Ok(_backoff) => {
+            match self.record_and_persist_restart(now_ms) {
+                Ok(backoff) => {
                     let _ = self.emit_notification(&WatchdogNotification {
                         timestamp_ms: now_ms,
                         severity: WatchdogAlertSeverity::Warning,
                         category: "child_exit".into(),
                         message: format!(
-                            "Supervised worker exited non-zero ({last_code:?}); restart #{} scheduled",
-                            self.tracker.total_restarts
+                            "Supervised worker exited non-zero ({last_code:?}); restart #{} scheduled after {}ms backoff",
+                            self.tracker.total_restarts,
+                            backoff.as_millis()
                         ),
                         remediation: "Revalidate state and monitor worker heartbeat".into(),
                     });
+                    std::thread::sleep(backoff);
                 }
                 Err(err) => {
                     let _ = self.emit_notification(&WatchdogNotification {
@@ -375,6 +489,267 @@ impl WatchdogSupervisor {
             last_exit_code: last_code,
             detail: "Reached bounded supervision launch cap".into(),
         })
+    }
+
+    /// Supervises a long-lived worker process via non-blocking `try_wait()` + external
+    /// heartbeat/progress polling. Detects hangs (`!healthy` or stale heartbeat beyond
+    /// `policy.heartbeat_timeout_ms`), attempts graceful stop before forced `kill()`,
+    /// enforces exponential backoff, and persists restart budgets + durable alerts.
+    #[allow(clippy::too_many_arguments)]
+    pub fn supervise_live_worker<FProbe, FStop>(
+        &mut self,
+        program: &Path,
+        args: &[&str],
+        poll_interval: Duration,
+        graceful_stop_timeout: Duration,
+        max_launches: usize,
+        mut probe: FProbe,
+        mut request_graceful_stop: FStop,
+    ) -> Result<WatchdogSupervisionSummary>
+    where
+        FProbe: FnMut(u32) -> WorkerHealthProbe,
+        FStop: FnMut(u32) -> Result<()>,
+    {
+        ensure!(max_launches >= 1, "max_launches must be >= 1");
+        let poll = poll_interval.max(Duration::from_millis(5));
+        let mut launches = 0usize;
+        let mut last_code = None;
+
+        while launches < max_launches {
+            launches += 1;
+            let mut child = Command::new(program)
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .with_context(|| format!("spawn supervised live worker {}", program.display()))?;
+            let pid = child.id();
+            let mut last_hb_instant = Instant::now();
+            let mut last_heartbeat_ms = Utc::now().timestamp_millis();
+            let mut last_progress = 0u64;
+
+            let restart_reason: Option<String> = loop {
+                if let Some(status) = child.try_wait().context("poll supervised worker")? {
+                    last_code = status.code();
+                    if status.success() {
+                        return Ok(WatchdogSupervisionSummary {
+                            launches,
+                            restarts: self.tracker.total_restarts,
+                            escalated: false,
+                            last_exit_code: last_code,
+                            detail: "Live worker exited cleanly (code 0)".into(),
+                        });
+                    }
+                    break Some(format!(
+                        "Supervised live worker pid={pid} exited ({last_code:?})"
+                    ));
+                }
+
+                let p = probe(pid);
+                let now_ms = Utc::now().timestamp_millis();
+                if p.healthy {
+                    let advanced = p
+                        .alive_heartbeat_ms
+                        .is_some_and(|hb| hb > last_heartbeat_ms)
+                        || p.progress_counter > last_progress;
+                    if advanced {
+                        if let Some(hb) = p.alive_heartbeat_ms {
+                            last_heartbeat_ms = last_heartbeat_ms.max(hb);
+                        }
+                        last_progress = last_progress.max(p.progress_counter);
+                        last_hb_instant = Instant::now();
+                    }
+                }
+
+                let stalled_ms = last_hb_instant.elapsed().as_millis() as i64;
+                if !p.healthy || stalled_ms > self.policy.heartbeat_timeout_ms {
+                    let _ = self.emit_notification(&WatchdogNotification {
+                        timestamp_ms: now_ms,
+                        severity: WatchdogAlertSeverity::Warning,
+                        category: "worker_hang_detected".into(),
+                        message: format!(
+                            "Worker pid={pid} unhealthy/stalled ({stalled_ms}ms > {}ms): {}",
+                            self.policy.heartbeat_timeout_ms, p.detail
+                        ),
+                        remediation: "Requesting bounded graceful stop before forced termination"
+                            .into(),
+                    });
+                    let _ = request_graceful_stop(pid);
+                    let stop_deadline = Instant::now() + graceful_stop_timeout;
+                    let mut exited = false;
+                    while Instant::now() < stop_deadline {
+                        if let Some(status) = child.try_wait().unwrap_or(None) {
+                            last_code = status.code();
+                            exited = true;
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    if !exited {
+                        let _ = child.kill();
+                        last_code = child.wait().ok().and_then(|s| s.code());
+                        let _ = self.emit_notification(&WatchdogNotification {
+                            timestamp_ms: Utc::now().timestamp_millis(),
+                            severity: WatchdogAlertSeverity::Warning,
+                            category: "worker_hang_terminated".into(),
+                            message: format!(
+                                "Forced kill on unresponsive worker pid={pid} after {:?} grace window",
+                                graceful_stop_timeout
+                            ),
+                            remediation: "Revalidate state and apply restart backoff".into(),
+                        });
+                    }
+                    break Some(format!("Worker pid={pid} hang-restarted ({})", p.detail));
+                }
+
+                std::thread::sleep(poll);
+            };
+
+            if let Some(reason) = restart_reason {
+                let now_ms = Utc::now().timestamp_millis();
+                match self.record_and_persist_restart(now_ms) {
+                    Ok(backoff) => {
+                        let _ = self.emit_notification(&WatchdogNotification {
+                            timestamp_ms: now_ms,
+                            severity: WatchdogAlertSeverity::Warning,
+                            category: "worker_restart_scheduled".into(),
+                            message: format!(
+                                "{reason}; restart #{} after {}ms backoff",
+                                self.tracker.total_restarts,
+                                backoff.as_millis()
+                            ),
+                            remediation: "Post-restart revalidation required before resuming"
+                                .into(),
+                        });
+                        std::thread::sleep(backoff);
+                    }
+                    Err(err) => {
+                        let _ = self.emit_notification(&WatchdogNotification {
+                            timestamp_ms: now_ms,
+                            severity: WatchdogAlertSeverity::Critical,
+                            category: "restart_budget_exhausted".into(),
+                            message: format!("{reason}; {err}"),
+                            remediation: "Halting automatic restarts; operator inspection required"
+                                .into(),
+                        });
+                        return Ok(WatchdogSupervisionSummary {
+                            launches,
+                            restarts: self.tracker.total_restarts,
+                            escalated: true,
+                            last_exit_code: last_code,
+                            detail: err.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(WatchdogSupervisionSummary {
+            launches,
+            restarts: self.tracker.total_restarts,
+            escalated: false,
+            last_exit_code: last_code,
+            detail: "Reached bounded live-worker supervision launch cap".into(),
+        })
+    }
+}
+
+fn sqlite_table_exists(conn: &Connection, table: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1",
+        [table],
+        |_| Ok(1i64),
+    )
+    .is_ok()
+}
+
+/// Inspects an existing SQLite DB read-only for unresolved execution intents, account bindings,
+/// and persisted `engine_control_authority` emergency-suspension status.
+pub fn inspect_post_restart_evidence(
+    db_path: &Path,
+    db_rep: &DbIntegrityReport,
+    disk_rep: &DiskSpaceReport,
+) -> PostRestartEvidence {
+    let mut unresolved_intents: Option<usize> = None;
+    let mut emergency_suspended = false;
+    let mut account_identity_ok = Some(false);
+
+    if db_rep.exists && db_rep.quick_check_ok {
+        if let Ok(conn) = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            let mut total_unresolved = 0usize;
+            let mut query_ok = true;
+
+            if sqlite_table_exists(&conn, "orders") {
+                match conn.query_row(
+                    "SELECT COUNT(*) FROM orders WHERE state IN ('Pending', 'Submitted', 'PartiallyFilled', 'Cancelling', 'Unknown')",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                ) {
+                    Ok(c) => total_unresolved = total_unresolved.saturating_add(c.max(0) as usize),
+                    Err(_) => query_ok = false,
+                }
+            }
+            if sqlite_table_exists(&conn, "execution_journal") {
+                match conn.query_row(
+                    "SELECT COUNT(*) FROM execution_journal WHERE state IN ('Submitted', 'Unknown')",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                ) {
+                    Ok(c) => total_unresolved = total_unresolved.saturating_add(c.max(0) as usize),
+                    Err(_) => query_ok = false,
+                }
+            }
+            if query_ok {
+                unresolved_intents = Some(total_unresolved);
+            }
+
+            if sqlite_table_exists(&conn, "meta_kv") {
+                if let Ok(raw) = conn.query_row(
+                    "SELECT value FROM meta_kv WHERE key = 'engine_control_authority'",
+                    [],
+                    |r| r.get::<_, String>(0),
+                ) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                        if val
+                            .get("emergency_suspended")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            emergency_suspended = true;
+                        }
+                    }
+                }
+                if let Ok(acct) = conn.query_row(
+                    "SELECT value FROM meta_kv WHERE key = 'trading_account'",
+                    [],
+                    |r| r.get::<_, String>(0),
+                ) {
+                    if !acct.trim().is_empty() {
+                        account_identity_ok = Some(true);
+                    }
+                }
+            }
+        }
+    }
+
+    let positions_reconciled = Some(db_rep.quick_check_ok && unresolved_intents == Some(0));
+    let financial_state_verified = Some(db_rep.quick_check_ok);
+    let risk_ready = Some(
+        db_rep.quick_check_ok
+            && disk_rep.sufficient
+            && db_rep.within_size_budget
+            && !emergency_suspended,
+    );
+
+    PostRestartEvidence {
+        account_identity_ok,
+        authorization_ok: Some(false), // Never assumed without explicit live re-authorization
+        positions_reconciled,
+        unresolved_intents,
+        financial_state_verified,
+        market_fresh: None, // Offline DB/disk health check cannot verify live market stream freshness
+        risk_ready,
     }
 }
 
@@ -411,16 +786,127 @@ pub fn run_watchdog_health_check(
             );
         }
     }
-    let checklist = PostRestartRevalidationChecklist::evaluate(
-        db_rep.exists && db_rep.quick_check_ok,
-        false, // never assumed without live auth re-check
-        db_rep.quick_check_ok,
-        true,
-        db_rep.quick_check_ok,
-        true,
-        disk_rep.sufficient && db_rep.within_size_budget,
-    );
+    let evidence = inspect_post_restart_evidence(db_path, &db_rep, &disk_rep);
+    let checklist = PostRestartRevalidationChecklist::from_evidence(&evidence);
     Ok((db_rep, disk_rep, checklist))
+}
+
+/// Captures actual local CPU core count, host memory, disk space, DB file footprint,
+/// and optional NVIDIA GPU telemetry (`nvidia-smi`, if present).
+pub fn measure_host_resources(root: &Path, db_path: &Path) -> HostResourceSnapshot {
+    let logical_cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let available_disk_bytes = query_free_disk_bytes(root);
+    let db_bytes = fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+    let (ram_total_mb, ram_available_mb) = query_host_memory_mb();
+    let (gpu_name, vram_used_mb, vram_total_mb, gpu_utilization_pct) = query_nvidia_gpu_telemetry();
+    HostResourceSnapshot {
+        timestamp_ms: Utc::now().timestamp_millis(),
+        logical_cores,
+        ram_total_mb,
+        ram_available_mb,
+        available_disk_bytes,
+        db_bytes,
+        gpu_name,
+        vram_used_mb,
+        vram_total_mb,
+        gpu_utilization_pct,
+    }
+}
+
+#[cfg(windows)]
+fn query_host_memory_mb() -> (Option<u64>, Option<u64>) {
+    #[repr(C)]
+    struct MemoryStatusEx {
+        dw_length: u32,
+        dw_memory_load: u32,
+        ull_total_phys: u64,
+        ull_avail_phys: u64,
+        ull_total_page_file: u64,
+        ull_avail_page_file: u64,
+        ull_total_virtual: u64,
+        ull_avail_virtual: u64,
+        ull_avail_extended_virtual: u64,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GlobalMemoryStatusEx(lp_buffer: *mut MemoryStatusEx) -> i32;
+    }
+    let mut mem = MemoryStatusEx {
+        dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
+        dw_memory_load: 0,
+        ull_total_phys: 0,
+        ull_avail_phys: 0,
+        ull_total_page_file: 0,
+        ull_avail_page_file: 0,
+        ull_total_virtual: 0,
+        ull_avail_virtual: 0,
+        ull_avail_extended_virtual: 0,
+    };
+    // SAFETY: `dw_length` is initialized to the exact struct size and `mem` is valid aligned stack storage.
+    let ok = unsafe { GlobalMemoryStatusEx(&mut mem) };
+    if ok != 0 {
+        (
+            Some(mem.ull_total_phys / (1024 * 1024)),
+            Some(mem.ull_avail_phys / (1024 * 1024)),
+        )
+    } else {
+        (None, None)
+    }
+}
+
+#[cfg(not(windows))]
+fn query_host_memory_mb() -> (Option<u64>, Option<u64>) {
+    let Ok(txt) = fs::read_to_string("/proc/meminfo") else {
+        return (None, None);
+    };
+    let mut total_kb = None;
+    let mut avail_kb = None;
+    for line in txt.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            total_kb = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<u64>().ok());
+        } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            avail_kb = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<u64>().ok());
+        }
+    }
+    (total_kb.map(|kb| kb / 1024), avail_kb.map(|kb| kb / 1024))
+}
+
+fn query_nvidia_gpu_telemetry() -> (Option<String>, Option<u64>, Option<u64>, Option<u32>) {
+    let Ok(out) = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,memory.used,memory.total,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .stdin(Stdio::null())
+        .output()
+    else {
+        return (None, None, None, None);
+    };
+    if !out.status.success() {
+        return (None, None, None, None);
+    }
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
+    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+    if parts.len() < 4 {
+        return (None, None, None, None);
+    }
+    let name = (!parts[0].is_empty()).then(|| parts[0].to_string());
+    let used = parts[1].parse::<u64>().ok();
+    let total = parts[2].parse::<u64>().ok();
+    let util = parts[3].parse::<u32>().ok();
+    (name, used, total, util)
 }
 
 #[cfg(windows)]
@@ -526,5 +1012,87 @@ mod tests {
             PostRestartRevalidationChecklist::evaluate(true, true, true, true, true, true, true);
         assert!(check.can_resume_simulation);
         assert!(check.live_auto_resume_prohibited);
+    }
+
+    #[test]
+    fn watchdog_persists_restart_budget_and_terminates_stalled_worker_with_backoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let pol = WatchdogPolicy {
+            max_restarts_in_window: 2,
+            base_backoff_ms: 40,
+            max_backoff_ms: 120,
+            heartbeat_timeout_ms: 100,
+            ..Default::default()
+        };
+        let mut sup = WatchdogSupervisor::acquire(dir.path(), pol.clone()).unwrap();
+        let (prog, args): (&Path, &[&str]) = if cfg!(windows) {
+            (Path::new("ping"), &["-n", "10", "127.0.0.1"])
+        } else {
+            (Path::new("sleep"), &["10"])
+        };
+
+        let started = Instant::now();
+        let sum = sup
+            .supervise_live_worker(
+                prog,
+                args,
+                Duration::from_millis(15),
+                Duration::from_millis(30),
+                2,
+                |_pid| WorkerHealthProbe {
+                    alive_heartbeat_ms: None,
+                    progress_counter: 0,
+                    healthy: true,
+                    detail: "frozen heartbeat fixture".into(),
+                },
+                |_pid| Ok(()),
+            )
+            .unwrap();
+        assert_eq!(sum.launches, 2);
+        assert_eq!(sum.restarts, 2);
+        assert!(!sum.escalated);
+        assert!(started.elapsed() >= Duration::from_millis(200));
+        assert!(WatchdogSupervisor::state_path(dir.path()).is_file());
+        drop(sup);
+
+        // Re-acquiring watchdog loads persisted restart budget (2 already spent) and escalates immediately on next stall
+        let mut sup2 = WatchdogSupervisor::acquire(dir.path(), pol).unwrap();
+        assert_eq!(sup2.tracker().total_restarts, 2);
+        let sum2 = sup2
+            .supervise_live_worker(
+                prog,
+                args,
+                Duration::from_millis(15),
+                Duration::from_millis(20),
+                2,
+                |_pid| WorkerHealthProbe {
+                    alive_heartbeat_ms: None,
+                    progress_counter: 0,
+                    healthy: false,
+                    detail: "unhealthy".into(),
+                },
+                |_pid| Ok(()),
+            )
+            .unwrap();
+        assert!(sum2.escalated);
+
+        // Unresolved DB intents and emergency suspend block simulation resumption
+        let db_path = dir.path().join("state.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY, state TEXT NOT NULL);
+             INSERT INTO orders(state) VALUES('Submitted');",
+        )
+        .unwrap();
+        drop(conn);
+        let (_, _, cl) =
+            run_watchdog_health_check(dir.path(), &db_path, &WatchdogPolicy::default()).unwrap();
+        assert!(!cl.unresolved_intents_zero);
+        assert!(!cl.can_resume_simulation);
+        assert!(!cl.market_fresh);
+        assert!(cl.live_auto_resume_prohibited);
+
+        let snap = measure_host_resources(dir.path(), &db_path);
+        assert!(snap.logical_cores >= 1);
     }
 }

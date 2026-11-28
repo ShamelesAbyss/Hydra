@@ -287,6 +287,20 @@ pub enum Command {
         #[arg(long, default_value_t = 4)]
         embargo_bars: usize,
     },
+    /// Measure real local CPU, memory, disk, SQLite DB footprint, and optional GPU VRAM telemetry.
+    ProfileHost {
+        #[arg(long, default_value = "data/hydra.db")]
+        db: std::path::PathBuf,
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read-only public Hyperliquid Testnet capability probe (asset universe, precision & mids; no keys or orders).
+    TestnetProbe {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -703,11 +717,11 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         let exec = crate::oracle_research::ExecutionModelConfig::default();
         let portfolio = crate::oracle_research::simulate_portfolio(&ds, &fang_cfg, &exec)?;
         let fold_count = (*folds).max(2);
-        let span = ts.len() / fold_count;
-        let test_bars = (span / 3).max(exec.warmup_bars + exec.latency_bars + 2);
+        let min_test = exec.warmup_bars + exec.latency_bars + 2;
+        let test_bars = (ts.len() / (fold_count + 2)).max(min_test);
         let train_bars = ts
             .len()
-            .saturating_sub(test_bars + *embargo_bars)
+            .saturating_sub(fold_count * test_bars + *embargo_bars)
             .max(exec.warmup_bars + 2);
         let wf = crate::oracle_research::walk_forward_purged_cv(
             &ds,
@@ -718,10 +732,17 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             &fang_cfg,
             &exec,
         )?;
-        let oos_rets: Vec<f64> = wf.folds.iter().map(|f| f.test_net_return_pct).collect();
-        let boot = if oos_rets.is_empty() {
+        let mut oos_bar_returns: Vec<f64> = Vec::new();
+        for f in &wf.folds {
+            let fold_ds = ds.slice_range(f.test_range.0, f.test_range.1)?;
+            let (_, fold_bars) = crate::oracle_research::simulate_portfolio_with_bar_returns(
+                &fold_ds, &fang_cfg, &exec,
+            )?;
+            oos_bar_returns.extend(fold_bars);
+        }
+        let boot = if oos_bar_returns.len() < 10 {
             crate::oracle_research::BootstrapInterval {
-                samples: 0,
+                samples: oos_bar_returns.len(),
                 block_len: 1,
                 resamples: 100,
                 p05_mean_return_pct: -100.0,
@@ -729,7 +750,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 p95_mean_return_pct: 0.0,
             }
         } else {
-            crate::oracle_research::block_bootstrap_ci(&oos_rets, 1, 200, 7)?
+            let block_len = 6.min(oos_bar_returns.len() / 2).max(1);
+            crate::oracle_research::block_bootstrap_ci(&oos_bar_returns, block_len, 200, 7)?
         };
         let verdict = crate::qualification::evaluate_scientific_strategy_acceptance(
             &portfolio,
@@ -746,6 +768,109 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
                 "bootstrap_ci": boot,
             }))?
         );
+        return Ok(());
+    }
+    if let Command::ProfileHost { db, root, json } = &cli.cmd {
+        let wd_root = match root {
+            Some(r) => r.clone(),
+            None => std::env::temp_dir().join("hydra-profile-host"),
+        };
+        std::fs::create_dir_all(&wd_root)?;
+        let snap = crate::watchdog::measure_host_resources(&wd_root, db);
+        let (db_rep, disk_rep, checklist) = crate::watchdog::run_watchdog_health_check(
+            &wd_root,
+            db,
+            &crate::watchdog::WatchdogPolicy::default(),
+        )?;
+        let payload = serde_json::json!({
+            "host_resources": snap,
+            "database": db_rep,
+            "disk": disk_rep,
+            "post_restart_revalidation": checklist,
+        });
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            println!(
+                "Host: {} cores | RAM avail/total: {:?}/{:?} MB | Free disk: {:?} bytes | DB: {} bytes (ok={}) | GPU: {:?} ({:?}/{:?} MB)",
+                snap.logical_cores,
+                snap.ram_available_mb,
+                snap.ram_total_mb,
+                snap.available_disk_bytes,
+                snap.db_bytes,
+                db_rep.quick_check_ok,
+                snap.gpu_name,
+                snap.vram_used_mb,
+                snap.vram_total_mb
+            );
+        }
+        return Ok(());
+    }
+    if let Command::TestnetProbe { json } = &cli.cmd {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(12))
+            .build()?;
+        let info_url = crate::hyperliquid_wire::TESTNET_INFO;
+        let meta: serde_json::Value = client
+            .post(info_url)
+            .json(&serde_json::json!({ "type": "meta" }))
+            .send()
+            .await
+            .context("query Hyperliquid Testnet meta")?
+            .error_for_status()
+            .context("Hyperliquid Testnet meta HTTP status")?
+            .json()
+            .await
+            .context("decode Hyperliquid Testnet meta JSON")?;
+        let mids: serde_json::Value = client
+            .post(info_url)
+            .json(&serde_json::json!({ "type": "allMids" }))
+            .send()
+            .await
+            .context("query Hyperliquid Testnet allMids")?
+            .error_for_status()
+            .context("Hyperliquid Testnet allMids HTTP status")?
+            .json()
+            .await
+            .context("decode Hyperliquid Testnet allMids JSON")?;
+        let universe = meta
+            .get("universe")
+            .and_then(|u| u.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let btc_spec = universe
+            .iter()
+            .find(|item| item.get("name").and_then(|v| v.as_str()) == Some("BTC"))
+            .cloned();
+        let btc_mid = mids
+            .get("BTC")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let eth_mid = mids
+            .get("ETH")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        let payload = serde_json::json!({
+            "endpoint": info_url,
+            "transport_class": "TestnetSandbox",
+            "read_only_probe": true,
+            "universe_assets_count": universe.len(),
+            "all_mids_count": mids.as_object().map_or(0, |m| m.len()),
+            "btc_spec": btc_spec,
+            "btc_mid": btc_mid,
+            "eth_mid": eth_mid,
+        });
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            println!(
+                "Hyperliquid Testnet reachable ({}): {} assets, BTC mid={:?}, ETH mid={:?}",
+                info_url,
+                universe.len(),
+                btc_mid,
+                eth_mid
+            );
+        }
         return Ok(());
     }
     if let Command::BindHistory {
@@ -1055,7 +1180,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         | Command::SettlementAudit { .. }
         | Command::WatchdogCheck { .. }
         | Command::QualifyCampaign { .. }
-        | Command::StrategyAccept { .. } => {
+        | Command::StrategyAccept { .. }
+        | Command::ProfileHost { .. }
+        | Command::TestnetProbe { .. } => {
             unreachable!("handled above")
         }
     }

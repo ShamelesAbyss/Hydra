@@ -11,6 +11,7 @@ use std::str::FromStr;
 
 const MAINNET_EXCHANGE: &str = "https://api.hyperliquid.xyz/exchange";
 pub const TESTNET_EXCHANGE: &str = "https://api.hyperliquid-testnet.xyz/exchange";
+pub const TESTNET_INFO: &str = "https://api.hyperliquid-testnet.xyz/info";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 pub fn keccak256(bytes: impl AsRef<[u8]>) -> [u8; 32] {

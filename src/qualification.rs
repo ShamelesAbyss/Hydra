@@ -32,10 +32,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceProvenanceLabel {
+    SyntheticFixtureSnapshot,
+    OfflineIntegratedMock,
+    PublicMarketPaperSession,
+    HistoricalOutOfSampleReplay,
+    HyperliquidTestnetSandbox,
+    ProductionMainnetPilot,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualificationCampaignReport {
     pub schema_version: u32,
     pub software_version: String,
+    pub evidence_label: EvidenceProvenanceLabel,
     pub strategy_config_sha3: String,
     pub risk_policy_sha3: String,
     pub dataset_provenance: String,
@@ -557,8 +569,9 @@ pub fn run_local_qualification_snapshot(cycles: usize) -> Result<QualificationCa
     );
 
     Ok(QualificationCampaignReport {
-        schema_version: 1,
+        schema_version: 2,
         software_version: env!("CARGO_PKG_VERSION").to_string(),
+        evidence_label: EvidenceProvenanceLabel::SyntheticFixtureSnapshot,
         strategy_config_sha3: sha3_hex(&cfg_bytes),
         risk_policy_sha3: sha3_hex(b"aegis-sovereign-v1"),
         dataset_provenance: format!("{:?}", DataProvenance::SyntheticTestFixture),
@@ -578,9 +591,9 @@ pub fn run_local_qualification_snapshot(cycles: usize) -> Result<QualificationCa
         max_drawdown_ratio: pipe.ledger.max_drawdown_ratio.to_string(),
         risk_violations: usize::from(pipe.ledger.breaker_reason.is_some()),
         unknown_or_incomplete_measurements: vec![
-            "Multi-week real elapsed public-market soak evidence must be accumulated outside single-run CLI tests".into(),
+            "SyntheticTestFixture snapshot only; Accelerated Awakening monitored-pilot qualification requires separate historical OOS replay, public-market paper lifecycle, and Hyperliquid Testnet evidence".into(),
         ],
-        note: "Honest measured runtime only; extended multi-week elapsed qualification remains external prerequisite".into(),
+        note: "Honest measured runtime of SyntheticTestFixture only; does not substitute for historical OOS or public-market paper qualification".into(),
     })
 }
 

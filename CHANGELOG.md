@@ -1,3 +1,10 @@
+## 1.17.0 — v1.17.0 | PROJECT SENTINEL — AUTONOMOUS RESILIENCE & OPERATIONAL PROOF
+
+- **Live External Watchdog, Persisted Budgets & Host Resource Profiler (`src/watchdog.rs`, `src/cli/mod.rs`):**
+  Added atomic `watchdog-state.json` restart-budget persistence, non-blocking `WatchdogSupervisor::supervise_live_worker` polling heartbeat/progress probes (`WorkerHealthProbe`) with bounded graceful stop -> forced `kill()` + real exponential backoff sleep (`supervise_bounded_process` & `supervise_live_worker`), authoritative read-only SQLite `inspect_post_restart_evidence` for `PostRestartRevalidationChecklist` (`live_auto_resume_prohibited: true`, honest `market_fresh: false`), and `HostResourceSnapshot` / `measure_host_resources` (`hydra profile-host`) + read-only `hydra testnet-probe`.
+- **Resource Isolation, Evidence Registry & Intensive Fault Validation (`src/genesis_nsga2.rs`, `src/qualification.rs`, `src/live_gate.rs`, `src/oracle_research.rs`, `src/hyperliquid_wire.rs`, `tests/sentinel_faults.rs`):**
+  Bound `run_nsga2_campaign` to `ResourceBudgetScheduler` reserving `ProtectiveCritical` slots, added `EvidenceProvenanceLabel` distinguishing `SyntheticFixtureSnapshot` from historical/public-paper/Testnet evidence, replaced hardcoded `OfflineFixtureVerified` defaults with SHA3-256 version-bound `EvidenceRecord` & `EvidenceRegistry::verify_record`, added `simulate_portfolio_with_bar_returns` + rolling purged OOS `strategy-accept` evaluation, and verified `tests/sentinel_faults.rs` (**539** desktop-wgpu / **493** headless tests, 0 `v1.17.0` clippy warnings).
+
 ## 1.16.0 — v1.16.0 | PROJECT CONVERGENCE — UNIFIED EXECUTION & FINANCIAL TRUTH
 
 - **Windows IPC 10054 Fix & Real Engine Authority (`src/engine_ipc.rs`, `src/paper_service.rs`):**

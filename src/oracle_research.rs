@@ -251,6 +251,16 @@ pub fn simulate_portfolio(
     fang_cfg: &UnifiedStrategyConfig,
     exec: &ExecutionModelConfig,
 ) -> Result<PortfolioResearchReport> {
+    simulate_portfolio_with_bar_returns(dataset, fang_cfg, exec).map(|(rep, _)| rep)
+}
+
+/// Runs synchronized multi-market portfolio backtest using `FangUnifiedPlanner` and
+/// returns both the summary report and bar-by-bar mark-to-market fractional returns.
+pub fn simulate_portfolio_with_bar_returns(
+    dataset: &MultiMarketDataset,
+    fang_cfg: &UnifiedStrategyConfig,
+    exec: &ExecutionModelConfig,
+) -> Result<(PortfolioResearchReport, Vec<f64>)> {
     let (timeline, digest) = dataset.validate_and_fingerprint()?;
     ensure!(
         timeline.len() > exec.warmup_bars + exec.latency_bars,
@@ -638,40 +648,48 @@ pub fn simulate_portfolio(
         ResearchVerdict::NegativeOrZeroAfterCosts
     };
 
-    Ok(PortfolioResearchReport {
-        schema_version: 1,
-        simulated: true,
-        dataset_sha3_256: digest,
-        metrics: QuantitativeMetrics {
-            initial_equity: exec.initial_equity,
-            final_equity,
-            net_return_pct: net_ret_pct,
-            max_drawdown_pct: max_dd_pct,
-            sharpe_annualized: sharpe,
-            sortino_annualized: sortino,
-            calmar_ratio: calmar,
-            cvar_95_bar_pct: cvar_95,
-            profit_factor,
-            turnover_multiple: total_turnover / exec.initial_equity,
-            avg_exposure_ratio: avg_exp,
-            peak_exposure_ratio: peak_exp,
-            total_fees_usd: total_fees,
-            total_funding_usd: total_funding,
-            total_slippage_usd: total_slippage,
-            partial_fills_count: partial_fills,
-            liquidations_count: liquidations,
-            trades_count: closed_pnls.len(),
-            verdict,
+    let bar_returns: Vec<f64> = equity_curve
+        .windows(2)
+        .filter_map(|w| (w[0] > 0.0).then_some(w[1] / w[0] - 1.0))
+        .collect();
+
+    Ok((
+        PortfolioResearchReport {
+            schema_version: 1,
+            simulated: true,
+            dataset_sha3_256: digest,
+            metrics: QuantitativeMetrics {
+                initial_equity: exec.initial_equity,
+                final_equity,
+                net_return_pct: net_ret_pct,
+                max_drawdown_pct: max_dd_pct,
+                sharpe_annualized: sharpe,
+                sortino_annualized: sortino,
+                calmar_ratio: calmar,
+                cvar_95_bar_pct: cvar_95,
+                profit_factor,
+                turnover_multiple: total_turnover / exec.initial_equity,
+                avg_exposure_ratio: avg_exp,
+                peak_exposure_ratio: peak_exp,
+                total_fees_usd: total_fees,
+                total_funding_usd: total_funding,
+                total_slippage_usd: total_slippage,
+                partial_fills_count: partial_fills,
+                liquidations_count: liquidations,
+                trades_count: closed_pnls.len(),
+                verdict,
+            },
+            buy_and_hold_equal_weight_pct: bh_pct,
+            excess_over_buy_and_hold_pct: net_ret_pct - bh_pct,
+            excess_over_flat_cash_pct: net_ret_pct,
+            regime_pnl_usd: regime_pnl,
+            limitations: vec![
+                "Simulated historical research only (zero signal-bar close lookahead); not realized earnings".into(),
+                "Modeled spread, square-root impact, max-bar participation, latency, and hourly funding".into(),
+            ],
         },
-        buy_and_hold_equal_weight_pct: bh_pct,
-        excess_over_buy_and_hold_pct: net_ret_pct - bh_pct,
-        excess_over_flat_cash_pct: net_ret_pct,
-        regime_pnl_usd: regime_pnl,
-        limitations: vec![
-            "Simulated historical research only (zero signal-bar close lookahead); not realized earnings".into(),
-            "Modeled spread, square-root impact, max-bar participation, latency, and hourly funding".into(),
-        ],
-    })
+        bar_returns,
+    ))
 }
 
 fn compute_risk_ratios(rets: &[f64]) -> (Option<f64>, Option<f64>, Option<f64>) {

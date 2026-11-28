@@ -320,7 +320,15 @@ pub fn run_nsga2_campaign(
         timeline.len() > train_bars + embargo_bars + opts.exec.warmup_bars + opts.exec.latency_bars,
         "dataset too small for train + embargo + held-out validation"
     );
-    let workers = opts.max_workers.clamp(1, 4);
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2)
+        .max(2);
+    let mut scheduler = crate::qualification::ResourceBudgetScheduler::new(cores, 1)?;
+    let max_research_slots = cores
+        .saturating_sub(scheduler.reserved_protective_slots)
+        .max(1);
+    let workers = opts.max_workers.clamp(1, max_research_slots.min(4));
 
     let train_ds = dataset.slice_range(0, train_bars)?;
     let (_, train_digest) = train_ds.validate_and_fingerprint()?;
@@ -377,10 +385,19 @@ pub fn run_nsga2_campaign(
             .collect();
 
         if !missing.is_empty() {
-            // Bounded deterministic parallel evaluation: each chunk returns ordered results.
-            let chunk_sz = missing.len().div_ceil(workers).max(1);
+            let mut acquired_slots = 0usize;
+            for _ in 0..workers {
+                if scheduler.try_acquire(crate::qualification::WorkloadPriority::ResearchBackground)
+                {
+                    acquired_slots += 1;
+                }
+            }
+            let effective_workers = acquired_slots.max(1);
+            // Bounded deterministic parallel evaluation: each chunk returns ordered results
+            // under ResourceBudgetScheduler so at least 1 ProtectiveCritical slot remains free.
+            let chunk_sz = missing.len().div_ceil(effective_workers).max(1);
             let mut results_buf: Vec<Result<Nsga2Candidate>> = Vec::with_capacity(missing.len());
-            std::thread::scope(|scope| -> Result<()> {
+            let scope_res = std::thread::scope(|scope| -> Result<()> {
                 let mut handles = Vec::new();
                 for chunk in missing.chunks(chunk_sz) {
                     handles.push(scope.spawn(|| {
@@ -398,7 +415,11 @@ pub fn run_nsga2_campaign(
                     results_buf.extend(part);
                 }
                 Ok(())
-            })?;
+            });
+            for _ in 0..acquired_slots {
+                scheduler.release(crate::qualification::WorkloadPriority::ResearchBackground);
+            }
+            scope_res?;
             for res in results_buf {
                 let cand = res?;
                 evaluated_map.insert(cand.params.clone(), cand);

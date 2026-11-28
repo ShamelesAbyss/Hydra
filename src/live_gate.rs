@@ -18,11 +18,11 @@ pub enum LiveCertificationStatus {
 }
 
 pub const PENDING_REQUIREMENTS: &[&str] = &[
-    "Authoritative round-trip entry/exit fee, rebate, and funding net settlement",
-    "Complete WebSocket/REST stream consistency and restart order-recovery proof",
-    "Exchange-native protective stop-loss and margin-tier validation",
-    "OS-scoped authenticated engine control IPC separating UI from signing keys",
-    "External watchdog supervision and extended paper-trading certification evidence",
+    "Version-bound EvidenceRegistry across settlement, recovery, native Testnet stops, IPC/signing, and live watchdog supervision",
+    "Historical OOS strategy acceptance (`hydra strategy-accept` over verified public market history)",
+    "Functional public-market paper lifecycle (`--paper-service-worker` clean start/ingest/pause/resume/stop/DB check)",
+    "Hyperliquid Testnet functional exchange proof (`TriggerOrderAction` reduce-only stops, account precision & reconciliation)",
+    "Explicit owner monitored-pilot authorization & hard capital/loss/duration ceilings (separate from unattended AWAKENED)",
 ];
 
 pub const CURRENT_LIVE_CERTIFICATION: LiveCertificationStatus =
@@ -186,10 +186,147 @@ pub fn certification_summary() -> String {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationTier {
+    NotImplemented,
+    ImplementedUnverified,
+    ComponentVerified,
+    IntegratedVerified,
+    RealExchangeTestVerified,
+    QualifiedStrategyVerified,
+    MonitoredPilotEligible,
+    UnattendedCertified,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceEnvironment {
+    OfflineMock,
+    PublicPaper,
+    HyperliquidTestnet,
+    HyperliquidMainnet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceRecord {
+    pub pillar_index: u8,
+    pub tier: VerificationTier,
+    pub software_version: String,
+    pub strategy_registry_version: String,
+    pub risk_policy_sha3: String,
+    pub environment: EvidenceEnvironment,
+    pub account_mode: String,
+    pub dataset_fingerprint: String,
+    pub recorded_at_ms: i64,
+    pub summary: String,
+    pub record_sha3: String,
+}
+
+impl EvidenceRecord {
+    #[allow(clippy::too_many_arguments)]
+    pub fn signed_new(
+        pillar_index: u8,
+        tier: VerificationTier,
+        risk_policy_sha3: impl Into<String>,
+        environment: EvidenceEnvironment,
+        account_mode: impl Into<String>,
+        dataset_fingerprint: impl Into<String>,
+        recorded_at_ms: i64,
+        summary: impl Into<String>,
+    ) -> Self {
+        let mut rec = Self {
+            pillar_index,
+            tier,
+            software_version: env!("CARGO_PKG_VERSION").to_string(),
+            strategy_registry_version: crate::fang_engine::REGISTRY_VERSION.to_string(),
+            risk_policy_sha3: risk_policy_sha3.into(),
+            environment,
+            account_mode: account_mode.into(),
+            dataset_fingerprint: dataset_fingerprint.into(),
+            recorded_at_ms,
+            summary: summary.into(),
+            record_sha3: String::new(),
+        };
+        rec.record_sha3 = rec.compute_digest();
+        rec
+    }
+
+    pub fn compute_digest(&self) -> String {
+        use sha3::{Digest, Sha3_256};
+        let canonical = format!(
+            "v1|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            self.pillar_index,
+            self.tier,
+            self.software_version,
+            self.strategy_registry_version,
+            self.risk_policy_sha3,
+            self.environment,
+            self.account_mode,
+            self.dataset_fingerprint,
+            self.recorded_at_ms,
+            self.summary
+        );
+        let mut h = Sha3_256::new();
+        h.update(canonical.as_bytes());
+        hex::encode(h.finalize())
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceRegistry {
+    pub records: Vec<EvidenceRecord>,
+}
+
+impl EvidenceRegistry {
+    pub fn verify_record(
+        record: &EvidenceRecord,
+        expected_env: Option<EvidenceEnvironment>,
+        expected_risk_sha3: &str,
+    ) -> bool {
+        if record.software_version != env!("CARGO_PKG_VERSION") {
+            return false;
+        }
+        if record.strategy_registry_version != crate::fang_engine::REGISTRY_VERSION {
+            return false;
+        }
+        if record.risk_policy_sha3.is_empty() || record.risk_policy_sha3 != expected_risk_sha3 {
+            return false;
+        }
+        if let Some(env) = expected_env {
+            if record.environment != env {
+                return false;
+            }
+        }
+        if record.dataset_fingerprint.trim().is_empty() || record.recorded_at_ms <= 0 {
+            return false;
+        }
+        record.record_sha3 == record.compute_digest()
+    }
+
+    pub fn latest_valid_for_pillar(
+        &self,
+        pillar_index: u8,
+        expected_env: Option<EvidenceEnvironment>,
+        expected_risk_sha3: &str,
+    ) -> Option<&EvidenceRecord> {
+        self.records
+            .iter()
+            .filter(|r| {
+                r.pillar_index == pillar_index
+                    && Self::verify_record(r, expected_env, expected_risk_sha3)
+            })
+            .max_by_key(|r| r.recorded_at_ms)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PillarStatus {
     OfflineFixtureVerified,
+    EvidenceVerified,
     PendingExternalValidation,
 }
 
@@ -198,7 +335,8 @@ pub struct PillarAssessment {
     pub index: u8,
     pub pillar: &'static str,
     pub status: PillarStatus,
-    pub evidence: &'static str,
+    pub tier: VerificationTier,
+    pub evidence: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -208,51 +346,95 @@ pub struct CertificationChecklist {
     pub pillars: Vec<PillarAssessment>,
 }
 
-/// Evaluates current evidence-backed status across all 5 certification pillars.
-/// Real-money execution stays strictly locked (`live_trading_authorized: false`) until
-/// Pillar 5 external watchdog supervision and multi-day qualification finish & certify.
+/// Evaluates current evidence-backed status across all 6 certification pillars
+/// without hardcoded `OfflineFixtureVerified` assumptions. Callers without a
+/// version-bound `EvidenceRegistry` see honest `PendingExternalValidation` gaps.
 pub fn evaluate_certification_readiness() -> CertificationChecklist {
+    evaluate_certification_readiness_with_registry(None, "")
+}
+
+pub fn evaluate_certification_readiness_with_registry(
+    registry: Option<&EvidenceRegistry>,
+    expected_risk_sha3: &str,
+) -> CertificationChecklist {
+    let specs: [(u8, &'static str, &'static str); 6] = [
+        (
+            1,
+            "Authoritative net financial settlement",
+            "Missing current version-bound SettlementStore / ledger reconciliation EvidenceRecord",
+        ),
+        (
+            2,
+            "Exchange and restart order recovery",
+            "Missing current version-bound REST/WS recovery & restart EvidenceRecord",
+        ),
+        (
+            3,
+            "Native protective orders and sovereign risk",
+            "Missing current version-bound native reduce_only stop & Testnet EvidenceRecord",
+        ),
+        (
+            4,
+            "Authenticated engine IPC and credential isolation",
+            "Missing current version-bound EngineControlAuthority / EngineSignerAuthority EvidenceRecord",
+        ),
+        (
+            5,
+            "External watchdog supervision and fault-injection resilience",
+            "Missing current version-bound WatchdogSupervisor / sentinel_faults EvidenceRecord",
+        ),
+        (
+            6,
+            "Accelerated Awakening evidence: historical OOS strategy qualification, public paper lifecycle & Testnet proof",
+            "Accelerated Awakening requires verified historical OOS replay, public paper lifecycle, Hyperliquid Testnet functional proof & explicit owner pilot ceilings (plus pinned PINNED_RELEASE_SIGNING_PUBKEY_HEX for auto-update authenticity)",
+        ),
+    ];
+
+    let pillars = specs
+        .into_iter()
+        .map(|(index, pillar, missing_msg)| {
+            if let Some(rec) =
+                registry.and_then(|r| r.latest_valid_for_pillar(index, None, expected_risk_sha3))
+            {
+                let verified_external =
+                    index < 6 || rec.tier >= VerificationTier::RealExchangeTestVerified;
+                PillarAssessment {
+                    index,
+                    pillar,
+                    status: if verified_external {
+                        PillarStatus::EvidenceVerified
+                    } else {
+                        PillarStatus::PendingExternalValidation
+                    },
+                    tier: rec.tier,
+                    evidence: format!(
+                        "{} [env={:?} v={} digest={}]",
+                        rec.summary,
+                        rec.environment,
+                        rec.software_version,
+                        &rec.record_sha3[..12.min(rec.record_sha3.len())]
+                    ),
+                }
+            } else {
+                PillarAssessment {
+                    index,
+                    pillar,
+                    status: PillarStatus::PendingExternalValidation,
+                    tier: if index < 6 {
+                        VerificationTier::ImplementedUnverified
+                    } else {
+                        VerificationTier::NotImplemented
+                    },
+                    evidence: missing_msg.to_string(),
+                }
+            }
+        })
+        .collect();
+
     CertificationChecklist {
         live_trading_authorized: false,
         overall_status: "PendingCertification",
-        pillars: vec![
-            PillarAssessment {
-                index: 1,
-                pillar: "Authoritative net financial settlement",
-                status: PillarStatus::OfflineFixtureVerified,
-                evidence: "src/settlement.rs (FIFO partial fills, fees/rebates, position funding, external cash flow separation, exactly-once learning)",
-            },
-            PillarAssessment {
-                index: 2,
-                pillar: "Exchange and restart order recovery",
-                status: PillarStatus::OfflineFixtureVerified,
-                evidence: "src/execution_recovery.rs (RestWsConsistency, partial fills, cloid dedup, blind-retry prohibition, ownership reconciliation)",
-            },
-            PillarAssessment {
-                index: 3,
-                pillar: "Native protective orders and sovereign risk",
-                status: PillarStatus::OfflineFixtureVerified,
-                evidence: "src/protective_orders.rs & src/aegis_sovereign.rs (reduce-only stops under blocked entries, fail-closed sovereign risk)",
-            },
-            PillarAssessment {
-                index: 4,
-                pillar: "Authenticated engine IPC and credential isolation",
-                status: PillarStatus::OfflineFixtureVerified,
-                evidence: "src/engine_ipc.rs & src/treasury.rs (token/nonce/freshness IPC, DPAPI encryption requirement, UiReadOnly scope denial)",
-            },
-            PillarAssessment {
-                index: 5,
-                pillar: "External watchdog supervision and fault-injection resilience",
-                status: PillarStatus::OfflineFixtureVerified,
-                evidence: "src/watchdog.rs & src/qualification.rs (OS-locked supervisor, PRAGMA quick_check, disk budget, 10-scenario fault-injection battery)",
-            },
-            PillarAssessment {
-                index: 6,
-                pillar: "Extended multi-week public paper qualification and owner release-signing keys",
-                status: PillarStatus::PendingExternalValidation,
-                evidence: "READINESS_V2.md: requires real multi-week elapsed public-market soak evidence & pinned PINNED_RELEASE_SIGNING_PUBKEY_HEX before live pilot",
-            },
-        ],
+        pillars,
     }
 }
 
